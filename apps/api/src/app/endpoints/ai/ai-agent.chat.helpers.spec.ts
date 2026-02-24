@@ -198,6 +198,33 @@ describe('AiAgentChatHelpers', () => {
     );
   });
 
+  it('uses detailed analysis prompt structure for fundamentals queries', async () => {
+    const generateText = jest.fn().mockResolvedValue({
+      text:
+        'Snapshot: TSLA remains a high-volatility growth name with material execution risk. Drivers: demand elasticity, margin pressure, and storage ramp dynamics. Risks: valuation compression, China competition, and guidance misses. Portfolio impact: cap single-name sizing to fit risk budget. Actionable next steps: define entry bands, set a downside threshold, and review catalyst calendar. Decision checklist: confirm thesis horizon, stop-loss policy, and max position size.'
+    });
+
+    await buildAnswer({
+      assetFundamentalsSummary: 'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)',
+      generateText,
+      languageCode: 'en',
+      memory: { turns: [] },
+      query: 'fundamentals on tesla stock?',
+      userCurrency: 'USD'
+    });
+
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Output sections (in order):')
+      })
+    );
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Decision checklist')
+      })
+    );
+  });
+
   it('parses and persists concise response-style preference updates', () => {
     const result = resolvePreferenceUpdate({
       query: 'Remember to keep responses concise.',
@@ -367,6 +394,21 @@ describe('AiAgentChatHelpers', () => {
     });
 
     expect(answer).toContain('Market snapshot: AAPL: 210.12 USD');
+  });
+
+  it('adds decision checklist to fundamentals fallback when llm output is unavailable', async () => {
+    const answer = await buildAnswer({
+      assetFundamentalsSummary:
+        'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)\nSectors: Consumer Cyclical 100.0%',
+      generateText: jest.fn().mockRejectedValue(new Error('offline')),
+      languageCode: 'en',
+      memory: { turns: [] },
+      query: 'fundamentals on tesla stock?',
+      userCurrency: 'USD'
+    });
+
+    expect(answer).toContain('Fundamental analysis:');
+    expect(answer).toContain('Decision checklist:');
   });
 
   it('builds fallback with limited-coverage message when quotes are missing', async () => {

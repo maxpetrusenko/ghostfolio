@@ -12,6 +12,7 @@ import type { AiPromptMode } from '@ghostfolio/common/types';
 import { Injectable } from '@nestjs/common';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { DataSource } from '@prisma/client';
+import type { SymbolProfile } from '@prisma/client';
 import { RunnableLambda } from '@langchain/core/runnables';
 import { generateText } from 'ai';
 import { randomUUID } from 'node:crypto';
@@ -500,18 +501,12 @@ export class AiService {
               ? profilesBySymbol[profileSymbols[0]]
               : undefined;
 
-            assetFundamentalsSummary =
-              profileSymbols.length > 0
-                ? `Fundamentals snapshot: ${profileSymbols
-                    .slice(0, 3)
-                    .map((symbol) => {
-                      const profile = profilesBySymbol[symbol];
-                      const assetClass = profile?.assetClass ?? 'unknown_class';
-
-                      return `${symbol} (${assetClass})`;
-                    })
-                    .join(', ')}.`
-                : 'Fundamentals request completed with limited profile coverage.';
+            assetFundamentalsSummary = this.buildAssetFundamentalsSummary({
+              portfolioAnalysis,
+              profilesBySymbol,
+              requestedSymbols,
+              userCurrency
+            });
 
             toolCalls.push({
               input: { symbols: requestedSymbols },
@@ -540,12 +535,13 @@ export class AiService {
 
             financialNewsSummary =
               headlines.length > 0
-                ? `Latest financial headlines: ${headlines
-                    .slice(0, 3)
-                    .map(({ symbol, title }) => {
-                      return `${symbol}: ${title}`;
-                    })
-                    .join(' | ')}.`
+                ? [
+                    'News catalysts (latest):',
+                    ...headlines.slice(0, 5).map(({ symbol, title }) => {
+                      return `- ${symbol}: ${title}`;
+                    }),
+                    'Use headlines as catalyst context and confirm with filings, earnings transcripts, and guidance changes before acting.'
+                  ].join('\n')
                 : 'Financial news lookup returned no headlines for the requested symbols.';
 
             toolCalls.push({
@@ -1003,6 +999,175 @@ export class AiService {
     }
 
     return headlines.slice(0, 5);
+  }
+
+  private buildAssetFundamentalsSummary({
+    portfolioAnalysis,
+    profilesBySymbol,
+    requestedSymbols,
+    userCurrency
+  }: {
+    portfolioAnalysis?: Awaited<ReturnType<typeof runPortfolioAnalysis>>;
+    profilesBySymbol: Record<string, Partial<SymbolProfile>>;
+    requestedSymbols: string[];
+    userCurrency: string;
+  }) {
+    const resolvedSymbols = Object.keys(profilesBySymbol);
+
+    if (resolvedSymbols.length === 0) {
+      return 'Fundamentals request completed with limited profile coverage.';
+    }
+
+    const sections: string[] = ['Fundamental analysis:'];
+
+    for (const symbol of resolvedSymbols.slice(0, 3)) {
+      const profile = profilesBySymbol[symbol];
+      const name = profile?.name?.trim() || symbol;
+      const assetClass = profile?.assetClass?.toString() ?? 'unknown_class';
+      const sectorMix = this.formatWeightedDistribution({
+        entries: profile?.sectors,
+        fallback: 'n/a',
+        labelKeys: ['name', 'sector']
+      });
+      const countryMix = this.formatWeightedDistribution({
+        entries: profile?.countries,
+        fallback: 'n/a',
+        labelKeys: ['code', 'country', 'name']
+      });
+      const topHoldings = this.formatWeightedDistribution({
+        entries: profile?.holdings,
+        fallback: 'n/a',
+        labelKeys: ['symbol', 'holding', 'name']
+      });
+      const matchingPortfolioHolding = portfolioAnalysis?.holdings.find((holding) => {
+        return holding.symbol === symbol;
+      });
+
+      sections.push(`${symbol} — ${name} (${assetClass})`);
+      sections.push(`Sectors: ${sectorMix}`);
+      sections.push(`Countries: ${countryMix}`);
+
+      if (topHoldings !== 'n/a') {
+        sections.push(`Top holdings (if fund/ETF): ${topHoldings}`);
+      }
+
+      if (matchingPortfolioHolding && portfolioAnalysis.totalValueInBaseCurrency > 0) {
+        const allocation = (
+          (matchingPortfolioHolding.valueInBaseCurrency /
+            portfolioAnalysis.totalValueInBaseCurrency) *
+          100
+        ).toFixed(1);
+
+        sections.push(
+          `Portfolio exposure: ${allocation}% (${matchingPortfolioHolding.valueInBaseCurrency.toFixed(2)} ${userCurrency}).`
+        );
+      } else {
+        sections.push(
+          'Portfolio exposure: not currently held in your portfolio snapshot.'
+        );
+      }
+    }
+
+    const unresolvedSymbols = requestedSymbols.filter((requestedSymbol) => {
+      return !resolvedSymbols.includes(requestedSymbol);
+    });
+
+    if (unresolvedSymbols.length > 0) {
+      sections.push(
+        `Coverage note: no fundamentals profile returned for ${unresolvedSymbols.join(', ')}.`
+      );
+    }
+
+    sections.push(
+      'Decision use: combine profile context with valuation metrics, catalysts, and your position-size limits before taking action.'
+    );
+
+    return sections.join('\n');
+  }
+
+  private formatWeightedDistribution({
+    entries,
+    fallback,
+    labelKeys
+  }: {
+    entries: unknown;
+    fallback: string;
+    labelKeys: string[];
+  }) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return fallback;
+    }
+
+    const normalized = entries.reduce<Array<{ label: string; weight?: number }>>(
+      (accumulator, entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return accumulator;
+        }
+
+        const record = entry as Record<string, unknown>;
+        const label = this.resolveDistributionLabel({
+          labelKeys,
+          record
+        });
+
+        if (!label) {
+          return accumulator;
+        }
+
+        const weight = this.resolveDistributionWeightInPercent(record.weight);
+
+        accumulator.push({
+          label,
+          weight
+        });
+
+        return accumulator;
+      },
+      []
+    );
+
+    if (normalized.length === 0) {
+      return fallback;
+    }
+
+    return normalized
+      .slice(0, 3)
+      .map(({ label, weight }) => {
+        return typeof weight === 'number'
+          ? `${label} ${weight.toFixed(1)}%`
+          : label;
+      })
+      .join(', ');
+  }
+
+  private resolveDistributionLabel({
+    labelKeys,
+    record
+  }: {
+    labelKeys: string[];
+    record: Record<string, unknown>;
+  }) {
+    for (const key of labelKeys) {
+      const value = record[key];
+
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    return undefined;
+  }
+
+  private resolveDistributionWeightInPercent(weight: unknown) {
+    if (typeof weight !== 'number' || !Number.isFinite(weight)) {
+      return undefined;
+    }
+
+    if (weight <= 1) {
+      return weight * 100;
+    }
+
+    return weight;
   }
 
   private simulateTradeImpact({

@@ -28,6 +28,36 @@ const SYMBOL_STOP_WORDS = new Set([
   'WHAT',
   'WITH'
 ]);
+const COMPANY_NAME_SYMBOL_ALIASES: Record<string, string> = {
+  adobe: 'ADBE',
+  alphabet: 'GOOGL',
+  amazon: 'AMZN',
+  apple: 'AAPL',
+  berkshire: 'BRK.B',
+  'berkshire hathaway': 'BRK.B',
+  broadcom: 'AVGO',
+  google: 'GOOGL',
+  mastercard: 'MA',
+  meta: 'META',
+  microsoft: 'MSFT',
+  netflix: 'NFLX',
+  nvidia: 'NVDA',
+  oracle: 'ORCL',
+  paypal: 'PYPL',
+  salesforce: 'CRM',
+  tesla: 'TSLA',
+  visa: 'V'
+};
+const COMPANY_ALIAS_PATTERNS = Object.entries(COMPANY_NAME_SYMBOL_ALIASES).map(
+  ([alias, symbol]) => {
+    const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    return {
+      pattern: new RegExp(`\\b${escapedAlias}\\b`, 'i'),
+      symbol
+    };
+  }
+);
 
 const INVESTMENT_INTENT_KEYWORDS = [
   'add',
@@ -305,12 +335,18 @@ function normalizeSymbolCandidate(rawCandidate: string) {
 
 export function extractSymbolsFromQuery(query: string) {
   const matches = query.match(CANDIDATE_TICKER_PATTERN) ?? [];
+  const aliasSymbols = COMPANY_ALIAS_PATTERNS.filter(({ pattern }) => {
+    return pattern.test(query);
+  }).map(({ symbol }) => symbol);
 
   return Array.from(
     new Set(
-      matches
-        .map((candidate) => normalizeSymbolCandidate(candidate))
-        .filter(Boolean)
+      [
+        ...matches
+          .map((candidate) => normalizeSymbolCandidate(candidate))
+          .filter(Boolean),
+        ...aliasSymbols
+      ]
     )
   );
 }

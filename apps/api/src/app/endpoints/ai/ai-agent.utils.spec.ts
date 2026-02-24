@@ -31,6 +31,12 @@ describe('AiAgentUtils', () => {
     ]);
   });
 
+  it('extracts ticker symbol from natural-language company name aliases', () => {
+    expect(extractSymbolsFromQuery('fundamentals on tesla stock?')).toEqual([
+      'TSLA'
+    ]);
+  });
+
   it('selects portfolio and risk tools for risk query', () => {
     expect(
       determineToolPlan({
@@ -197,6 +203,14 @@ describe('AiAgentUtils', () => {
     expect(
       determineToolPlan({
         query: 'Get fundamentals for AAPL'
+      })
+    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+  });
+
+  it('selects fundamentals tools for natural-language company fundamentals prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'fundamentals on tesla stock?'
       })
     ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
   });

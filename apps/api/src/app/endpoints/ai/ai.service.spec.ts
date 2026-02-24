@@ -826,7 +826,9 @@ describe('AiService', () => {
     dataProviderService.getAssetProfiles.mockResolvedValue({
       AAPL: {
         assetClass: 'EQUITY',
-        name: 'Apple Inc.'
+        countries: [{ code: 'US', weight: 1 }],
+        name: 'Apple Inc.',
+        sectors: [{ name: 'Technology', weight: 1 }]
       }
     });
     dataProviderService.getQuotes.mockResolvedValue({});
@@ -849,7 +851,10 @@ describe('AiService', () => {
         })
       ])
     );
-    expect(fundamentalsResult.answer).toContain('Fundamentals snapshot');
+    expect(fundamentalsResult.answer).toContain('Fundamental analysis:');
+    expect(fundamentalsResult.answer).toContain('AAPL — Apple Inc. (EQUITY)');
+    expect(fundamentalsResult.answer).toContain('Sectors: Technology 100.0%');
+    expect(fundamentalsResult.answer).toContain('Portfolio exposure: 60.0%');
 
     const tradeImpactResult = await subject.chat({
       languageCode: 'en',

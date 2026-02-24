@@ -43,6 +43,10 @@ const RECOMMENDATION_SUPPORTING_SECTIONS = [
   /next questions:/i
 ];
 const MINIMUM_RECOMMENDATION_WORDS = 45;
+const FUNDAMENTALS_INTENT_PATTERN =
+  /\b(?:fundamentals?|valuation|market\s*cap|p\/?e|dividend|earnings|balance\s*sheet|tesla\s+stock|company\s+analysis)\b/i;
+const DECISION_ANALYSIS_INTENT_PATTERN =
+  /\b(?:should i|buy|sell|hold|compare|pros\s+and\s+cons|investment\s+thesis|where\s+should\s+i\s+invest)\b/i;
 
 export const AI_AGENT_MEMORY_MAX_TURNS = 10;
 
@@ -380,6 +384,13 @@ export async function buildAnswer({
     return normalizedQuery.includes(keyword);
   });
   const hasRecommendationIntent = isRecommendationIntentQuery(query);
+  const hasFundamentalsIntent = FUNDAMENTALS_INTENT_PATTERN.test(normalizedQuery);
+  const hasDecisionAnalysisIntent = DECISION_ANALYSIS_INTENT_PATTERN.test(
+    normalizedQuery
+  );
+  const shouldUseDetailedAnalysisPrompt =
+    userPreferences?.responseStyle !== 'concise' &&
+    (hasFundamentalsIntent || hasDecisionAnalysisIntent || hasInvestmentIntent);
 
   if (riskAssessment) {
     fallbackSections.push(
@@ -483,6 +494,12 @@ export async function buildAnswer({
     fallbackSections.push(tradeImpactSummary);
   }
 
+  if (hasFundamentalsIntent && userPreferences?.responseStyle !== 'concise') {
+    fallbackSections.push(
+      'Decision checklist: confirm your time horizon, maximum acceptable drawdown, and position-size limit before acting on a single-stock thesis.'
+    );
+  }
+
   if (fallbackSections.length === 0) {
     fallbackSections.push(
       `Portfolio context is available. Ask about holdings, risk concentration, or symbol prices for deeper analysis.`
@@ -516,6 +533,27 @@ export async function buildAnswer({
         `Do not rely on a single hardcoded ETF unless the user explicitly requests a product. Ask for missing constraints when needed.`,
         getResponseInstruction({ userPreferences })
       ].join('\n')
+    : shouldUseDetailedAnalysisPrompt
+      ? [
+          `You are a neutral financial assistant.`,
+          `User currency: ${userCurrency}`,
+          `Language code: ${languageCode}`,
+          `Query: ${query}`,
+          `Session turns available: ${memory.turns.length}`,
+          `Context summary:`,
+          fallbackAnswer,
+          `Task: provide decision-grade analysis with explicit reasoning and actionable tradeoffs.`,
+          `Output sections (in order):`,
+          `1) Snapshot`,
+          `2) Drivers`,
+          `3) Risks`,
+          `4) Portfolio impact`,
+          `5) Actionable next steps`,
+          `6) Decision checklist (max 3 checks)`,
+          `Include concrete numbers from context when available and avoid generic statements.`,
+          `Use at least 140 words unless user preference is concise.`,
+          getResponseInstruction({ userPreferences })
+        ].join('\n')
     : [
         `You are a neutral financial assistant.`,
         `User currency: ${userCurrency}`,
