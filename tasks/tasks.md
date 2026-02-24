@@ -207,7 +207,12 @@ Last updated: 2026-02-24
 - [x] Ensure newest-first rendering in both chat surfaces (`chat-page` and analysis `ai-chat-panel`) with stable feedback targeting.
 - [x] Add missing chat UX elements on `chat-page` (history search + model selector control) for ChatGPT-style flow parity.
 - [x] Run focused frontend verification on touched chat files.
-- [ ] Push to GitHub and redeploy Railway; verify `/en/portfolio` and `/en/portfolio/chat` behavior.
+- [x] Push to GitHub and redeploy Railway; verify `/en/portfolio` and `/en/portfolio/chat` behavior.
+
+### Verification (2026-02-24, Portfolio Chat UX Completion + Deploy Verification)
+
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (22/22 tests passed)
+- `npx nx run client:build --skip-nx-cache` (passed; warnings limited to existing workspace i18n/sass notices)
 
 ## Session Plan (2026-02-24, Per-LLM LangSmith Invocation Tracing)
 

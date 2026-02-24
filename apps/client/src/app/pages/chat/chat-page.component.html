@@ -22,9 +22,9 @@
             </button>
           </div>
 
-          <mat-form-field class="mt-3 w-100">
+          <mat-form-field appearance="outline" class="chat-search-field mt-3 w-100">
             <mat-label i18n>Search chats</mat-label>
-            <lucide-icon matPrefix class="chat-field-icon mr-2" [img]="icons.search" [size]="16" />
+            <lucide-icon matPrefix class="chat-field-icon" [img]="icons.search" [size]="16" />
             <input
               aria-label="Search chats"
               i18n-aria-label
@@ -89,11 +89,17 @@
                           [img]="icons.messageSquare"
                           [size]="14"
                         />
-                        <span class="conversation-title-text text-truncate">{{ conversation.title }}</span>
+                        <span class="conversation-title-text text-truncate">
+                          {{ conversation.title }}
+                        </span>
                       </div>
                       <div class="conversation-meta">
-                        <span>{{ conversation.updatedAt | date: 'MMM d' }}</span>
-                        <span>{{ conversation.updatedAt | date: 'shortTime' }}</span>
+                        <span class="conversation-meta-date">
+                          {{ conversation.updatedAt | date: 'MMM d, y' }}
+                        </span>
+                        <span class="conversation-meta-time">
+                          {{ conversation.updatedAt | date: 'shortTime' }}
+                        </span>
                       </div>
                     </div>
                   </button>
