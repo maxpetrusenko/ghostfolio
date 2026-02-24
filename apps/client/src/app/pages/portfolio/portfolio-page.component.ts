@@ -9,6 +9,7 @@ import { addIcons } from 'ionicons';
 import {
   analyticsOutline,
   calculatorOutline,
+  chatbubblesOutline,
   pieChartOutline,
   scanOutline,
   swapVerticalOutline
@@ -59,6 +60,11 @@ export class PortfolioPageComponent implements OnDestroy, OnInit {
                 internalRoutes.portfolio.subRoutes.allocations.routerLink
             },
             {
+              iconName: 'chatbubbles-outline',
+              label: internalRoutes.portfolio.subRoutes.chat.title,
+              routerLink: internalRoutes.portfolio.subRoutes.chat.routerLink
+            },
+            {
               iconName: 'calculator-outline',
               label: internalRoutes.portfolio.subRoutes.fire.title,
               routerLink: internalRoutes.portfolio.subRoutes.fire.routerLink
@@ -78,6 +84,7 @@ export class PortfolioPageComponent implements OnDestroy, OnInit {
     addIcons({
       analyticsOutline,
       calculatorOutline,
+      chatbubblesOutline,
       pieChartOutline,
       scanOutline,
       swapVerticalOutline

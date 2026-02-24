@@ -10,6 +10,6 @@ export const routes: Routes = [
     canActivate: [AuthGuard],
     component: GfChatPageComponent,
     path: '',
-    title: internalRoutes.chat.title
+    title: internalRoutes.portfolio.subRoutes.chat.title
   }
 ];

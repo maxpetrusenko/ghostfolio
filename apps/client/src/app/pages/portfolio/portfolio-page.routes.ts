@@ -25,6 +25,11 @@ export const routes: Routes = [
           import('./allocations/allocations-page.routes').then((m) => m.routes)
       },
       {
+        path: internalRoutes.portfolio.subRoutes.chat.path,
+        loadChildren: () =>
+          import('../chat/chat-page.routes').then((m) => m.routes)
+      },
+      {
         path: internalRoutes.portfolio.subRoutes.fire.path,
         loadChildren: () =>
           import('./fire/fire-page.routes').then((m) => m.routes)

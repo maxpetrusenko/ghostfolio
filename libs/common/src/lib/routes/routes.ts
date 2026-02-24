@@ -132,6 +132,11 @@ export const internalRoutes: Record<string, InternalRoute> = {
         routerLink: ['/portfolio', 'allocations'],
         title: $localize`Allocations`
       },
+      chat: {
+        path: 'chat',
+        routerLink: ['/portfolio', 'chat'],
+        title: $localize`Chat`
+      },
       analysis: {
         path: undefined, // Default sub route
         routerLink: ['/portfolio'],
