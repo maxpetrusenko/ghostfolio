@@ -179,9 +179,10 @@ describe('GfAiChatPanelComponent', () => {
     const detailsTrigger = nativeElement.querySelector(
       '.chat-details-trigger'
     ) as HTMLButtonElement | null;
+    const detailsIcon = nativeElement.querySelector('.chat-details-trigger svg.chat-details-icon');
 
     expect(detailsTrigger).toBeTruthy();
-    expect(detailsTrigger?.textContent).toContain('Info');
+    expect(detailsIcon).toBeTruthy();
 
     detailsTrigger?.click();
     fixture.detectChanges();

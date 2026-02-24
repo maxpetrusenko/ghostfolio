@@ -67,19 +67,22 @@ textarea::selection {
 
 .chat-details-trigger {
   align-items: center;
+  border: 1px solid var(--ai-chat-border-color);
+  border-radius: 9999px;
   color: var(--ai-chat-muted-text);
   display: inline-flex;
-  gap: 0.2rem;
   height: 1.75rem;
+  justify-content: center;
   line-height: 1;
-  min-width: 0;
-  padding: 0 0.4rem;
+  min-height: 1.75rem;
+  min-width: 1.75rem;
+  padding: 0;
+  width: 1.75rem;
 }
 
-.chat-details-trigger mat-icon {
-  font-size: 0.95rem;
-  height: 0.95rem;
-  width: 0.95rem;
+.chat-details-trigger .chat-details-icon {
+  height: 1rem;
+  width: 1rem;
 }
 
 .prompt-list {

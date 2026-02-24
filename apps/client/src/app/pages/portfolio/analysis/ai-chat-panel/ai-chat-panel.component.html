@@ -77,13 +77,25 @@
                   aria-label="Show response details"
                   class="chat-details-trigger ml-2"
                   i18n-aria-label
-                  mat-stroked-button
+                  mat-icon-button
                   type="button"
                   [matMenuTriggerFor]="responseDetailsMenu"
                   (click)="onOpenResponseDetails(message.response)"
                 >
-                  <mat-icon aria-hidden="true">info</mat-icon>
-                  <span i18n>Info</span>
+                  <svg
+                    aria-hidden="true"
+                    class="chat-details-icon"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" x2="12" y1="16" y2="12" />
+                    <line x1="12" x2="12.01" y1="8" y2="8" />
+                  </svg>
                 </button>
               }
             </div>
