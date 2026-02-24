@@ -11,6 +11,35 @@ export type AiAgentMvpEvalCategory =
   | 'adversarial'
   | 'multi_step';
 
+export type AiAgentMvpScenarioCategory =
+  | 'attack'
+  | 'edge_case'
+  | 'persona'
+  | 'risk'
+  | 'workflow';
+
+export type AiAgentMvpScenarioDifficulty =
+  | 'ambiguous'
+  | 'edge_case'
+  | 'straightforward';
+
+export type AiAgentMvpScenarioToolBucket =
+  | 'market'
+  | 'multi'
+  | 'none'
+  | 'portfolio'
+  | 'rebalance'
+  | 'risk'
+  | 'stress';
+
+export interface AiAgentMvpScenarioLabels {
+  category: AiAgentMvpScenarioCategory;
+  difficulty: AiAgentMvpScenarioDifficulty;
+  subcategory: string;
+  tags: string[];
+  toolBucket: AiAgentMvpScenarioToolBucket;
+}
+
 export interface AiAgentMvpEvalQuote {
   currency: string;
   marketPrice: number;
@@ -80,6 +109,7 @@ export interface AiAgentMvpEvalCase {
   id: string;
   input: AiAgentMvpEvalCaseInput;
   intent: string;
+  labels?: AiAgentMvpScenarioLabels;
   setup: AiAgentMvpEvalCaseSetup;
 }
 

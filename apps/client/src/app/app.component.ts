@@ -133,7 +133,9 @@ export class GfAppComponent implements OnDestroy, OnInit {
               this.currentSubRoute ===
                 internalRoutes.home.subRoutes.holdings.path) ||
             (this.currentRoute === internalRoutes.portfolio.path &&
-              !this.currentSubRoute)) &&
+              (this.currentSubRoute ===
+                internalRoutes.portfolio.subRoutes.analysis.path ||
+                !this.currentSubRoute))) &&
           this.user?.settings?.viewMode !== 'ZEN'
         ) {
           this.hasPermissionToChangeDateRange = true;
@@ -146,7 +148,9 @@ export class GfAppComponent implements OnDestroy, OnInit {
             this.currentSubRoute ===
               internalRoutes.home.subRoutes.holdings.path) ||
           (this.currentRoute === internalRoutes.portfolio.path &&
-            !this.currentSubRoute) ||
+            (this.currentSubRoute ===
+              internalRoutes.portfolio.subRoutes.analysis.path ||
+              !this.currentSubRoute)) ||
           (this.currentRoute === internalRoutes.portfolio.path &&
             this.currentSubRoute ===
               internalRoutes.portfolio.subRoutes.activities.path) ||

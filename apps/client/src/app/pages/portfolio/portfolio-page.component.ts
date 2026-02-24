@@ -43,9 +43,14 @@ export class PortfolioPageComponent implements OnDestroy, OnInit {
         if (state?.user) {
           this.tabs = [
             {
+              iconName: 'chatbubbles-outline',
+              label: internalRoutes.portfolio.subRoutes.chat.title,
+              routerLink: internalRoutes.portfolio.subRoutes.chat.routerLink
+            },
+            {
               iconName: 'analytics-outline',
               label: internalRoutes.portfolio.subRoutes.analysis.title,
-              routerLink: internalRoutes.portfolio.routerLink
+              routerLink: internalRoutes.portfolio.subRoutes.analysis.routerLink
             },
             {
               iconName: 'swap-vertical-outline',
@@ -58,11 +63,6 @@ export class PortfolioPageComponent implements OnDestroy, OnInit {
               label: internalRoutes.portfolio.subRoutes.allocations.title,
               routerLink:
                 internalRoutes.portfolio.subRoutes.allocations.routerLink
-            },
-            {
-              iconName: 'chatbubbles-outline',
-              label: internalRoutes.portfolio.subRoutes.chat.title,
-              routerLink: internalRoutes.portfolio.subRoutes.chat.routerLink
             },
             {
               iconName: 'calculator-outline',

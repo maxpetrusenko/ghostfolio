@@ -57,6 +57,15 @@ import type {
   AiAgentToolName,
   AiAgentVerificationCheck
 } from './responses/ai-agent-chat-response.interface';
+import type {
+  AiChatConversationLastMessage,
+  AiChatConversationMessage,
+  AiChatConversationMessageRole,
+  AiChatConversationMessagesResponse,
+  AiChatConversationResponse,
+  AiChatConversationsResponse,
+  AiChatConversationSummary
+} from './responses/ai-chat-conversations-response.interface';
 import type { AiPromptResponse } from './responses/ai-prompt-response.interface';
 import type { ApiKeyResponse } from './responses/api-key-response.interface';
 import type { AssetResponse } from './responses/asset-response.interface';
@@ -142,6 +151,13 @@ export {
   AiAgentToolCall,
   AiAgentToolName,
   AiAgentVerificationCheck,
+  AiChatConversationLastMessage,
+  AiChatConversationMessage,
+  AiChatConversationMessageRole,
+  AiChatConversationMessagesResponse,
+  AiChatConversationResponse,
+  AiChatConversationsResponse,
+  AiChatConversationSummary,
   AiPromptResponse,
   ApiKeyResponse,
   AssertionCredentialJSON,
