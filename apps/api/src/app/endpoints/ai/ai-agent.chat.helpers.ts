@@ -666,12 +666,15 @@ export function resolveSymbols({
     symbols?.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean) ?? [];
   const extractedSymbols = extractSymbolsFromQuery(query);
 
-  const derivedSymbols =
-    portfolioAnalysis?.holdings.slice(0, 3).map(({ symbol }) => symbol) ?? [];
+  const directSymbols = [...explicitSymbols, ...extractedSymbols];
 
-  return Array.from(
-    new Set([...explicitSymbols, ...extractedSymbols, ...derivedSymbols])
-  );
+  // Only derive symbols from portfolio if no symbols were explicitly requested
+  const derivedSymbols =
+    directSymbols.length === 0
+      ? portfolioAnalysis?.holdings.slice(0, 3).map(({ symbol }) => symbol) ?? []
+      : [];
+
+  return Array.from(new Set([...directSymbols, ...derivedSymbols]));
 }
 
 export async function runMarketDataLookup({

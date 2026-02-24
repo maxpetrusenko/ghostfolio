@@ -114,7 +114,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       .subscribe((conversation) => {
         this.currentConversation = conversation;
         this.activeResponseDetails = undefined;
-        this.scrollToTop();
+        this.scrollToBottom();
       });
 
     if (this.aiChatConversationsService.getConversationsSnapshot().length === 0) {
@@ -123,7 +123,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public ngAfterViewInit() {
-    this.scrollToTop();
+    this.scrollToBottom();
   }
 
   public ngOnDestroy() {
@@ -131,15 +131,15 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     this.unsubscribeSubject.complete();
   }
 
-  private scrollToTop() {
+  private scrollToBottom() {
     if (this.chatLogContainer) {
-      this.chatLogContainer.nativeElement.scrollTop = 0;
+      this.chatLogContainer.nativeElement.scrollTop = this.chatLogContainer.nativeElement.scrollHeight;
     }
   }
 
   public get visibleMessages() {
     const messages = this.currentConversation?.messages ?? [];
-    return [...messages].reverse();
+    return messages;
   }
 
   public get filteredConversations() {
