@@ -87,13 +87,20 @@ textarea::selection {
 
 .chat-field-icon {
   color: var(--ai-chat-muted-text);
-  margin-right: 0.35rem;
-  padding-right: 0.1rem;
+  margin-right: 0.55rem;
   width: 1rem;
+}
+
+:host ::ng-deep .chat-search-field .mat-mdc-form-field-icon-prefix {
+  padding-left: 0.35rem;
 }
 
 :host ::ng-deep .chat-search-field .mdc-text-field__input {
   padding-left: 0;
+}
+
+:host ::ng-deep .chat-search-field .mdc-text-field__icon {
+  margin-left: 0;
 }
 
 .conversation-list {
@@ -213,7 +220,7 @@ textarea::selection {
   border: 1px solid transparent;
   border-radius: 0.6rem;
   height: 2rem;
-  opacity: 0.45;
+  opacity: 0.88;
   color: var(--ai-chat-muted-text);
   flex-shrink: 0;
   margin-top: 0.15rem;

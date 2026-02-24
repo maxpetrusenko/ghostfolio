@@ -52,6 +52,7 @@
                       type="text"
                       [(ngModel)]="editingConversationTitle"
                       (keydown)="onRenameConversationInputKeydown($event, conversation.id)"
+                      (blur)="onRenameConversationInputBlur(conversation.id, $event)"
                     />
                     <button
                       aria-label="Save chat name"

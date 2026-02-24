@@ -253,6 +253,24 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     }
   }
 
+  public onRenameConversationInputBlur(
+    conversationId: string,
+    event: FocusEvent
+  ) {
+    const relatedTarget = event.relatedTarget as HTMLElement | null;
+
+    if (
+      relatedTarget?.closest('.conversation-title-editor') &&
+      conversationId === this.editingConversationId
+    ) {
+      return;
+    }
+
+    if (conversationId === this.editingConversationId) {
+      this.onSaveConversationTitle(conversationId);
+    }
+  }
+
   public onSaveConversationTitle(conversationId: string, event?: Event) {
     event?.stopPropagation();
     const trimmedTitle = this.editingConversationTitle.trim();
