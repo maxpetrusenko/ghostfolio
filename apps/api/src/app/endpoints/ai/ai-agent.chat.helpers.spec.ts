@@ -225,6 +225,33 @@ describe('AiAgentChatHelpers', () => {
     );
   });
 
+  it('uses detailed analysis prompt structure for typo-prefixed fundamentals queries', async () => {
+    const generateText = jest.fn().mockResolvedValue({
+      text:
+        'Snapshot: TSLA setup reflects valuation-sensitive growth. Drivers: delivery momentum, pricing discipline, and storage growth. Risks: multiple compression and execution misses. Portfolio impact: keep position sizing inside risk budget. Actionable next steps: define entry/exit levels, evaluate catalysts, and align with concentration limits. Decision checklist: confirm thesis duration, downside limit, and max weight.'
+    });
+
+    await buildAnswer({
+      assetFundamentalsSummary: 'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)',
+      generateText,
+      languageCode: 'en',
+      memory: { turns: [] },
+      query: 'wfundamentals on tesla stock?',
+      userCurrency: 'USD'
+    });
+
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Output sections (in order):')
+      })
+    );
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Decision checklist')
+      })
+    );
+  });
+
   it('parses and persists concise response-style preference updates', () => {
     const result = resolvePreferenceUpdate({
       query: 'Remember to keep responses concise.',
@@ -404,6 +431,21 @@ describe('AiAgentChatHelpers', () => {
       languageCode: 'en',
       memory: { turns: [] },
       query: 'fundamentals on tesla stock?',
+      userCurrency: 'USD'
+    });
+
+    expect(answer).toContain('Fundamental analysis:');
+    expect(answer).toContain('Decision checklist:');
+  });
+
+  it('adds decision checklist to typo-prefixed fundamentals fallback when llm output is unavailable', async () => {
+    const answer = await buildAnswer({
+      assetFundamentalsSummary:
+        'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)\nSectors: Consumer Cyclical 100.0%',
+      generateText: jest.fn().mockRejectedValue(new Error('offline')),
+      languageCode: 'en',
+      memory: { turns: [] },
+      query: 'wfundamentals on tesla stock?',
       userCurrency: 'USD'
     });
 

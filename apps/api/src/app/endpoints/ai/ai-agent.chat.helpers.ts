@@ -45,6 +45,16 @@ const RECOMMENDATION_SUPPORTING_SECTIONS = [
 const MINIMUM_RECOMMENDATION_WORDS = 45;
 const FUNDAMENTALS_INTENT_PATTERN =
   /\b(?:fundamentals?|valuation|market\s*cap|p\/?e|dividend|earnings|balance\s*sheet|tesla\s+stock|company\s+analysis)\b/i;
+const FUNDAMENTALS_INTENT_FRAGMENTS = [
+  'fundament',
+  'valuat',
+  'market cap',
+  'p e',
+  'dividend',
+  'earnings',
+  'balance sheet',
+  'company analysis'
+];
 const DECISION_ANALYSIS_INTENT_PATTERN =
   /\b(?:should i|buy|sell|hold|compare|pros\s+and\s+cons|investment\s+thesis|where\s+should\s+i\s+invest)\b/i;
 
@@ -97,6 +107,15 @@ function getResponseInstruction({
 
 export function isRecommendationIntentQuery(query: string) {
   return RECOMMENDATION_INTENT_PATTERN.test(query.trim().toLowerCase());
+}
+
+function isFundamentalsIntentQuery(normalizedQuery: string) {
+  return (
+    FUNDAMENTALS_INTENT_PATTERN.test(normalizedQuery) ||
+    FUNDAMENTALS_INTENT_FRAGMENTS.some((fragment) => {
+      return normalizedQuery.includes(fragment);
+    })
+  );
 }
 
 function extractTargetConcentration(query: string) {
@@ -384,7 +403,7 @@ export async function buildAnswer({
     return normalizedQuery.includes(keyword);
   });
   const hasRecommendationIntent = isRecommendationIntentQuery(query);
-  const hasFundamentalsIntent = FUNDAMENTALS_INTENT_PATTERN.test(normalizedQuery);
+  const hasFundamentalsIntent = isFundamentalsIntentQuery(normalizedQuery);
   const hasDecisionAnalysisIntent = DECISION_ANALYSIS_INTENT_PATTERN.test(
     normalizedQuery
   );

@@ -387,3 +387,11 @@ Last updated: 2026-02-24
   - `npx dotenv-cli -e .env.example -- npx jest apps/api/src/app/endpoints/ai/ai.service.spec.ts apps/api/src/app/endpoints/ai/ai-agent.chat.helpers.spec.ts apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts --config apps/api/jest.config.ts` (4/4 suites passed, 167/167 tests)
   - `npm run test:ai` (10/10 suites passed, 181/181 tests)
   - `npm run test:mvp-eval` (1/1 suite passed)
+
+## Session Plan (2026-02-24, Detailed Query Robustness)
+
+- [x] Reproduce short generic response path for typo/natural fundamentals queries
+- [x] Harden intent and symbol extraction for typo-prefixed fundamentals prompts
+- [x] Enforce richer structured response sections for fundamentals/decision queries
+- [x] Add deterministic tests for tool routing + detailed response fallback for typo inputs
+- [x] Run focused AI tests and confirm deploy readiness

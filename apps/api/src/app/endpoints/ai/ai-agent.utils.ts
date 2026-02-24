@@ -117,6 +117,16 @@ const ASSET_FUNDAMENTALS_QUERY_PATTERNS = [
   /\b(?:fundamentals?|valuation|market\s+cap)\b/,
   /\b(?:pe\s+ratio|p\s*e|dividend\s+yield|52\s*week)\b/
 ];
+const ASSET_FUNDAMENTALS_INTENT_FRAGMENTS = [
+  'fundament',
+  'valuat',
+  'market cap',
+  'p e',
+  'dividend',
+  'earnings',
+  'balance sheet',
+  'company analysis'
+];
 const FINANCIAL_NEWS_QUERY_PATTERNS = [
   /\b(?:financial\s+news|market\s+news|news\s+headlines?)\b/,
   /\b(?:why\s+did|what\s+happened\s+to)\b/
@@ -408,7 +418,10 @@ export function determineToolPlan({
     (pattern) => {
       return pattern.test(normalizedQuery);
     }
-  );
+  ) ||
+  ASSET_FUNDAMENTALS_INTENT_FRAGMENTS.some((fragment) => {
+    return normalizedQuery.includes(fragment);
+  });
   const hasFinancialNewsIntent = FINANCIAL_NEWS_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);

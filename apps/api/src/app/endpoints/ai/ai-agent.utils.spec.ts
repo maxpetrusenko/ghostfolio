@@ -215,6 +215,14 @@ describe('AiAgentUtils', () => {
     ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
   });
 
+  it('selects fundamentals tools for typo-prefixed fundamentals prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'wfundamentals on tesla stock?'
+      })
+    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+  });
+
   it('selects financial news tool for headline prompts', () => {
     expect(
       determineToolPlan({

@@ -152,6 +152,11 @@ const TOOL_EXPANSION_CASES: Array<{
     requiredPlannedTools: ['get_asset_fundamentals']
   },
   {
+    query: 'wfundamentals on tesla stock?',
+    requiredExecutedTools: ['get_asset_fundamentals'],
+    requiredPlannedTools: ['get_asset_fundamentals']
+  },
+  {
     query: 'Show financial news for TSLA',
     requiredExecutedTools: ['get_financial_news'],
     requiredPlannedTools: ['get_financial_news']

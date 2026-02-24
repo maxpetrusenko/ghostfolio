@@ -856,6 +856,25 @@ describe('AiService', () => {
     expect(fundamentalsResult.answer).toContain('Sectors: Technology 100.0%');
     expect(fundamentalsResult.answer).toContain('Portfolio exposure: 60.0%');
 
+    const typoFundamentalsResult = await subject.chat({
+      languageCode: 'en',
+      query: 'wfundamentals on tesla stock?',
+      sessionId: 'session-fundamentals-typo',
+      userCurrency: 'USD',
+      userId: 'user-fundamentals'
+    });
+
+    expect(typoFundamentalsResult.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_asset_fundamentals'
+        })
+      ])
+    );
+    expect(typoFundamentalsResult.answer).toContain('Fundamental analysis:');
+    expect(typoFundamentalsResult.answer).toContain('Decision checklist:');
+
     const tradeImpactResult = await subject.chat({
       languageCode: 'en',
       query: 'Simulate trade impact if I buy 1000 AAPL',
