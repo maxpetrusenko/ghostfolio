@@ -87,6 +87,9 @@ textarea::selection {
 
 .chat-field-icon {
   color: var(--ai-chat-muted-text);
+  margin-left: 0.25rem;
+  margin-right: 0.4rem;
+  padding-right: 0.1rem;
 }
 
 .conversation-list {
@@ -106,6 +109,27 @@ textarea::selection {
   flex-direction: column;
   min-width: 0;
   text-align: left;
+}
+
+.conversation-title-editor {
+  align-items: center;
+  border: 1px solid var(--ai-chat-border-color);
+  border-radius: 0.75rem;
+  display: flex;
+  gap: 0.25rem;
+  min-height: 3.6rem;
+  padding: 0.55rem 0.85rem;
+  width: 100%;
+}
+
+.conversation-title-editor .conversation-title-edit-input {
+  background: transparent;
+  border: none;
+  color: var(--ai-chat-message-text);
+  flex: 1;
+  font-size: 0.93rem;
+  min-width: 0;
+  outline: none;
 }
 
 .conversation-toolbar {
@@ -161,10 +185,14 @@ textarea::selection {
 .conversation-meta {
   color: var(--ai-chat-muted-text) !important;
   font-size: 0.75rem;
-  margin-top: 0.15rem;
+  line-height: 1.15;
+  margin-top: 0.2rem;
+  display: flex;
+  flex-direction: column;
   white-space: nowrap;
 }
 
+.conversation-action,
 .conversation-delete {
   align-self: flex-start;
   background: transparent;
@@ -180,9 +208,22 @@ textarea::selection {
   width: 2rem;
 }
 
+.conversation-action {
+  color: var(--ai-chat-muted-text);
+  height: 2rem;
+  margin-top: 0;
+}
+
+.conversation-row:hover .conversation-action,
 .conversation-row:hover .conversation-delete {
   border-color: var(--ai-chat-border-color);
   color: var(--ai-chat-message-text);
+}
+
+.conversation-action:hover {
+  background: rgba(var(--palette-primary-500), 0.12);
+  border-color: rgba(var(--palette-primary-500), 0.35);
+  color: rgb(var(--palette-primary-500));
 }
 
 .conversation-delete:hover {

@@ -39,43 +39,91 @@
               conversation of filteredConversations;
               track trackConversationById($index, conversation)
             ) {
-              <div class="align-items-center conversation-row d-flex mb-2">
-                <button
-                  class="conversation-select flex-grow-1 text-left"
-                  mat-stroked-button
-                  type="button"
-                  [class.active]="currentConversation?.id === conversation.id"
-                  (click)="onSelectConversation(conversation.id)"
-                >
-                  <div class="conversation-title-block">
-                    <div class="align-items-center conversation-title d-flex text-truncate">
-                      <lucide-icon
-                        class="conversation-title-icon mr-2"
-                        [img]="icons.messageSquare"
-                        [size]="14"
-                      />
-                      <span class="conversation-title-text text-truncate">{{ conversation.title }}</span>
-                    </div>
-                    <div class="conversation-meta text-muted">
-                      <span>{{ conversation.updatedAt | date: 'MMM d' }}</span>
-                      <span class="mx-1">•</span>
-                      <span>{{ conversation.updatedAt | date: 'shortTime' }}</span>
-                    </div>
+              <div
+                class="align-items-center conversation-row d-flex mb-2"
+                [attr.data-conversation-id]="conversation.id"
+              >
+                @if (editingConversationId === conversation.id) {
+                  <div class="conversation-title-editor flex-grow-1">
+                    <input
+                      aria-label="Rename chat"
+                      class="conversation-title-edit-input"
+                      i18n-aria-label
+                      type="text"
+                      [(ngModel)]="editingConversationTitle"
+                      (keydown)="onRenameConversationInputKeydown($event, conversation.id)"
+                    />
+                    <button
+                      aria-label="Save chat name"
+                      class="conversation-action"
+                      i18n-aria-label
+                      mat-icon-button
+                      type="button"
+                      (click)="onSaveConversationTitle(conversation.id, $event)"
+                    >
+                      <lucide-icon [img]="icons.check" [size]="16" />
+                    </button>
+                    <button
+                      aria-label="Cancel chat rename"
+                      class="conversation-action"
+                      i18n-aria-label
+                      mat-icon-button
+                      type="button"
+                      (click)="onCancelRenameConversation($event)"
+                    >
+                      <lucide-icon [img]="icons.x" [size]="16" />
+                    </button>
                   </div>
-                </button>
+                } @else {
+                  <button
+                    class="conversation-select flex-grow-1 text-left"
+                    mat-stroked-button
+                    type="button"
+                    [class.active]="currentConversation?.id === conversation.id"
+                    (click)="onSelectConversation(conversation.id)"
+                  >
+                    <div class="conversation-title-block">
+                      <div class="align-items-center conversation-title d-flex text-truncate">
+                        <lucide-icon
+                          class="conversation-title-icon mr-2"
+                          [img]="icons.messageSquare"
+                          [size]="14"
+                        />
+                        <span class="conversation-title-text text-truncate">{{ conversation.title }}</span>
+                      </div>
+                      <div class="conversation-meta">
+                        <span>{{ conversation.updatedAt | date: 'MMM d' }}</span>
+                        <span>{{ conversation.updatedAt | date: 'shortTime' }}</span>
+                      </div>
+                    </div>
+                  </button>
 
-                <button
-                  aria-label="Delete conversation"
-                  class="conversation-delete"
-                  i18n-aria-label
-                  i18n-matTooltip
-                  mat-icon-button
-                  matTooltip="Delete conversation"
-                  type="button"
-                  (click)="onDeleteConversation($event, conversation.id)"
-                >
-                  <lucide-icon [img]="icons.trash2" [size]="16" />
-                </button>
+                  <button
+                    aria-label="Rename conversation"
+                    class="conversation-action conversation-edit"
+                    i18n-aria-label
+                    i18n-matTooltip
+                    mat-icon-button
+                    matTooltip="Rename conversation"
+                    type="button"
+                    (click)="onRenameConversation($event, conversation.id, conversation.title)"
+                  >
+                    <lucide-icon [img]="icons.pencil" [size]="16" />
+                  </button>
+
+                  <button
+                    aria-label="Delete conversation"
+                    class="conversation-delete"
+                    i18n-aria-label
+                    i18n-matTooltip
+                    mat-icon-button
+                    matTooltip="Delete conversation"
+                    type="button"
+                    (click)="onDeleteConversation($event, conversation.id)"
+                  >
+                    <lucide-icon [img]="icons.trash2" [size]="16" />
+                  </button>
+                }
               </div>
             }
 

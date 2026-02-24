@@ -30,8 +30,11 @@ import {
   LucideAngularModule,
   MessageSquare,
   MessageSquarePlus,
+  Pencil,
   Search,
   SendHorizontal,
+  Check,
+  X,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -71,6 +74,8 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   public conversations: AiChatConversation[] = [];
   public currentConversation: AiChatConversation | undefined;
   public errorMessage: string;
+  public editingConversationId: string | undefined;
+  public editingConversationTitle = '';
   public hasPermissionToReadAiPrompt = false;
   public isSubmitting = false;
   public readonly modelOptions: ChatModelOption[] = [
@@ -93,6 +98,9 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     info: Info,
     messageSquare: MessageSquare,
     messageSquarePlus: MessageSquarePlus,
+    pencil: Pencil,
+    check: Check,
+    x: X,
     search: Search,
     sendHorizontal: SendHorizontal,
     sparkles: Sparkles,
@@ -200,6 +208,65 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     if (this.aiChatConversationsService.getConversationsSnapshot().length === 0) {
       this.aiChatConversationsService.createConversation();
     }
+  }
+
+  public onCancelRenameConversation(event: Event) {
+    event.stopPropagation();
+    this.resetRenameState();
+  }
+
+  private resetRenameState() {
+    this.editingConversationId = undefined;
+    this.editingConversationTitle = '';
+  }
+
+  public onRenameConversation(event: Event, conversationId: string, title: string) {
+    event.stopPropagation();
+    this.editingConversationId = conversationId;
+    this.editingConversationTitle = title;
+
+    requestAnimationFrame(() => {
+      const rowElement = document.querySelector<HTMLElement>(
+        `[data-conversation-id="${conversationId}"]`
+      );
+      const input = rowElement?.querySelector<HTMLInputElement>(
+        '.conversation-title-edit-input'
+      );
+
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  public onRenameConversationInputKeydown(
+    event: KeyboardEvent,
+    conversationId: string
+  ) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.onSaveConversationTitle(conversationId);
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.onCancelRenameConversation(event);
+    }
+  }
+
+  public onSaveConversationTitle(conversationId: string, event?: Event) {
+    event?.stopPropagation();
+    const trimmedTitle = this.editingConversationTitle.trim();
+
+    if (!trimmedTitle) {
+      this.resetRenameState();
+      return;
+    }
+
+    this.aiChatConversationsService.renameConversation({
+      id: conversationId,
+      title: trimmedTitle
+    });
+    this.resetRenameState();
   }
 
   public onNewChat() {
@@ -332,6 +399,10 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     this.dataService
       .postAiChat({
         query: normalizedQuery,
+        model:
+          this.selectedModelId === 'auto'
+            ? undefined
+            : this.selectedModelId,
         sessionId: conversation.sessionId
       })
       .pipe(
