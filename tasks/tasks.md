@@ -395,3 +395,9 @@ Last updated: 2026-02-24
 - [x] Enforce richer structured response sections for fundamentals/decision queries
 - [x] Add deterministic tests for tool routing + detailed response fallback for typo inputs
 - [x] Run focused AI tests and confirm deploy readiness
+
+## Session Plan (2026-02-24, Popular Ticker Name Coverage)
+
+- [x] Expand company-name alias coverage for popular stocks and ETFs
+- [x] Add deterministic extraction/routing tests for new aliases
+- [x] Run AI regression suite and confirm deploy readiness

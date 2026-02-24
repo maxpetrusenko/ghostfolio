@@ -37,6 +37,20 @@ describe('AiAgentUtils', () => {
     ]);
   });
 
+  it('extracts symbols from expanded popular company-name aliases', () => {
+    const symbols = extractSymbolsFromQuery(
+      'fundamentals on jpmorgan, eli lilly, and procter and gamble'
+    );
+
+    expect(symbols).toEqual(expect.arrayContaining(['JPM', 'LLY', 'PG']));
+  });
+
+  it('extracts symbols from lowercase popular ETF aliases', () => {
+    const symbols = extractSymbolsFromQuery('compare spy qqq and schd');
+
+    expect(symbols).toEqual(expect.arrayContaining(['SPY', 'QQQ', 'SCHD']));
+  });
+
   it('selects portfolio and risk tools for risk query', () => {
     expect(
       determineToolPlan({
@@ -219,6 +233,14 @@ describe('AiAgentUtils', () => {
     expect(
       determineToolPlan({
         query: 'wfundamentals on tesla stock?'
+      })
+    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+  });
+
+  it('selects fundamentals tools for natural-language bank stock prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'fundamentals on jpmorgan stock'
       })
     ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
   });

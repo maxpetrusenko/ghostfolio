@@ -59,3 +59,7 @@ Updated: 2026-02-24
 14. Context: Casual greeting prompts in AI chat ("hey there")
    Mistake: Greeting variants that were not explicitly matched fell through to capability-list fallback text, which reduced conversational quality.
    Rule: Expand greeting pattern coverage (`hi/hello/hey` + `there`) and lock friendly greeting-first responses with deterministic routing and service tests.
+
+15. Context: Real-user typo input for fundamentals analysis ("wfundamentals on tesla stock?")
+   Mistake: Strict word-boundary intent matching missed fused typo prefixes, so planner skipped fundamentals tools and returned shallow fallback text.
+   Rule: Pair regex intent checks with stable substring fragments for critical finance intents and lock typo examples in planner/helper/service regression tests.
