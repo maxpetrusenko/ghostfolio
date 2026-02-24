@@ -894,6 +894,66 @@ describe('AiService', () => {
     expect(tradeImpactResult.answer).toContain('Trade impact simulation');
   });
 
+  it('executes transaction categorization, tax estimate, and compliance check tools', async () => {
+    orderService.getOrders.mockResolvedValue({
+      activities: [
+        {
+          SymbolProfile: { symbol: 'AAPL' },
+          date: new Date('2026-02-20T10:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-aapl',
+          type: 'BUY',
+          valueInBaseCurrency: 2500
+        },
+        {
+          SymbolProfile: { symbol: 'AAPL' },
+          date: new Date('2026-02-10T10:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-aapl',
+          type: 'SELL',
+          valueInBaseCurrency: 2000
+        },
+        {
+          SymbolProfile: { symbol: 'MSFT' },
+          date: new Date('2026-02-05T10:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-msft',
+          type: 'BUY',
+          valueInBaseCurrency: 1500
+        }
+      ],
+      count: 3
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query:
+        'Categorize my transactions by type, estimate tax liability for income 120000 and deductions 20000, and run compliance check',
+      sessionId: 'session-ops-tools',
+      userCurrency: 'USD',
+      userId: 'user-ops-tools'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'transaction_categorize'
+        }),
+        expect.objectContaining({
+          status: 'success',
+          tool: 'tax_estimate'
+        }),
+        expect.objectContaining({
+          status: 'success',
+          tool: 'compliance_check'
+        })
+      ])
+    );
+    expect(result.answer).toContain('Transaction categorization:');
+    expect(result.answer).toContain('Tax estimate (assumption-based):');
+    expect(result.answer).toContain('Compliance check:');
+  });
+
   it('uses z.ai glm provider when z_ai_glm_api_key is available', async () => {
     process.env.z_ai_glm_api_key = 'zai-key';
     process.env.z_ai_glm_model = 'glm-5';

@@ -21,6 +21,8 @@ const FINANCE_READ_INTENT_KEYWORDS = [
   'risk',
   'stress',
   'ticker',
+  'tax',
+  'compliance',
   'transaction',
   'valu',
   'worth'
@@ -59,6 +61,9 @@ const READ_ONLY_TOOLS = new Set<AiAgentToolName>([
   'get_recent_transactions',
   'calculate_rebalance_plan',
   'simulate_trade_impact',
+  'transaction_categorize',
+  'tax_estimate',
+  'compliance_check',
   'portfolio_analysis',
   'risk_assessment',
   'market_data_lookup',

@@ -151,6 +151,25 @@ describe('GfAiChatPanelComponent', () => {
     ).toHaveLength(2);
   });
 
+  it('emits chatCompleted after a successful assistant response', () => {
+    dataService.postAiChat.mockReturnValue(
+      of(
+        createChatResponse({
+          answer: 'Completed response',
+          sessionId: 'session-completed',
+          turns: 1
+        })
+      )
+    );
+    const completedSpy = jest.fn();
+    component.chatCompleted.subscribe(completedSpy);
+    component.query = 'Run analysis';
+
+    component.onSubmit();
+
+    expect(completedSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('shows diagnostics in info popover instead of inline message body', fakeAsync(() => {
     dataService.postAiChat.mockReturnValue(
       of(

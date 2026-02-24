@@ -67,3 +67,7 @@ Updated: 2026-02-24
 16. Context: Angular standalone component icon migration to Lucide
    Mistake: `ModuleWithProviders` variants (`LucideAngularModule.pick(...)`) were treated as standalone component imports and blocked client builds.
    Rule: In standalone component metadata, import plain modules/components only; use direct icon data bindings (`[img]`) for Lucide instead of `.pick(...)`.
+
+17. Context: Analysis-page embedded AI panel perceived as stale after successful responses
+   Mistake: Chat success updated only local message state and did not trigger parent analysis data refresh.
+   Rule: Emit a chat-success event from embedded AI panels and let parent containers refresh dependent UI state explicitly.

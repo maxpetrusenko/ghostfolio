@@ -12,7 +12,10 @@ export type AiAgentToolName =
   | 'get_asset_fundamentals'
   | 'get_financial_news'
   | 'calculate_rebalance_plan'
-  | 'simulate_trade_impact';
+  | 'simulate_trade_impact'
+  | 'transaction_categorize'
+  | 'tax_estimate'
+  | 'compliance_check';
 
 export type AiAgentConfidenceBand = 'high' | 'medium' | 'low';
 

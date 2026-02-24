@@ -349,6 +349,7 @@ export function resolvePreferenceUpdate({
 
 export async function buildAnswer({
   assetFundamentalsSummary,
+  complianceCheckSummary,
   financialNewsSummary,
   generateText,
   languageCode,
@@ -360,11 +361,14 @@ export async function buildAnswer({
   rebalancePlan,
   riskAssessment,
   stressTest,
+  taxEstimateSummary,
   tradeImpactSummary,
+  transactionCategorizationSummary,
   userPreferences,
   userCurrency
 }: {
   assetFundamentalsSummary?: string;
+  complianceCheckSummary?: string;
   financialNewsSummary?: string;
   generateText: ({
     prompt,
@@ -382,7 +386,9 @@ export async function buildAnswer({
   rebalancePlan?: RebalancePlanResult;
   riskAssessment?: RiskAssessmentResult;
   stressTest?: StressTestResult;
+  taxEstimateSummary?: string;
   tradeImpactSummary?: string;
+  transactionCategorizationSummary?: string;
   userPreferences?: AiAgentUserPreferenceState;
   userCurrency: string;
 }) {
@@ -507,6 +513,18 @@ export async function buildAnswer({
 
   if (recentTransactionsSummary) {
     fallbackSections.push(recentTransactionsSummary);
+  }
+
+  if (transactionCategorizationSummary) {
+    fallbackSections.push(transactionCategorizationSummary);
+  }
+
+  if (taxEstimateSummary) {
+    fallbackSections.push(taxEstimateSummary);
+  }
+
+  if (complianceCheckSummary) {
+    fallbackSections.push(complianceCheckSummary);
   }
 
   if (tradeImpactSummary) {

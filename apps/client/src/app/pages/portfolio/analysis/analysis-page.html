@@ -78,6 +78,7 @@
   <div class="mb-5 row">
     <div class="col-lg">
       <gf-ai-chat-panel
+        (chatCompleted)="onAiChatCompleted()"
         [hasPermissionToReadAiPrompt]="hasPermissionToReadAiPrompt"
       ></gf-ai-chat-panel>
     </div>

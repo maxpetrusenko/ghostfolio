@@ -230,6 +230,10 @@ export class GfAnalysisPageComponent implements OnDestroy, OnInit {
     this.unsubscribeSubject.complete();
   }
 
+  public onAiChatCompleted() {
+    this.update();
+  }
+
   private fetchDividendsAndInvestments() {
     this.isLoadingDividendTimelineChart = true;
     this.isLoadingInvestmentTimelineChart = true;

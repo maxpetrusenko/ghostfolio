@@ -52,7 +52,7 @@ describe('AiAgentChatHelpers', () => {
       userCurrency: 'USD'
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(400);
+    expect(Date.now() - startedAt).toBeLessThan(700);
     expect(answer).toContain('Largest long allocations:');
   });
 

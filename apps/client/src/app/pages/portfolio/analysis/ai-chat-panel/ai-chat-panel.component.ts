@@ -6,8 +6,10 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  EventEmitter,
   Input,
-  OnDestroy
+  OnDestroy,
+  Output
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -62,6 +64,7 @@ export class GfAiChatPanelComponent implements OnDestroy {
   private readonly MAX_STORED_MESSAGES = 200;
 
   @Input() hasPermissionToReadAiPrompt = false;
+  @Output() chatCompleted = new EventEmitter<void>();
 
   public readonly assistantRoleLabel = $localize`Assistant`;
   public activeResponseDetails: AiAgentChatResponse | undefined;
@@ -224,6 +227,7 @@ export class GfAiChatPanelComponent implements OnDestroy {
             response,
             role: 'assistant'
           });
+          this.chatCompleted.emit();
 
           this.changeDetectorRef.markForCheck();
         },

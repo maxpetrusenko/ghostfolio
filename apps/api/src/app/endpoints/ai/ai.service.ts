@@ -291,9 +291,12 @@ export class AiService {
       let rebalancePlan: ReturnType<typeof runRebalancePlan>;
       let stressTest: ReturnType<typeof runStressTest>;
       let assetFundamentalsSummary: string | undefined;
+      let complianceCheckSummary: string | undefined;
       let financialNewsSummary: string | undefined;
       let recentTransactionsSummary: string | undefined;
+      let taxEstimateSummary: string | undefined;
       let tradeImpactSummary: string | undefined;
+      let transactionCategorizationSummary: string | undefined;
 
       for (const toolName of policyDecision.toolsToExecute) {
         const toolStartedAt = Date.now();
@@ -596,6 +599,123 @@ export class AiService {
                   : 'No recent transactions found',
               source: toolName
             });
+          } else if (toolName === 'transaction_categorize') {
+            const { activities } = await this.orderService.getOrders({
+              sortColumn: 'date',
+              sortDirection: 'desc',
+              take: 50,
+              userCurrency,
+              userId
+            });
+            const recentActivities = activities.slice(0, 50);
+            const typeCounts = new Map<string, number>();
+            const symbolCounts = new Map<string, number>();
+
+            for (const activity of recentActivities) {
+              const type = String(activity.type ?? 'UNKNOWN').toUpperCase();
+              const symbol =
+                activity.SymbolProfile?.symbol ?? activity.symbolProfileId ?? 'UNKNOWN';
+
+              typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+              symbolCounts.set(symbol, (symbolCounts.get(symbol) ?? 0) + 1);
+            }
+
+            const typeBreakdown = Array.from(typeCounts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([type, count]) => `${type} ${count}`)
+              .join(', ');
+            const activeSymbols = Array.from(symbolCounts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([symbol, count]) => `${symbol} ${count}`)
+              .join(', ');
+
+            transactionCategorizationSummary =
+              recentActivities.length > 0
+                ? [
+                    `Transaction categorization: ${recentActivities.length} recent transactions analyzed.`,
+                    `Type breakdown: ${typeBreakdown || 'n/a'}.`,
+                    `Most active symbols: ${activeSymbols || 'n/a'}.`
+                  ].join('\n')
+                : 'Transaction categorization: no recent transactions available.';
+
+            toolCalls.push({
+              input: { take: 50 },
+              outputSummary: `${recentActivities.length} transactions categorized`,
+              status: 'success',
+              tool: toolName
+            });
+
+            citations.push({
+              confidence: recentActivities.length > 0 ? 0.82 : 0.65,
+              snippet:
+                recentActivities.length > 0
+                  ? `Transaction categories: ${typeBreakdown || 'n/a'}`
+                  : 'No transactions available for categorization',
+              source: toolName
+            });
+          } else if (toolName === 'tax_estimate') {
+            const taxInput = this.extractTaxEstimateInput(normalizedQuery);
+            const taxableBase = Math.max(taxInput.income - taxInput.deductions, 0);
+            const estimatedLiability = taxableBase * taxInput.taxRate;
+
+            taxEstimateSummary = [
+              `Tax estimate (assumption-based): income ${taxInput.income.toFixed(2)} ${userCurrency}, deductions ${taxInput.deductions.toFixed(2)} ${userCurrency}.`,
+              `Estimated taxable base: ${taxableBase.toFixed(2)} ${userCurrency}.`,
+              `Estimated tax liability at ${(taxInput.taxRate * 100).toFixed(1)}%: ${estimatedLiability.toFixed(2)} ${userCurrency}.`,
+              'Assumptions: flat rate estimate for planning only; this is not filing-ready tax advice.'
+            ].join('\n');
+
+            toolCalls.push({
+              input: taxInput,
+              outputSummary: `estimated liability ${estimatedLiability.toFixed(2)} ${userCurrency}`,
+              status: 'success',
+              tool: toolName
+            });
+
+            citations.push({
+              confidence: 0.74,
+              snippet: `Tax estimate: taxable base ${taxableBase.toFixed(2)} ${userCurrency}, liability ${estimatedLiability.toFixed(2)} ${userCurrency}`,
+              source: toolName
+            });
+          } else if (toolName === 'compliance_check') {
+            const { activities } = await this.orderService.getOrders({
+              sortColumn: 'date',
+              sortDirection: 'desc',
+              take: 100,
+              userCurrency,
+              userId
+            });
+            const complianceResult = this.runComplianceChecks({
+              activities
+            });
+
+            complianceCheckSummary = [
+              `Compliance check: ${complianceResult.violations.length} violations, ${complianceResult.warnings.length} warnings.`,
+              ...(complianceResult.violations.length > 0
+                ? [`Violations: ${complianceResult.violations.join(' | ')}.`]
+                : []),
+              ...(complianceResult.warnings.length > 0
+                ? [`Warnings: ${complianceResult.warnings.join(' | ')}.`]
+                : ['Warnings: no immediate rule flags detected from recent transactions.']),
+              'Review account type, jurisdiction, and broker-specific constraints before execution.'
+            ].join('\n');
+
+            toolCalls.push({
+              input: { take: 100 },
+              outputSummary: `${complianceResult.violations.length} violations, ${complianceResult.warnings.length} warnings`,
+              status: 'success',
+              tool: toolName
+            });
+
+            citations.push({
+              confidence: complianceResult.violations.length > 0 ? 0.8 : 0.7,
+              snippet:
+                complianceResult.violations.length > 0
+                  ? `Compliance violations: ${complianceResult.violations[0]}`
+                  : `Compliance warnings: ${complianceResult.warnings[0] ?? 'none from recent transaction scan'}`,
+              source: toolName
+            });
           } else if (toolName === 'rebalance_plan') {
             if (!portfolioAnalysis) {
               portfolioAnalysis = await runPortfolioAnalysis({
@@ -769,6 +889,7 @@ export class AiService {
         const llmGenerationStartedAt = Date.now();
         answer = await buildAnswer({
           assetFundamentalsSummary,
+          complianceCheckSummary,
           financialNewsSummary,
           generateText: (options) =>
             this.generateText({
@@ -788,7 +909,9 @@ export class AiService {
           rebalancePlan,
           riskAssessment,
           stressTest,
+          taxEstimateSummary,
           tradeImpactSummary,
+          transactionCategorizationSummary,
           userPreferences: effectiveUserPreferences,
           userCurrency
         });
@@ -922,6 +1045,119 @@ export class AiService {
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'");
+  }
+
+  private extractTaxEstimateInput(query: string) {
+    const normalized = query.toLowerCase();
+    const numericTokens = Array.from(
+      normalized.matchAll(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/g)
+    )
+      .map((match) => {
+        return Number.parseFloat(match[1].replace(/,/g, ''));
+      })
+      .filter((value) => Number.isFinite(value));
+    const incomeMatch = normalized.match(
+      /\b(?:income|salary|earnings?)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i
+    );
+    const deductionsMatch = normalized.match(
+      /\b(?:deduction|deductions|deductible|write[-\s]?off)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i
+    );
+    const taxRateMatch = normalized.match(
+      /\b(?:tax\s*rate|rate)\b[^\d]*([0-9]{1,2}(?:\.[0-9]+)?)\s*%/i
+    );
+
+    const parsedIncome = incomeMatch
+      ? Number.parseFloat(incomeMatch[1].replace(/,/g, ''))
+      : numericTokens[0];
+    const parsedDeductions = deductionsMatch
+      ? Number.parseFloat(deductionsMatch[1].replace(/,/g, ''))
+      : numericTokens[1] ?? 0;
+    const parsedTaxRate = taxRateMatch
+      ? Number.parseFloat(taxRateMatch[1]) / 100
+      : undefined;
+
+    return {
+      deductions: Number.isFinite(parsedDeductions) ? parsedDeductions : 0,
+      income: Number.isFinite(parsedIncome) ? parsedIncome : 0,
+      taxRate:
+        Number.isFinite(parsedTaxRate) && parsedTaxRate > 0 && parsedTaxRate < 1
+          ? parsedTaxRate
+          : 0.22
+    };
+  }
+
+  private runComplianceChecks({
+    activities
+  }: {
+    activities: Array<{
+      date: Date | string;
+      symbolProfileId?: string;
+      SymbolProfile?: { symbol?: string };
+      type: string;
+    }>;
+  }) {
+    const violations: string[] = [];
+    const warnings: string[] = [];
+    const buysBySymbol = new Map<string, Date[]>();
+    const sellsBySymbol = new Map<string, Date[]>();
+    const tradesBySymbol = new Map<string, number>();
+
+    for (const activity of activities) {
+      const symbol =
+        activity.SymbolProfile?.symbol ?? activity.symbolProfileId ?? 'UNKNOWN';
+      const type = String(activity.type ?? '').toUpperCase();
+      const tradeDate = new Date(activity.date);
+
+      if (Number.isNaN(tradeDate.getTime())) {
+        continue;
+      }
+
+      tradesBySymbol.set(symbol, (tradesBySymbol.get(symbol) ?? 0) + 1);
+
+      if (type.includes('BUY')) {
+        buysBySymbol.set(symbol, [...(buysBySymbol.get(symbol) ?? []), tradeDate]);
+      } else if (type.includes('SELL')) {
+        sellsBySymbol.set(symbol, [...(sellsBySymbol.get(symbol) ?? []), tradeDate]);
+      }
+    }
+
+    for (const [symbol, sellDates] of sellsBySymbol.entries()) {
+      const buyDates = buysBySymbol.get(symbol) ?? [];
+      const hasPotentialWashSale = sellDates.some((sellDate) => {
+        return buyDates.some((buyDate) => {
+          const diffInMs = Math.abs(sellDate.getTime() - buyDate.getTime());
+
+          return diffInMs <= 30 * 24 * 60 * 60 * 1000;
+        });
+      });
+
+      if (hasPotentialWashSale) {
+        warnings.push(
+          `${symbol} has buy/sell activity within 30 days (potential wash-sale review needed)`
+        );
+      }
+    }
+
+    for (const [symbol, count] of tradesBySymbol.entries()) {
+      if (count >= 15) {
+        warnings.push(`${symbol} shows elevated turnover (${count} trades)`);
+      }
+    }
+
+    if (activities.length >= 80) {
+      warnings.push(
+        `High aggregate trade volume detected (${activities.length} recent transactions)`
+      );
+    }
+
+    if (warnings.length >= 5) {
+      violations.push('Multiple concurrent compliance-risk signals detected');
+    }
+
+    return {
+      violations,
+      warnings
+    };
   }
 
   private extractSymbolIdentifiersFromPortfolio({

@@ -167,6 +167,21 @@ const TOOL_EXPANSION_CASES: Array<{
     requiredPlannedTools: ['get_financial_news']
   },
   {
+    query: 'Categorize my recent transactions by type',
+    requiredExecutedTools: ['transaction_categorize'],
+    requiredPlannedTools: ['transaction_categorize']
+  },
+  {
+    query: 'Estimate my tax liability for income 120000 and deductions 20000',
+    requiredExecutedTools: ['tax_estimate'],
+    requiredPlannedTools: ['tax_estimate']
+  },
+  {
+    query: 'Run compliance check on my recent transactions',
+    requiredExecutedTools: ['compliance_check'],
+    requiredPlannedTools: ['compliance_check']
+  },
+  {
     query: 'Show the latest live quote for NVDA',
     requiredExecutedTools: ['get_live_quote'],
     requiredPlannedTools: ['get_live_quote']

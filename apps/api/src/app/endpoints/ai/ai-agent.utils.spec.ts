@@ -253,6 +253,30 @@ describe('AiAgentUtils', () => {
     ).toEqual(['market_data_lookup', 'get_financial_news']);
   });
 
+  it('selects transaction categorization tool for transaction pattern prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Categorize my recent transactions by type and pattern'
+      })
+    ).toEqual(['get_recent_transactions', 'transaction_categorize']);
+  });
+
+  it('selects tax estimate tool for tax liability prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Estimate my tax liability for income 120000 and deductions 20000'
+      })
+    ).toEqual(['tax_estimate']);
+  });
+
+  it('selects compliance check tool for compliance review prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Run compliance check on my recent transactions'
+      })
+    ).toEqual(['get_recent_transactions', 'compliance_check']);
+  });
+
   it('selects trade impact simulation for explicit what-if trade prompts', () => {
     expect(
       determineToolPlan({

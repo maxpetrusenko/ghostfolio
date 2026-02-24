@@ -234,6 +234,18 @@ const TRADE_IMPACT_QUERY_PATTERNS = [
   /\b(?:simulate\s+trade|trade\s+impact|what\s+if\s+i\s+(?:buy|sell))\b/,
   /\b(?:if\s+i\s+buy|if\s+i\s+sell)\b/
 ];
+const TRANSACTION_CATEGORIZE_QUERY_PATTERNS = [
+  /\b(?:categori[sz]e|classify|group)\b.*\b(?:transactions?|trades?|orders?)\b/,
+  /\b(?:transaction|trade|order)\s+(?:categor(?:y|ies)|breakdown|patterns?)\b/
+];
+const TAX_ESTIMATE_QUERY_PATTERNS = [
+  /\b(?:tax|taxes|liability|owed|owe)\b.*\b(?:estimate|estimat(?:e|ion)|calculate|calc)\b/,
+  /\b(?:estimate|calculat(?:e|ion))\b.*\b(?:tax|liability)\b/
+];
+const COMPLIANCE_CHECK_QUERY_PATTERNS = [
+  /\b(?:compliance|regulat(?:ion|ory)|policy)\b.*\b(?:check|review|scan)\b/,
+  /\b(?:violations?|warnings?|restricted|rule\s+check)\b/
+];
 const ANSWER_NUMERIC_INTENT_KEYWORDS = [
   'allocat',
   'balance',
@@ -530,6 +542,18 @@ export function determineToolPlan({
   const hasTradeImpactIntent = TRADE_IMPACT_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
+  const hasTransactionCategorizationIntent =
+    TRANSACTION_CATEGORIZE_QUERY_PATTERNS.some((pattern) => {
+      return pattern.test(normalizedQuery);
+    });
+  const hasTaxEstimateIntent = TAX_ESTIMATE_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasComplianceCheckIntent = COMPLIANCE_CHECK_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
 
   if (
     normalizedQuery.includes('portfolio') ||
@@ -610,6 +634,18 @@ export function determineToolPlan({
 
   if (hasTradeImpactIntent) {
     selectedTools.add('simulate_trade_impact');
+  }
+
+  if (hasTransactionCategorizationIntent) {
+    selectedTools.add('transaction_categorize');
+  }
+
+  if (hasTaxEstimateIntent) {
+    selectedTools.add('tax_estimate');
+  }
+
+  if (hasComplianceCheckIntent) {
+    selectedTools.add('compliance_check');
   }
 
   return Array.from(selectedTools);

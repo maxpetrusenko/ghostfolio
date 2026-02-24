@@ -415,3 +415,11 @@ Last updated: 2026-02-24
 - `npx nx run client:build:development-en` (passed)
 - `npx nx run client:lint` (passed with existing workspace warnings)
 - `npx dotenv-cli -e .env.example -- npx jest apps/client/src/app/pages/portfolio/analysis/ai-chat-panel/ai-chat-panel.component.spec.ts --config apps/client/jest.config.ts` (9/9 tests passed)
+
+## Session Plan (2026-02-24, UI Refresh + Tool Inventory Expansion)
+
+- [x] Refresh analysis UI state after successful AI responses in analysis panel
+- [x] Audit current AI tool coverage vs requested finance tools and data sources
+- [x] Add missing requested tools (`transaction_categorize`, `tax_estimate`, `compliance_check`) with deterministic summaries
+- [x] Wire routing/policy + tests for new tools and run AI test suite
+- [x] Provide deploy-speed recommendations with concrete next-step changes
