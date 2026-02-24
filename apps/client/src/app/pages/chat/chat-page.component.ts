@@ -28,6 +28,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import {
   Info,
   LucideAngularModule,
+  MessageSquare,
   MessageSquarePlus,
   Search,
   SendHorizontal,
@@ -90,6 +91,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   public selectedModelId = this.modelOptions[0].id;
   public readonly icons = {
     info: Info,
+    messageSquare: MessageSquare,
     messageSquarePlus: MessageSquarePlus,
     search: Search,
     sendHorizontal: SendHorizontal,

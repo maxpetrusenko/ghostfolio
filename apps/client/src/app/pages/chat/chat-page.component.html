@@ -10,6 +10,7 @@
 
             <button
               aria-label="New chat"
+              class="conversation-create"
               i18n-aria-label
               i18n-matTooltip
               mat-icon-button
@@ -46,15 +47,24 @@
                   [class.active]="currentConversation?.id === conversation.id"
                   (click)="onSelectConversation(conversation.id)"
                 >
-                  <div class="conversation-title text-truncate">{{ conversation.title }}</div>
+                  <div class="align-items-center conversation-title d-flex text-truncate">
+                    <lucide-icon
+                      class="conversation-title-icon mr-2"
+                      [img]="icons.messageSquare"
+                      [size]="14"
+                    />
+                    <span class="text-truncate">{{ conversation.title }}</span>
+                  </div>
                   <div class="conversation-meta text-muted">
-                    {{ conversation.updatedAt | date: 'short' }}
+                    <span>{{ conversation.updatedAt | date: 'MMM d' }}</span>
+                    <span class="mx-1">•</span>
+                    <span>{{ conversation.updatedAt | date: 'shortTime' }}</span>
                   </div>
                 </button>
 
                 <button
                   aria-label="Delete conversation"
-                  class="conversation-delete ml-1"
+                  class="conversation-delete"
                   i18n-aria-label
                   i18n-matTooltip
                   mat-icon-button
