@@ -55,3 +55,7 @@ Updated: 2026-02-24
 13. Context: Recommendation replies looked short and repetitive even when tool context was available
    Mistake: Reliability gating accepted generic recommendation prose that lacked option sections and actionable structure.
    Rule: For recommendation-intent prompts, enforce sectioned output quality gates (Option 1/2 + assumptions/risk notes/next questions) and fall back to deterministic option plans when structure is missing.
+
+14. Context: Casual greeting prompts in AI chat ("hey there")
+   Mistake: Greeting variants that were not explicitly matched fell through to capability-list fallback text, which reduced conversational quality.
+   Rule: Expand greeting pattern coverage (`hi/hello/hey` + `there`) and lock friendly greeting-first responses with deterministic routing and service tests.

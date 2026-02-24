@@ -270,6 +270,14 @@ Last updated: 2026-02-24
 - [x] Add deterministic AI service tests for follow-up recommendation behavior and guard against capability fallback regression.
 - [x] Run focused verification (`npm run test:ai`) and update trackers (`Tasks.md`, `tasks/tasks.md`, `tasks/lessons.md`).
 
+## Session Plan (2026-02-24, Friendly Greeting Response Fix)
+
+- [x] Reproduce greeting fallback behavior for casual prompts (`hey there`).
+- [x] Update direct no-tool greeting response copy to friendly finance-oriented wording.
+- [x] Add or update deterministic tests for greeting routing and response content.
+- [x] Run focused verification (`npm run test:ai`) for touched AI modules.
+- [ ] Push hotfix to `origin/main` and redeploy production.
+
 ## Verification Notes
 
 - Chat reply detail + hidden diagnostics follow-up verification (local, 2026-02-24):

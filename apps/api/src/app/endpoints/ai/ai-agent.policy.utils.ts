@@ -34,7 +34,7 @@ const REBALANCE_CONFIRMATION_KEYWORDS = [
   'trim'
 ];
 const GREETING_ONLY_PATTERN =
-  /^\s*(?:hi|hello|hey|thanks|thank you|good morning|good afternoon|good evening)\s*[!.?]*\s*$/i;
+  /^\s*(?:(?:hi|hello|hey)(?:\s+there)?|thanks|thank you|good morning|good afternoon|good evening)\s*[!.?]*\s*$/i;
 const SIMPLE_ARITHMETIC_QUERY_PATTERN =
   /^\s*(?:what(?:'s| is)\s+)?[-+*/().\d\s%=]+\??\s*$/i;
 const SIMPLE_ARITHMETIC_OPERATOR_PATTERN = /[+\-*/]/;
@@ -333,6 +333,18 @@ function evaluateSimpleArithmetic(query: string) {
 
 function createNoToolDirectResponse(query?: string) {
   const normalizedQuery = query?.trim().toLowerCase() ?? '';
+
+  if (GREETING_ONLY_PATTERN.test(normalizedQuery)) {
+    return [
+      'Hello! I am Ghostfolio AI. How can I help with your finances today?',
+      'I can check your portfolio value, holdings, risk, quotes, fundamentals, news, and recent transactions.',
+      'Try one of these:',
+      '- "How much money do I have?"',
+      '- "Show my top holdings"',
+      '- "What is my concentration risk?"',
+      '- "Get fundamentals and news for MSFT"'
+    ].join('\n');
+  }
 
   if (DIRECT_IDENTITY_QUERY_PATTERN.test(normalizedQuery)) {
     return [

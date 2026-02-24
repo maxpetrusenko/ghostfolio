@@ -248,20 +248,20 @@ describe('AiService', () => {
     ).toBeUndefined();
   });
 
-  it('enforces direct no-tool route at executor even when symbols are provided', async () => {
+  it('returns friendly direct greeting response without tools', async () => {
     redisCacheService.get.mockResolvedValue(undefined);
     const generateTextSpy = jest.spyOn(subject, 'generateText');
 
     const result = await subject.chat({
       languageCode: 'en',
-      query: 'Hi',
+      query: 'hey there',
       sessionId: 'session-direct-route',
       symbols: ['NVDA'],
       userCurrency: 'USD',
       userId: 'user-direct-route'
     });
 
-    expect(result.answer).toMatch(/(hello|hi|here to help|portfolio)/i);
+    expect(result.answer).toContain('How can I help with your finances today?');
     expect(result.toolCalls).toEqual([]);
     expect(result.citations).toEqual([]);
     expect(dataProviderService.getQuotes).not.toHaveBeenCalled();

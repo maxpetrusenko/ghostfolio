@@ -11,6 +11,8 @@ const GREETING_QUERIES = [
   'hello',
   'hello.',
   'hey?',
+  'hey there',
+  'hello there',
   'thanks',
   'thanks!',
   'thank you',

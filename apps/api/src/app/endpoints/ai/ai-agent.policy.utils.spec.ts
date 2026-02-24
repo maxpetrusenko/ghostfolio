@@ -10,6 +10,8 @@ describe('AiAgentPolicyUtils', () => {
     'hi',
     'hello',
     'hey',
+    'hey there',
+    'hello there',
     'thanks',
     'thank you',
     'good morning',
@@ -20,10 +22,15 @@ describe('AiAgentPolicyUtils', () => {
       plannedTools: ['portfolio_analysis'],
       query
     });
+    const response = createPolicyRouteResponse({
+      policyDecision: decision,
+      query
+    });
 
     expect(decision.route).toBe('direct');
     expect(decision.blockReason).toBe('no_tool_query');
     expect(decision.toolsToExecute).toEqual([]);
+    expect(response).toContain('How can I help with your finances today?');
   });
 
   it.each([
