@@ -185,6 +185,46 @@ describe('AiAgentUtils', () => {
     ).toEqual(['portfolio_analysis', 'risk_assessment', 'stress_test']);
   });
 
+  it('selects recent transactions tool for transaction-history prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Show my recent transactions'
+      })
+    ).toEqual(['get_recent_transactions']);
+  });
+
+  it('selects fundamentals tool for fundamentals prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Get fundamentals for AAPL'
+      })
+    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+  });
+
+  it('selects financial news tool for headline prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Show financial news for TSLA'
+      })
+    ).toEqual(['market_data_lookup', 'get_financial_news']);
+  });
+
+  it('selects trade impact simulation for explicit what-if trade prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Simulate trade impact if I buy 1000 AAPL'
+      })
+    ).toEqual(
+      expect.arrayContaining([
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan',
+        'market_data_lookup',
+        'simulate_trade_impact'
+      ])
+    );
+  });
+
   it('calculates bounded confidence score and band', () => {
     const confidence = calculateConfidence({
       toolCalls: [

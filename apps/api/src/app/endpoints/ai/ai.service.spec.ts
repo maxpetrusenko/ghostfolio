@@ -3,7 +3,8 @@ import { DataSource } from '@prisma/client';
 import { AiService } from './ai.service';
 
 describe('AiService', () => {
-  let dataProviderService: { getQuotes: jest.Mock };
+  let dataProviderService: { getAssetProfiles: jest.Mock; getQuotes: jest.Mock };
+  let orderService: { getOrders: jest.Mock };
   let portfolioService: { getDetails: jest.Mock };
   let propertyService: { getByKey: jest.Mock };
   let redisCacheService: { get: jest.Mock; set: jest.Mock };
@@ -22,7 +23,11 @@ describe('AiService', () => {
 
   beforeEach(() => {
     dataProviderService = {
+      getAssetProfiles: jest.fn(),
       getQuotes: jest.fn()
+    };
+    orderService = {
+      getOrders: jest.fn()
     };
     portfolioService = {
       getDetails: jest.fn()
@@ -57,6 +62,7 @@ describe('AiService', () => {
 
     subject = new AiService(
       dataProviderService as never,
+      orderService as never,
       portfolioService as never,
       propertyService as never,
       redisCacheService as never,
@@ -740,6 +746,128 @@ describe('AiService', () => {
         })
       ])
     );
+  });
+
+  it('returns expanded capability suggestions for what can you do queries', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'What can you do?',
+      sessionId: 'session-capability',
+      userCurrency: 'USD',
+      userId: 'user-capability'
+    });
+
+    expect(result.answer).toContain('Show my recent transactions');
+    expect(result.answer).toContain('Get live quote, fundamentals, and news for AAPL');
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  it('executes recent transaction tool and returns structured summary', async () => {
+    orderService.getOrders.mockResolvedValue({
+      activities: [
+        {
+          SymbolProfile: { symbol: 'AAPL' },
+          date: new Date('2026-02-20T00:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-aapl',
+          type: 'BUY',
+          valueInBaseCurrency: 1200.5
+        },
+        {
+          SymbolProfile: { symbol: 'MSFT' },
+          date: new Date('2026-02-18T00:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-msft',
+          type: 'SELL',
+          valueInBaseCurrency: 800.25
+        }
+      ],
+      count: 2
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Show my recent transactions',
+      sessionId: 'session-transactions',
+      userCurrency: 'USD',
+      userId: 'user-transactions'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_recent_transactions'
+        })
+      ])
+    );
+    expect(result.answer).toContain('Recent transactions:');
+  });
+
+  it('executes fundamentals and trade impact tools for explicit analysis queries', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        AAPL: {
+          allocationInPercentage: 0.6,
+          dataSource: DataSource.YAHOO,
+          symbol: 'AAPL',
+          valueInBaseCurrency: 6000
+        },
+        MSFT: {
+          allocationInPercentage: 0.4,
+          dataSource: DataSource.YAHOO,
+          symbol: 'MSFT',
+          valueInBaseCurrency: 4000
+        }
+      }
+    });
+    dataProviderService.getAssetProfiles.mockResolvedValue({
+      AAPL: {
+        assetClass: 'EQUITY',
+        name: 'Apple Inc.'
+      }
+    });
+    dataProviderService.getQuotes.mockResolvedValue({});
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const fundamentalsResult = await subject.chat({
+      languageCode: 'en',
+      query: 'Get fundamentals for AAPL',
+      sessionId: 'session-fundamentals',
+      userCurrency: 'USD',
+      userId: 'user-fundamentals'
+    });
+
+    expect(fundamentalsResult.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_asset_fundamentals'
+        })
+      ])
+    );
+    expect(fundamentalsResult.answer).toContain('Fundamentals snapshot');
+
+    const tradeImpactResult = await subject.chat({
+      languageCode: 'en',
+      query: 'Simulate trade impact if I buy 1000 AAPL',
+      sessionId: 'session-trade-impact',
+      userCurrency: 'USD',
+      userId: 'user-trade-impact'
+    });
+
+    expect(tradeImpactResult.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'simulate_trade_impact'
+        })
+      ])
+    );
+    expect(tradeImpactResult.answer).toContain('Trade impact simulation');
   });
 
   it('uses z.ai glm provider when z_ai_glm_api_key is available', async () => {

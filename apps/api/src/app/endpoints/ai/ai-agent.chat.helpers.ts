@@ -325,18 +325,24 @@ export function resolvePreferenceUpdate({
 }
 
 export async function buildAnswer({
+  assetFundamentalsSummary,
+  financialNewsSummary,
   generateText,
   languageCode,
   marketData,
   memory,
   portfolioAnalysis,
   query,
+  recentTransactionsSummary,
   rebalancePlan,
   riskAssessment,
   stressTest,
+  tradeImpactSummary,
   userPreferences,
   userCurrency
 }: {
+  assetFundamentalsSummary?: string;
+  financialNewsSummary?: string;
   generateText: ({
     prompt,
     signal
@@ -349,9 +355,11 @@ export async function buildAnswer({
   memory: AiAgentMemoryState;
   portfolioAnalysis?: PortfolioAnalysisResult;
   query: string;
+  recentTransactionsSummary?: string;
   rebalancePlan?: RebalancePlanResult;
   riskAssessment?: RiskAssessmentResult;
   stressTest?: StressTestResult;
+  tradeImpactSummary?: string;
   userPreferences?: AiAgentUserPreferenceState;
   userCurrency: string;
 }) {
@@ -457,6 +465,22 @@ export async function buildAnswer({
     fallbackSections.push(
       `Market data request completed with limited quote coverage for: ${marketData.symbolsRequested.join(', ')}.`
     );
+  }
+
+  if (assetFundamentalsSummary) {
+    fallbackSections.push(assetFundamentalsSummary);
+  }
+
+  if (financialNewsSummary) {
+    fallbackSections.push(financialNewsSummary);
+  }
+
+  if (recentTransactionsSummary) {
+    fallbackSections.push(recentTransactionsSummary);
+  }
+
+  if (tradeImpactSummary) {
+    fallbackSections.push(tradeImpactSummary);
   }
 
   if (fallbackSections.length === 0) {

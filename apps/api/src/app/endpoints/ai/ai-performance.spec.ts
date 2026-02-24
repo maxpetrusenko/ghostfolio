@@ -23,6 +23,7 @@ function avg(values: number[]) {
 
 function createAiServiceForPerformanceTests() {
   const dataProviderService = {
+    getAssetProfiles: jest.fn().mockResolvedValue({}),
     getQuotes: jest.fn().mockResolvedValue({
       AAPL: {
         currency: 'USD',
@@ -68,6 +69,12 @@ function createAiServiceForPerformanceTests() {
   const propertyService = {
     getByKey: jest.fn()
   };
+  const orderService = {
+    getOrders: jest.fn().mockResolvedValue({
+      activities: [],
+      count: 0
+    })
+  };
   const redisCacheService = {
     get: jest.fn().mockResolvedValue(undefined),
     set: jest.fn().mockResolvedValue(undefined)
@@ -91,6 +98,7 @@ function createAiServiceForPerformanceTests() {
 
   const aiService = new AiService(
     dataProviderService as never,
+    orderService as never,
     portfolioService as never,
     propertyService as never,
     redisCacheService as never,

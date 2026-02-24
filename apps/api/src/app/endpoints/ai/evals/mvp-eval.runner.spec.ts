@@ -11,7 +11,14 @@ import {
 
 function createAiServiceForCase(evalCase: AiAgentMvpEvalCase) {
   const dataProviderService = {
+    getAssetProfiles: jest.fn().mockResolvedValue({}),
     getQuotes: jest.fn()
+  };
+  const orderService = {
+    getOrders: jest.fn().mockResolvedValue({
+      activities: [],
+      count: 0
+    })
   };
   const portfolioService = {
     getDetails: jest.fn()
@@ -83,6 +90,7 @@ function createAiServiceForCase(evalCase: AiAgentMvpEvalCase) {
 
   const aiService = new AiService(
     dataProviderService as never,
+    orderService as never,
     portfolioService as never,
     propertyService as never,
     redisCacheService as never,

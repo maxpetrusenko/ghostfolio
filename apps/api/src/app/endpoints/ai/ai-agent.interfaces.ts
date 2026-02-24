@@ -3,7 +3,16 @@ export type AiAgentToolName =
   | 'risk_assessment'
   | 'market_data_lookup'
   | 'rebalance_plan'
-  | 'stress_test';
+  | 'stress_test'
+  | 'get_portfolio_summary'
+  | 'get_current_holdings'
+  | 'get_portfolio_risk_metrics'
+  | 'get_recent_transactions'
+  | 'get_live_quote'
+  | 'get_asset_fundamentals'
+  | 'get_financial_news'
+  | 'calculate_rebalance_plan'
+  | 'simulate_trade_impact';
 
 export type AiAgentConfidenceBand = 'high' | 'medium' | 'low';
 

@@ -134,6 +134,57 @@ const INVESTMENT_QUERIES = [
   'invest next contribution into safer mix',
   'allocate next cash to lower risk positions'
 ];
+const TOOL_EXPANSION_CASES: Array<{
+  query: string;
+  requiredExecutedTools: AiAgentToolName[];
+  requiredPlannedTools: AiAgentToolName[];
+}> = [
+  {
+    query: 'Show my recent transactions',
+    requiredExecutedTools: ['get_recent_transactions'],
+    requiredPlannedTools: ['get_recent_transactions']
+  },
+  {
+    query: 'Get fundamentals for AAPL',
+    requiredExecutedTools: ['get_asset_fundamentals'],
+    requiredPlannedTools: ['get_asset_fundamentals']
+  },
+  {
+    query: 'Show financial news for TSLA',
+    requiredExecutedTools: ['get_financial_news'],
+    requiredPlannedTools: ['get_financial_news']
+  },
+  {
+    query: 'Show the latest live quote for NVDA',
+    requiredExecutedTools: ['get_live_quote'],
+    requiredPlannedTools: ['get_live_quote']
+  },
+  {
+    query: 'Give me a portfolio summary',
+    requiredExecutedTools: ['get_portfolio_summary'],
+    requiredPlannedTools: ['get_portfolio_summary']
+  },
+  {
+    query: 'Show my current holdings',
+    requiredExecutedTools: ['get_current_holdings'],
+    requiredPlannedTools: ['get_current_holdings']
+  },
+  {
+    query: 'Run portfolio risk metrics with sector breakdown',
+    requiredExecutedTools: ['get_portfolio_risk_metrics'],
+    requiredPlannedTools: ['get_portfolio_risk_metrics']
+  },
+  {
+    query: 'Calculate rebalance plan to keep each holding below 35%',
+    requiredExecutedTools: ['calculate_rebalance_plan'],
+    requiredPlannedTools: ['calculate_rebalance_plan']
+  },
+  {
+    query: 'Simulate trade impact if I buy 2000 AAPL',
+    requiredExecutedTools: ['simulate_trade_impact'],
+    requiredPlannedTools: ['simulate_trade_impact']
+  }
+];
 const ACTION_CONFIRMATION_PATTERN = /\b(?:allocat|buy|invest|rebalanc|sell|trim)\b/i;
 
 describe('AiAgentSimpleInteractions', () => {
@@ -221,6 +272,20 @@ describe('AiAgentSimpleInteractions', () => {
           'rebalance_plan' as AiAgentToolName
         );
       }
+      evaluatedQueries += 1;
+    }
+
+    for (const { query, requiredExecutedTools, requiredPlannedTools } of TOOL_EXPANSION_CASES) {
+      const plannedTools = determineToolPlan({ query });
+      const decision = applyToolExecutionPolicy({ plannedTools, query });
+
+      expect(plannedTools).toEqual(
+        expect.arrayContaining(requiredPlannedTools)
+      );
+      expect(decision.route).toBe('tools');
+      expect(decision.toolsToExecute).toEqual(
+        expect.arrayContaining(requiredExecutedTools)
+      );
       evaluatedQueries += 1;
     }
 

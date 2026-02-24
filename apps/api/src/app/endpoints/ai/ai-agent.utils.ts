@@ -63,6 +63,42 @@ const PORTFOLIO_VALUE_QUERY_PATTERNS = [
   /\b(?:net\s+worth|portfolio\s+value|portfolio\s+worth|account\s+balance|total\s+portfolio\s+value)\b/,
   /\bhow\s*much\b.*\b(?:money|cash|value|worth|balance)\b/
 ];
+const PORTFOLIO_SUMMARY_QUERY_PATTERNS = [
+  /\b(?:portfolio\s+summary|net\s+worth\s+summary|overall\s+portfolio)\b/,
+  /\b(?:summarize|summary)\b.*\b(?:portfolio|account)\b/
+];
+const CURRENT_HOLDINGS_QUERY_PATTERNS = [
+  /\b(?:current\s+holdings|current\s+positions|what\s+do\s+i\s+own)\b/,
+  /\b(?:show|list)\b.*\b(?:holdings|positions)\b/
+];
+const PORTFOLIO_RISK_METRICS_QUERY_PATTERNS = [
+  /\b(?:risk\s+metrics|risk\s+summary)\b/,
+  /\b(?:sector|geographic|country)\b.*\b(?:breakdown|concentration|risk)\b/
+];
+const RECENT_TRANSACTIONS_QUERY_PATTERNS = [
+  /\b(?:recent\s+transactions|recent\s+trades|recent\s+orders)\b/,
+  /\b(?:last\s+time\s+i\s+bought|last\s+time\s+i\s+sold|transaction\s+history|order\s+history)\b/
+];
+const LIVE_QUOTE_QUERY_PATTERNS = [
+  /\b(?:live\s+quote|latest\s+quote|today(?:'s)?\s+price)\b/,
+  /\b(?:day\s+change|trading\s+volume)\b/
+];
+const ASSET_FUNDAMENTALS_QUERY_PATTERNS = [
+  /\b(?:fundamentals?|valuation|market\s+cap)\b/,
+  /\b(?:pe\s+ratio|p\s*e|dividend\s+yield|52\s*week)\b/
+];
+const FINANCIAL_NEWS_QUERY_PATTERNS = [
+  /\b(?:financial\s+news|market\s+news|news\s+headlines?)\b/,
+  /\b(?:why\s+did|what\s+happened\s+to)\b/
+];
+const REBALANCE_CALCULATOR_QUERY_PATTERNS = [
+  /\b(?:calculate\s+rebalance|rebalance\s+plan|target\s+allocation)\b/,
+  /\b(?:80\s*20|70\s*30|60\s*40)\b.*\b(?:allocation|portfolio)\b/
+];
+const TRADE_IMPACT_QUERY_PATTERNS = [
+  /\b(?:simulate\s+trade|trade\s+impact|what\s+if\s+i\s+(?:buy|sell))\b/,
+  /\b(?:if\s+i\s+buy|if\s+i\s+sell)\b/
+];
 const ANSWER_NUMERIC_INTENT_KEYWORDS = [
   'allocat',
   'balance',
@@ -309,6 +345,47 @@ export function determineToolPlan({
       return pattern.test(normalizedQuery);
     }
   ) || hasBroadPortfolioValueIntent;
+  const hasPortfolioSummaryIntent = PORTFOLIO_SUMMARY_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasCurrentHoldingsIntent = CURRENT_HOLDINGS_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasPortfolioRiskMetricsIntent = PORTFOLIO_RISK_METRICS_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasRecentTransactionsIntent = RECENT_TRANSACTIONS_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasLiveQuoteIntent = LIVE_QUOTE_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasAssetFundamentalsIntent = ASSET_FUNDAMENTALS_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasFinancialNewsIntent = FINANCIAL_NEWS_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasRebalanceCalculatorIntent = REBALANCE_CALCULATOR_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasTradeImpactIntent = TRADE_IMPACT_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
 
   if (
     normalizedQuery.includes('portfolio') ||
@@ -324,6 +401,14 @@ export function determineToolPlan({
     selectedTools.add('portfolio_analysis');
   }
 
+  if (hasPortfolioSummaryIntent) {
+    selectedTools.add('get_portfolio_summary');
+  }
+
+  if (hasCurrentHoldingsIntent) {
+    selectedTools.add('get_current_holdings');
+  }
+
   if (
     normalizedQuery.includes('risk') ||
     normalizedQuery.includes('concentration') ||
@@ -333,10 +418,18 @@ export function determineToolPlan({
     selectedTools.add('risk_assessment');
   }
 
+  if (hasPortfolioRiskMetricsIntent) {
+    selectedTools.add('get_portfolio_risk_metrics');
+  }
+
   if (hasInvestmentIntent || hasRebalanceIntent) {
     selectedTools.add('portfolio_analysis');
     selectedTools.add('risk_assessment');
     selectedTools.add('rebalance_plan');
+  }
+
+  if (hasRecentTransactionsIntent) {
+    selectedTools.add('get_recent_transactions');
   }
 
   if (hasStressTestIntent) {
@@ -353,6 +446,26 @@ export function determineToolPlan({
     extractedSymbols.length > 0
   ) {
     selectedTools.add('market_data_lookup');
+  }
+
+  if (hasLiveQuoteIntent) {
+    selectedTools.add('get_live_quote');
+  }
+
+  if (hasAssetFundamentalsIntent) {
+    selectedTools.add('get_asset_fundamentals');
+  }
+
+  if (hasFinancialNewsIntent) {
+    selectedTools.add('get_financial_news');
+  }
+
+  if (hasRebalanceCalculatorIntent) {
+    selectedTools.add('calculate_rebalance_plan');
+  }
+
+  if (hasTradeImpactIntent) {
+    selectedTools.add('simulate_trade_impact');
   }
 
   return Array.from(selectedTools);

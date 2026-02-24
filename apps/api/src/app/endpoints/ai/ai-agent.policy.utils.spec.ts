@@ -114,7 +114,8 @@ describe('AiAgentPolicyUtils', () => {
     });
 
     expect(identityResponse).toContain('portfolio copilot');
-    expect(capabilityResponse).toContain('three modes');
+    expect(capabilityResponse).toContain('four modes');
+    expect(capabilityResponse).toContain('Show my recent transactions');
     expect(identityResponse).not.toBe(capabilityResponse);
   });
 
