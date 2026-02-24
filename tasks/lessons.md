@@ -63,3 +63,7 @@ Updated: 2026-02-24
 15. Context: Real-user typo input for fundamentals analysis ("wfundamentals on tesla stock?")
    Mistake: Strict word-boundary intent matching missed fused typo prefixes, so planner skipped fundamentals tools and returned shallow fallback text.
    Rule: Pair regex intent checks with stable substring fragments for critical finance intents and lock typo examples in planner/helper/service regression tests.
+
+16. Context: Angular standalone component icon migration to Lucide
+   Mistake: `ModuleWithProviders` variants (`LucideAngularModule.pick(...)`) were treated as standalone component imports and blocked client builds.
+   Rule: In standalone component metadata, import plain modules/components only; use direct icon data bindings (`[img]`) for Lucide instead of `.pick(...)`.

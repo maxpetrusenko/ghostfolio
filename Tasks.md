@@ -19,6 +19,7 @@ Last updated: 2026-02-24
 | T-011 | Per-LLM LangSmith invocation tracing + production tracing env enablement | Complete | `apps/api/src/app/endpoints/ai/ai-observability.service.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/ai-performance.spec.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts`, `apps/api/src/app/endpoints/ai/evals/ai-quality-eval.spec.ts` | Local implementation + Railway variable update |
 | T-012 | LangChain wrapper enforcement for provider calls + arithmetic direct-response correction | Complete | `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`, `npm run test:ai` | Local implementation |
 | T-013 | Cross-session user preference memory (persisted by user, independent of chat session) | Complete | `apps/api/src/app/endpoints/ai/ai-agent.chat.helpers.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `npm run test:ai`, `npx nx run api:lint` | Local implementation |
+| T-014 | Chat page icon-first UX (newest-first flow + shadcn-style Lucide action icons) | Complete | `npx nx run client:build:development-en`, `npx nx run client:lint`, `npx dotenv-cli -e .env.example -- npx jest apps/client/src/app/pages/portfolio/analysis/ai-chat-panel/ai-chat-panel.component.spec.ts --config apps/client/jest.config.ts` | Local implementation |
 
 ## Notes
 
@@ -41,3 +42,4 @@ Last updated: 2026-02-24
 - Per-LLM LangSmith invocation tracing (2026-02-24): each provider call now records an explicit LangSmith `llm` run (provider/model/query/session/response metadata), and production Railway env now has tracing variables enabled.
 - Direct arithmetic no-tool behavior fix (2026-02-24): simple arithmetic prompts now return computed answers (for example `2+2 = 4`) instead of generic capability guidance.
 - Cross-session preference memory (2026-02-24): AI now persists explicit user response-style preferences in Redis by `userId`, recalls them across different `sessionId`s, and applies them to later AI responses.
+- Chat page icon-first UX (2026-02-24): sidebar/composer/feedback controls now use Lucide icon buttons with tooltip/ARIA labels, and messages render newest-first at the top.

@@ -85,10 +85,18 @@ textarea::selection {
   width: 1rem;
 }
 
+.chat-field-icon {
+  color: var(--ai-chat-muted-text);
+}
+
 .conversation-list {
   max-height: 42rem;
   overflow-y: auto;
   padding-right: 0.25rem;
+}
+
+.conversation-toolbar {
+  margin-bottom: 0.25rem;
 }
 
 .conversation-select {
@@ -124,6 +132,24 @@ textarea::selection {
 .composer-controls {
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.chat-model-trigger,
+.chat-send-trigger,
+.feedback-icon {
+  border: 1px solid var(--ai-chat-border-color);
+  border-radius: 0.5rem;
+  color: var(--ai-chat-muted-text);
+}
+
+.chat-send-trigger {
+  background: rgba(var(--palette-primary-500), 0.14);
+  border-color: var(--ai-chat-user-border);
+  color: rgb(var(--dark-primary-text));
+}
+
+:host-context(.theme-dark) .chat-send-trigger {
+  color: rgb(var(--light-primary-text));
 }
 
 .composer-controls .ml-2,

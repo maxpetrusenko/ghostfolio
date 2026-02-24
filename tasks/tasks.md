@@ -401,3 +401,17 @@ Last updated: 2026-02-24
 - [x] Expand company-name alias coverage for popular stocks and ETFs
 - [x] Add deterministic extraction/routing tests for new aliases
 - [x] Run AI regression suite and confirm deploy readiness
+
+## Session Plan (2026-02-24, Chat Page Icon-First UX)
+
+- [x] Research current client icon stack and choose shadcn-compatible icon path for Angular (`lucide-angular`).
+- [x] Add Lucide dependencies and switch chat page action controls from text-heavy buttons to icon-first controls.
+- [x] Keep accessibility parity with tooltips and `aria-label` on icon buttons.
+- [x] Keep newest-first rendering so latest messages appear at top.
+- [x] Run focused verification and capture evidence for deploy readiness.
+
+### Verification (2026-02-24, Chat Page Icon-First UX)
+
+- `npx nx run client:build:development-en` (passed)
+- `npx nx run client:lint` (passed with existing workspace warnings)
+- `npx dotenv-cli -e .env.example -- npx jest apps/client/src/app/pages/portfolio/analysis/ai-chat-panel/ai-chat-panel.component.spec.ts --config apps/client/jest.config.ts` (9/9 tests passed)

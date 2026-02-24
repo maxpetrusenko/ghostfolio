@@ -21,10 +21,21 @@ import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import {
+  Info,
+  LucideAngularModule,
+  MessageSquarePlus,
+  Search,
+  SendHorizontal,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2
+} from 'lucide-angular';
 import { Subject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
 
@@ -40,10 +51,11 @@ interface ChatModelOption {
     MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
-    MatIconModule,
     MatInputModule,
     MatMenuModule,
-    MatProgressSpinnerModule
+    MatProgressSpinnerModule,
+    MatTooltipModule,
+    LucideAngularModule
   ],
   selector: 'gf-chat-page',
   styleUrls: ['./chat-page.component.scss'],
@@ -76,6 +88,16 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   ];
   public query = '';
   public selectedModelId = this.modelOptions[0].id;
+  public readonly icons = {
+    info: Info,
+    messageSquarePlus: MessageSquarePlus,
+    search: Search,
+    sendHorizontal: SendHorizontal,
+    sparkles: Sparkles,
+    thumbsDown: ThumbsDown,
+    thumbsUp: ThumbsUp,
+    trash2: Trash2
+  };
   public readonly starterPrompts = [
     $localize`Give me a portfolio risk summary.`,
     $localize`What are my top concentration risks right now?`,
@@ -114,7 +136,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       .subscribe((conversation) => {
         this.currentConversation = conversation;
         this.activeResponseDetails = undefined;
-        this.scrollToBottom();
+        this.scrollToTop();
       });
 
     if (this.aiChatConversationsService.getConversationsSnapshot().length === 0) {
@@ -123,7 +145,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public ngAfterViewInit() {
-    this.scrollToBottom();
+    this.scrollToTop();
   }
 
   public ngOnDestroy() {
@@ -131,15 +153,15 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     this.unsubscribeSubject.complete();
   }
 
-  private scrollToBottom() {
+  private scrollToTop() {
     if (this.chatLogContainer) {
-      this.chatLogContainer.nativeElement.scrollTop = this.chatLogContainer.nativeElement.scrollHeight;
+      this.chatLogContainer.nativeElement.scrollTop = 0;
     }
   }
 
   public get visibleMessages() {
     const messages = this.currentConversation?.messages ?? [];
-    return messages;
+    return [...messages].reverse();
   }
 
   public get filteredConversations() {
