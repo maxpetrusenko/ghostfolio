@@ -105,6 +105,40 @@ function getResponseInstruction({
   return `Write a concise response with actionable insight and avoid speculation.`;
 }
 
+function summarizeTurnText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength).trimEnd()}...`;
+}
+
+function formatRecentMemoryTurns(memory: AiAgentMemoryState) {
+  const recentTurns = memory.turns.slice(-3);
+
+  if (recentTurns.length === 0) {
+    return 'none';
+  }
+
+  return recentTurns
+    .map((turn, index) => {
+      const successfulTools = turn.toolCalls
+        .filter(({ status }) => {
+          return status === 'success';
+        })
+        .map(({ tool }) => tool);
+
+      return [
+        `Turn ${index + 1} query: ${summarizeTurnText(turn.query, 160)}`,
+        `Turn ${index + 1} tools: ${successfulTools.join(', ') || 'none'}`,
+        `Turn ${index + 1} answer: ${summarizeTurnText(turn.answer, 220)}`
+      ].join('\n');
+    })
+    .join('\n');
+}
+
 export function isRecommendationIntentQuery(query: string) {
   return RECOMMENDATION_INTENT_PATTERN.test(query.trim().toLowerCase());
 }
@@ -548,6 +582,7 @@ export async function buildAnswer({
   const fallbackAnswer = userPreferences?.responseStyle === 'concise'
     ? fallbackSections.slice(0, 2).join('\n')
     : fallbackSections.join('\n');
+  const recentSessionContext = formatRecentMemoryTurns(memory);
   const recommendationContext = buildRecommendationContext({
     portfolioAnalysis,
     query,
@@ -560,6 +595,8 @@ export async function buildAnswer({
         `Language code: ${languageCode}`,
         `Query: ${query}`,
         `Session turns available: ${memory.turns.length}`,
+        `Recent session context:`,
+        recentSessionContext,
         `Recommendation context (JSON):`,
         JSON.stringify(recommendationContext),
         `Context summary:`,
@@ -579,6 +616,8 @@ export async function buildAnswer({
           `Language code: ${languageCode}`,
           `Query: ${query}`,
           `Session turns available: ${memory.turns.length}`,
+          `Recent session context:`,
+          recentSessionContext,
           `Context summary:`,
           fallbackAnswer,
           `Task: provide decision-grade analysis with explicit reasoning and actionable tradeoffs.`,
@@ -599,6 +638,8 @@ export async function buildAnswer({
         `Language code: ${languageCode}`,
         `Query: ${query}`,
         `Session turns available: ${memory.turns.length}`,
+        `Recent session context:`,
+        recentSessionContext,
         `Context summary:`,
         fallbackAnswer,
         getResponseInstruction({ userPreferences })

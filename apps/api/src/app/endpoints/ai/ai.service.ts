@@ -55,7 +55,8 @@ import {
 import {
   applyToolExecutionPolicy,
   createPolicyRouteResponse,
-  formatPolicyVerificationDetails
+  formatPolicyVerificationDetails,
+  isFollowUpQuery
 } from './ai-agent.policy.utils';
 
 const PORTFOLIO_CONTEXT_SYMBOL_TOOLS = new Set([
@@ -317,10 +318,29 @@ export class AiService {
       ]);
       memoryReadInMs = Date.now() - memoryReadStartedAt;
 
-      const plannedTools = determineToolPlan({
+      const inferredPlannedTools = determineToolPlan({
         query: normalizedQuery,
         symbols
       });
+      const previousTurn =
+        memory.turns.length > 0 ? memory.turns[memory.turns.length - 1] : undefined;
+      const previousSuccessfulTools = previousTurn
+        ? Array.from(
+            new Set(
+              previousTurn.toolCalls
+                .filter(({ status }) => {
+                  return status === 'success';
+                })
+                .map(({ tool }) => tool)
+            )
+          )
+        : [];
+      const plannedTools =
+        inferredPlannedTools.length === 0 &&
+        isFollowUpQuery(normalizedQuery) &&
+        previousSuccessfulTools.length > 0
+          ? previousSuccessfulTools
+          : inferredPlannedTools;
       const policyDecision = applyToolExecutionPolicy({
         plannedTools,
         query: normalizedQuery

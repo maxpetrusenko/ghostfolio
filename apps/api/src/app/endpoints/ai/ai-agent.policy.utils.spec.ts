@@ -2,7 +2,8 @@ import { AiAgentToolName } from './ai-agent.interfaces';
 import {
   applyToolExecutionPolicy,
   createPolicyRouteResponse,
-  formatPolicyVerificationDetails
+  formatPolicyVerificationDetails,
+  isFollowUpQuery
 } from './ai-agent.policy.utils';
 
 describe('AiAgentPolicyUtils', () => {
@@ -137,6 +138,25 @@ describe('AiAgentPolicyUtils', () => {
     expect(createPolicyRouteResponse({ policyDecision: decision })).toContain(
       'Which one should I run next?'
     );
+  });
+
+  it('routes short follow-up prompts to clarify instead of generic no-tool direct fallback', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: [],
+      query: 'why?'
+    });
+
+    expect(decision.route).toBe('clarify');
+    expect(decision.blockReason).toBe('unknown');
+    expect(
+      createPolicyRouteResponse({ policyDecision: decision, query: 'why?' })
+    ).toContain('I can explain the previous result');
+  });
+
+  it('detects follow-up prompts without capturing full market-news questions', () => {
+    expect(isFollowUpQuery('why?')).toBe(true);
+    expect(isFollowUpQuery('what about that?')).toBe(true);
+    expect(isFollowUpQuery('why did tsla drop today?')).toBe(false);
   });
 
   it('routes money-value phrasing with empty planner output to clarify', () => {

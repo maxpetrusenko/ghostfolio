@@ -219,6 +219,14 @@ describe('AiAgentUtils', () => {
     ).toEqual(['get_recent_transactions']);
   });
 
+  it('selects recent transactions tool for command-style query naming', () => {
+    expect(
+      determineToolPlan({
+        query: 'get_recent_transactions'
+      })
+    ).toEqual(['get_recent_transactions']);
+  });
+
   it('selects fundamentals tool for fundamentals prompts', () => {
     expect(
       determineToolPlan({

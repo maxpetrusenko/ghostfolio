@@ -51,6 +51,13 @@ const DIRECT_USAGE_QUERY_PATTERN =
   /\b(?:how do you work|how (?:can|do) i use (?:you|this)|how should i ask)\b/i;
 const DIRECT_CAPABILITY_QUERY_PATTERN =
   /\b(?:what can (?:you|i) do|help|assist(?: me)?|what can you help with)\b/i;
+const FOLLOW_UP_TOKEN_LIMIT = 6;
+const FOLLOW_UP_STANDALONE_QUERY_PATTERNS = [
+  /^\s*(?:why|how|how so|how come|and|then|so)\s*[!.?]*\s*$/i
+];
+const FOLLOW_UP_CONTEXTUAL_QUERY_PATTERNS = [
+  /^\s*(?:what about(?:\s+(?:that|this|it))?|why(?:\s+(?:that|this|it))?|how(?:\s+(?:that|this|it|about\s+that))?|can you explain(?:\s+(?:that|this|it))?|explain(?:\s+(?:that|this|it))?)\s*[!.?]*\s*$/i
+];
 const READ_ONLY_TOOLS = new Set<AiAgentToolName>([
   'get_asset_fundamentals',
   'get_current_holdings',
@@ -122,6 +129,35 @@ function isNoToolDirectQuery(query: string) {
   return (
     SIMPLE_ARITHMETIC_OPERATOR_PATTERN.test(normalized) &&
     /\d/.test(normalized)
+  );
+}
+
+export function isFollowUpQuery(query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return false;
+  }
+
+  const normalizedTokens = normalizedQuery
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (
+    normalizedTokens.length === 0 ||
+    normalizedTokens.length > FOLLOW_UP_TOKEN_LIMIT
+  ) {
+    return false;
+  }
+
+  return (
+    FOLLOW_UP_STANDALONE_QUERY_PATTERNS.some((pattern) => {
+      return pattern.test(normalizedQuery);
+    }) ||
+    FOLLOW_UP_CONTEXTUAL_QUERY_PATTERNS.some((pattern) => {
+      return pattern.test(normalizedQuery);
+    })
   );
 }
 
@@ -441,12 +477,20 @@ export function applyToolExecutionPolicy({
   }
 
   if (deduplicatedPlannedTools.length === 0) {
+    const hasFollowUpIntent = isFollowUpQuery(query);
+
     return {
       blockedByPolicy: false,
-      blockReason: hasReadIntent || hasActionIntent ? 'unknown' : 'no_tool_query',
+      blockReason:
+        hasReadIntent || hasActionIntent || hasFollowUpIntent
+          ? 'unknown'
+          : 'no_tool_query',
       forcedDirect: false,
       plannedTools: [],
-      route: hasReadIntent || hasActionIntent ? 'clarify' : 'direct',
+      route:
+        hasReadIntent || hasActionIntent || hasFollowUpIntent
+          ? 'clarify'
+          : 'direct',
       toolsToExecute: []
     };
   }
@@ -514,6 +558,10 @@ export function createPolicyRouteResponse({
   if (policyDecision.route === 'clarify') {
     if (policyDecision.blockReason === 'needs_confirmation') {
       return `Please confirm your action goal so I can produce a concrete plan. Example: "Rebalance to keep each holding below 35%" or "Allocate 2000 USD across underweight positions."`;
+    }
+
+    if (query && isFollowUpQuery(query)) {
+      return `I can explain the previous result, but I need the target context. Ask a direct follow-up like "Why is my concentration high?" or "Explain that risk summary in detail."`;
     }
 
     return `I can help with allocation review, concentration risk, market prices, and stress scenarios. Which one should I run next? Example: "Show concentration risk" or "Price for NVDA".`;

@@ -453,6 +453,72 @@ describe('AiService', () => {
     );
   });
 
+  it('reuses previous successful tools for short follow-up why-queries', async () => {
+    orderService.getOrders.mockResolvedValue({
+      activities: [
+        {
+          SymbolProfile: { symbol: 'AAPL' },
+          date: new Date('2026-02-20T00:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-aapl',
+          type: 'BUY',
+          valueInBaseCurrency: 1200.5
+        }
+      ],
+      count: 1
+    });
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-follow-up-why-session-follow-up-why') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer: 'Recent transactions: BUY AAPL 1200.50 USD.',
+              query: 'Show my recent transactions',
+              timestamp: '2026-02-24T18:40:00.000Z',
+              toolCalls: [{ status: 'success', tool: 'get_recent_transactions' }]
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'why?',
+      sessionId: 'session-follow-up-why',
+      userCurrency: 'USD',
+      userId: 'user-follow-up-why'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_recent_transactions'
+        })
+      ])
+    );
+    expect(result.answer).toContain('Recent transactions:');
+    expect(result.answer).not.toContain('I am Ghostfolio AI');
+  });
+
+  it('returns targeted clarification for short follow-up queries without prior context', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'why?',
+      sessionId: 'session-follow-up-no-context',
+      userCurrency: 'USD',
+      userId: 'user-follow-up-no-context'
+    });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.answer).toContain('I can explain the previous result');
+  });
+
   it('persists and recalls cross-session user preferences for the same user', async () => {
     const redisStore = new Map<string, string>();
     redisCacheService.get.mockImplementation(async (key: string) => {

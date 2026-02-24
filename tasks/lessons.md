@@ -71,3 +71,7 @@ Updated: 2026-02-24
 17. Context: Analysis-page embedded AI panel perceived as stale after successful responses
    Mistake: Chat success updated only local message state and did not trigger parent analysis data refresh.
    Rule: Emit a chat-success event from embedded AI panels and let parent containers refresh dependent UI state explicitly.
+
+18. Context: Short follow-up prompts after tool-backed answers (`why?`, `explain that`)
+   Mistake: Planner emitted no tools, so policy route fell back to generic capability replies and broke conversational continuity.
+   Rule: Detect short contextual follow-ups and reuse previous successful tool context when planner output is empty, with regression tests for both with-context and no-context paths.

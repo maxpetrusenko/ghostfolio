@@ -457,3 +457,18 @@ Last updated: 2026-02-24
 - `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (22/22 tests passed)
 - `npx nx run api:build --skip-nx-cache` (passed)
 - `npx nx run client:build --skip-nx-cache --verbose` (passed; warning-only output for existing translation/locale settings)
+
+## Session Plan (2026-02-24, Follow-Up Query Consistency)
+
+- [x] Reproduce short follow-up failure mode (`why?`) and command-style follow-up mismatch (`get_recent_transactions`).
+- [x] Add explicit follow-up query detection in policy routing to avoid generic capability fallback for context-dependent prompts.
+- [x] Reuse prior successful tool(s) for short follow-up turns when planner emits no tools.
+- [x] Add deterministic regression tests for policy routing, service follow-up behavior, and command-style transaction query handling.
+- [x] Run focused AI backend verification and capture outcomes.
+
+### Verification (2026-02-24, Follow-Up Query Consistency)
+
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts --runInBand` (45/45 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts --runInBand` (90/90 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (24/24 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.simple-interactions.spec.ts --runInBand` (1/1 tests passed)
