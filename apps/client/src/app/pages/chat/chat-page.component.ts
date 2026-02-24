@@ -9,7 +9,14 @@ import { hasPermission, permissions } from '@ghostfolio/common/permissions';
 import { DataService } from '@ghostfolio/ui/services';
 
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  ElementRef,
+  OnDestroy,
+  OnInit,
+  ViewChild
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -20,6 +27,11 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
+
+interface ChatModelOption {
+  id: string;
+  label: string;
+}
 
 @Component({
   imports: [
@@ -42,12 +54,28 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   chatLogContainer: ElementRef<HTMLElement>;
   public readonly assistantRoleLabel = $localize`Assistant`;
   public activeResponseDetails: AiAgentChatResponse | undefined;
+  public conversationSearchQuery = '';
   public conversations: AiChatConversation[] = [];
   public currentConversation: AiChatConversation | undefined;
   public errorMessage: string;
   public hasPermissionToReadAiPrompt = false;
   public isSubmitting = false;
+  public readonly modelOptions: ChatModelOption[] = [
+    {
+      id: 'auto',
+      label: $localize`Auto`
+    },
+    {
+      id: 'glm',
+      label: 'GLM-5'
+    },
+    {
+      id: 'minimax',
+      label: 'MiniMax-M2.5'
+    }
+  ];
   public query = '';
+  public selectedModelId = this.modelOptions[0].id;
   public readonly starterPrompts = [
     $localize`Give me a portfolio risk summary.`,
     $localize`What are my top concentration risks right now?`,
@@ -112,6 +140,28 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   public get visibleMessages() {
     const messages = this.currentConversation?.messages ?? [];
     return [...messages].reverse();
+  }
+
+  public get filteredConversations() {
+    const normalizedQuery = this.conversationSearchQuery
+      .toLowerCase()
+      .trim();
+
+    if (!normalizedQuery) {
+      return this.conversations;
+    }
+
+    return this.conversations.filter((conversation) => {
+      return conversation.title.toLowerCase().includes(normalizedQuery);
+    });
+  }
+
+  public get selectedModelLabel() {
+    return (
+      this.modelOptions.find(({ id }) => {
+        return id === this.selectedModelId;
+      })?.label ?? this.modelOptions[0].label
+    );
   }
 
   public getRoleLabel(role: AiChatMessage['role']) {
@@ -226,6 +276,10 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
   public onSelectStarterPrompt(prompt: string) {
     this.query = prompt;
+  }
+
+  public onSelectModel(modelId: string) {
+    this.selectedModelId = modelId;
   }
 
   public onSubmit() {

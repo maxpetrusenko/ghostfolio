@@ -201,6 +201,14 @@ Last updated: 2026-02-24
 - [x] Add or update unit tests for chat persistence and policy simple-query routing.
 - [x] Run focused verification on touched frontend/backend AI suites and update task tracking artifacts.
 
+## Session Plan (2026-02-24, Portfolio Chat UX Completion + Deploy Verification)
+
+- [x] Confirm `/portfolio` default route lands on `/portfolio/chat` in current branch build output.
+- [x] Ensure newest-first rendering in both chat surfaces (`chat-page` and analysis `ai-chat-panel`) with stable feedback targeting.
+- [x] Add missing chat UX elements on `chat-page` (history search + model selector control) for ChatGPT-style flow parity.
+- [x] Run focused frontend verification on touched chat files.
+- [ ] Push to GitHub and redeploy Railway; verify `/en/portfolio` and `/en/portfolio/chat` behavior.
+
 ## Session Plan (2026-02-24, Per-LLM LangSmith Invocation Tracing)
 
 - [x] Audit current AI provider call path and verify where LangSmith/LangChain tracing is missing.

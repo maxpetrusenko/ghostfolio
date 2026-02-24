@@ -328,6 +328,28 @@ describe('GfAiChatPanelComponent', () => {
     );
   });
 
+  it('returns a newest-first derived view list without mutating source order', () => {
+    component.chatMessages = [
+      {
+        content: 'First message',
+        createdAt: new Date(),
+        id: 0,
+        role: 'user'
+      },
+      {
+        content: 'Second message',
+        createdAt: new Date(),
+        id: 1,
+        role: 'assistant'
+      }
+    ];
+
+    const visibleMessages = component.visibleMessages;
+
+    expect(visibleMessages.map(({ id }) => id)).toEqual([1, 0]);
+    expect(component.chatMessages.map(({ id }) => id)).toEqual([0, 1]);
+  });
+
   it('sends feedback for assistant responses', () => {
     dataService.postAiChat.mockReturnValue(
       of(
@@ -347,7 +369,7 @@ describe('GfAiChatPanelComponent', () => {
     component.query = 'Check my portfolio';
 
     component.onSubmit();
-    component.onRateResponse({ index: 1, rating: 'up' });
+    component.onRateResponse({ messageId: 1, rating: 'up' });
 
     expect(dataService.postAiChatFeedback).toHaveBeenCalledWith({
       rating: 'up',

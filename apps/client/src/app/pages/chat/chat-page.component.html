@@ -18,9 +18,20 @@
             </span>
           </button>
 
+          <mat-form-field class="mt-3 w-100">
+            <mat-label i18n>Search chats</mat-label>
+            <input
+              aria-label="Search chats"
+              i18n-aria-label
+              matInput
+              type="text"
+              [(ngModel)]="conversationSearchQuery"
+            />
+          </mat-form-field>
+
           <div class="conversation-list mt-3">
             @for (
-              conversation of conversations;
+              conversation of filteredConversations;
               track trackConversationById($index, conversation)
             ) {
               <div class="align-items-center conversation-row d-flex mb-2">
@@ -48,6 +59,10 @@
                   <mat-icon aria-hidden="true">delete</mat-icon>
                 </button>
               </div>
+            }
+
+            @if (filteredConversations.length === 0) {
+              <div class="small text-muted" i18n>No chats found</div>
             }
           </div>
         </mat-card-content>
@@ -88,7 +103,7 @@
               ></textarea>
             </mat-form-field>
 
-            <div class="align-items-center d-flex mb-3">
+            <div class="align-items-center d-flex mb-3 composer-controls">
               <button
                 color="primary"
                 mat-flat-button
@@ -98,6 +113,16 @@
               >
                 <ng-container i18n>Send</ng-container>
               </button>
+
+              <button
+                class="ml-2"
+                mat-stroked-button
+                type="button"
+                [matMenuTriggerFor]="modelMenu"
+              >
+                <span i18n>Model</span>: {{ selectedModelLabel }}
+              </button>
+
               @if (isSubmitting) {
                 <mat-spinner class="ml-3" color="accent" [diameter]="20" />
               }
@@ -229,6 +254,18 @@
                   <span class="text-muted" i18n>No response details available.</span>
                 }
               </div>
+            </mat-menu>
+
+            <mat-menu #modelMenu="matMenu" xPosition="before">
+              @for (modelOption of modelOptions; track modelOption.id) {
+                <button
+                  mat-menu-item
+                  type="button"
+                  (click)="onSelectModel(modelOption.id)"
+                >
+                  {{ modelOption.label }}
+                </button>
+              }
             </mat-menu>
           }
         </mat-card-content>

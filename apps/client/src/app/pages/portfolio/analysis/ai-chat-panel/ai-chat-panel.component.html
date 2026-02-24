@@ -60,7 +60,7 @@
       }
 
       <div aria-live="polite" aria-relevant="additions text" class="chat-log" role="log">
-        @for (message of chatMessages; track message.id) {
+        @for (message of visibleMessages; track message.id) {
           <div
             class="chat-message mb-3 p-3 rounded"
             [class.assistant]="message.role === 'assistant'"
@@ -98,7 +98,7 @@
                   [disabled]="
                     message.feedback.isSubmitting || !!message.feedback.rating
                   "
-                  (click)="onRateResponse({ index: $index, rating: 'up' })"
+                  (click)="onRateResponse({ messageId: message.id, rating: 'up' })"
                 >
                   <ng-container i18n>Helpful</ng-container>
                 </button>
@@ -108,7 +108,7 @@
                   [disabled]="
                     message.feedback.isSubmitting || !!message.feedback.rating
                   "
-                  (click)="onRateResponse({ index: $index, rating: 'down' })"
+                  (click)="onRateResponse({ messageId: message.id, rating: 'down' })"
                 >
                   <ng-container i18n>Needs work</ng-container>
                 </button>

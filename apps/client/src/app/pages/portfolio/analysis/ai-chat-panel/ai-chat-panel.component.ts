@@ -97,13 +97,15 @@ export class GfAiChatPanelComponent implements OnDestroy {
   }
 
   public onRateResponse({
-    index,
+    messageId,
     rating
   }: {
-    index: number;
+    messageId: number;
     rating: 'down' | 'up';
   }) {
-    const message = this.chatMessages[index];
+    const message = this.chatMessages.find(({ id }) => {
+      return id === messageId;
+    });
 
     if (!message?.response?.memory?.sessionId) {
       return;
@@ -113,11 +115,16 @@ export class GfAiChatPanelComponent implements OnDestroy {
       return;
     }
 
-    this.updateMessage(index, {
-      ...message,
-      feedback: {
-        ...message.feedback,
-        isSubmitting: true
+    this.updateMessage({
+      messageId,
+      updater: (currentMessage) => {
+        return {
+          ...currentMessage,
+          feedback: {
+            ...currentMessage.feedback,
+            isSubmitting: true
+          }
+        };
       }
     });
 
@@ -129,21 +136,31 @@ export class GfAiChatPanelComponent implements OnDestroy {
       .pipe(takeUntil(this.unsubscribeSubject))
       .subscribe({
         next: ({ feedbackId }) => {
-          this.updateMessage(index, {
-            ...message,
-            feedback: {
-              feedbackId,
-              isSubmitting: false,
-              rating
+          this.updateMessage({
+            messageId,
+            updater: (currentMessage) => {
+              return {
+                ...currentMessage,
+                feedback: {
+                  feedbackId,
+                  isSubmitting: false,
+                  rating
+                }
+              };
             }
           });
         },
         error: () => {
-          this.updateMessage(index, {
-            ...message,
-            feedback: {
-              ...message.feedback,
-              isSubmitting: false
+          this.updateMessage({
+            messageId,
+            updater: (currentMessage) => {
+              return {
+                ...currentMessage,
+                feedback: {
+                  ...currentMessage.feedback,
+                  isSubmitting: false
+                }
+              };
             }
           });
         }
@@ -226,6 +243,10 @@ export class GfAiChatPanelComponent implements OnDestroy {
 
   public getRoleLabel(role: AiChatMessage['role']) {
     return role === 'assistant' ? this.assistantRoleLabel : this.userRoleLabel;
+  }
+
+  public get visibleMessages() {
+    return [...this.chatMessages].reverse();
   }
 
   private appendMessage(message: AiChatMessage) {
@@ -342,10 +363,28 @@ export class GfAiChatPanelComponent implements OnDestroy {
     };
   }
 
-  private updateMessage(index: number, updatedMessage: AiChatMessage) {
-    this.chatMessages = this.chatMessages.map((message, messageIndex) => {
-      return messageIndex === index ? updatedMessage : message;
+  private updateMessage({
+    messageId,
+    updater
+  }: {
+    messageId: number;
+    updater: (message: AiChatMessage) => AiChatMessage;
+  }) {
+    let hasUpdatedMessage = false;
+
+    this.chatMessages = this.chatMessages.map((message) => {
+      if (message.id !== messageId) {
+        return message;
+      }
+
+      hasUpdatedMessage = true;
+      return updater(message);
     });
+
+    if (!hasUpdatedMessage) {
+      return;
+    }
+
     this.persistChatState();
     this.changeDetectorRef.markForCheck();
   }

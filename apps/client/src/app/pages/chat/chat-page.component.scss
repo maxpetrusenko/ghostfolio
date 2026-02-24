@@ -118,6 +118,16 @@ textarea::selection {
   gap: 0.25rem;
 }
 
+.composer-controls {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.composer-controls .ml-2,
+.composer-controls .ml-3 {
+  margin-left: 0 !important;
+}
+
 .role-label {
   letter-spacing: 0.03em;
 }
