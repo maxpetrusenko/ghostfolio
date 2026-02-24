@@ -26,6 +26,7 @@ import { Module } from '@nestjs/common';
 import { AiController } from './ai.controller';
 import { AiFeedbackService } from './ai-feedback.service';
 import { AiObservabilityService } from './ai-observability.service';
+import { AiAgentWebSearchService } from './ai-agent.web-search';
 import { AiService } from './ai.service';
 
 @Module({
@@ -50,6 +51,7 @@ import { AiService } from './ai.service';
   providers: [
     AccountBalanceService,
     AccountService,
+    AiAgentWebSearchService,
     AiFeedbackService,
     AiObservabilityService,
     AiService,

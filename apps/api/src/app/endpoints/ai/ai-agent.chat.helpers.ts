@@ -916,3 +916,39 @@ export async function setUserPreferences({
     AI_AGENT_USER_PREFERENCES_TTL
   );
 }
+
+export async function fetchSymbolNames({
+  dataProviderService,
+  symbols
+}: {
+  dataProviderService: DataProviderService;
+  symbols: string[];
+}): Promise<Map<string, string>> {
+  const symbolNames = new Map<string, string>();
+
+  if (symbols.length === 0) {
+    return symbolNames;
+  }
+
+  try {
+    const profilesBySymbol = await dataProviderService.getAssetProfiles(symbols);
+
+    for (const symbol of symbols) {
+      if (symbolNames.has(symbol)) {
+        continue;
+      }
+
+      const profile = profilesBySymbol[symbol];
+      const name = profile?.name?.trim() || symbol;
+      symbolNames.set(symbol, name);
+    }
+  } catch {
+    for (const symbol of symbols) {
+      if (!symbolNames.has(symbol)) {
+        symbolNames.set(symbol, symbol);
+      }
+    }
+  }
+
+  return symbolNames;
+}
