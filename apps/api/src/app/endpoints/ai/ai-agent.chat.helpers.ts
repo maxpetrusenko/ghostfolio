@@ -372,10 +372,12 @@ export async function buildAnswer({
   financialNewsSummary?: string;
   generateText: ({
     prompt,
-    signal
+    signal,
+    model
   }: {
     prompt: string;
     signal?: AbortSignal;
+    model?: string;
   }) => Promise<{ text?: string }>;
   languageCode: string;
   marketData?: MarketDataLookupResult;

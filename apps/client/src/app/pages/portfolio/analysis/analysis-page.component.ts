@@ -90,6 +90,7 @@ export class GfAnalysisPageComponent implements OnDestroy, OnInit {
   public isLoadingInvestmentTimelineChart: boolean;
   public isLoadingPortfolioPrompt: boolean;
   public mode: GroupBy = 'month';
+  private aiChatRefreshTimer?: ReturnType<typeof setTimeout>;
   public modeOptions: ToggleOption[] = [
     { label: $localize`Monthly`, value: 'month' },
     { label: $localize`Yearly`, value: 'year' }
@@ -228,10 +229,21 @@ export class GfAnalysisPageComponent implements OnDestroy, OnInit {
   public ngOnDestroy() {
     this.unsubscribeSubject.next();
     this.unsubscribeSubject.complete();
+
+    if (this.aiChatRefreshTimer) {
+      clearTimeout(this.aiChatRefreshTimer);
+    }
   }
 
   public onAiChatCompleted() {
-    this.update();
+    if (this.aiChatRefreshTimer) {
+      clearTimeout(this.aiChatRefreshTimer);
+    }
+
+    this.aiChatRefreshTimer = setTimeout(() => {
+      this.aiChatRefreshTimer = undefined;
+      this.update();
+    }, 800);
   }
 
   private fetchDividendsAndInvestments() {

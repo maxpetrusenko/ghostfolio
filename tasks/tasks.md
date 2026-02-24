@@ -423,3 +423,18 @@ Last updated: 2026-02-24
 - [x] Add missing requested tools (`transaction_categorize`, `tax_estimate`, `compliance_check`) with deterministic summaries
 - [x] Wire routing/policy + tests for new tools and run AI test suite
 - [x] Provide deploy-speed recommendations with concrete next-step changes
+
+## Session Plan (2026-02-24, AI Execution Throughput)
+
+- [x] Parallelize independent AI tool execution in `AiService.chat`
+- [x] Add request-scoped memoization for portfolio/orders/quotes/profiles/news fetches
+- [x] Keep deterministic tool-call ordering and existing policy behavior
+- [x] Add regression tests for de-duplicated backend calls and parallel-safe behavior
+- [x] Run focused AI verification suite and capture evidence
+
+### Verification (2026-02-24, AI Execution Throughput)
+
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts --runInBand` (89/89 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (22/22 tests passed)
+- `npx nx run api:build --skip-nx-cache` (passed)
+- `npx nx run client:build --skip-nx-cache --verbose` (passed; warning-only output for existing translation/locale settings)

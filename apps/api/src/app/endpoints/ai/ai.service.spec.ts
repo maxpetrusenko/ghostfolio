@@ -590,6 +590,7 @@ describe('AiService', () => {
         })
       ])
     );
+    expect(portfolioService.getDetails).toHaveBeenCalledTimes(1);
   });
 
   it('returns deterministic diversification action guidance when generated output is unreliable', async () => {
@@ -952,6 +953,44 @@ describe('AiService', () => {
     expect(result.answer).toContain('Transaction categorization:');
     expect(result.answer).toContain('Tax estimate (assumption-based):');
     expect(result.answer).toContain('Compliance check:');
+    expect(orderService.getOrders).toHaveBeenCalledTimes(1);
+    expect(orderService.getOrders).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sortColumn: 'date',
+        sortDirection: 'desc',
+        take: 100,
+        userCurrency: 'USD',
+        userId: 'user-ops-tools'
+      })
+    );
+  });
+
+  it('reuses one quote lookup for combined market and live quote tools', async () => {
+    dataProviderService.getQuotes.mockResolvedValue({
+      NVDA: {
+        currency: 'USD',
+        marketPrice: 950.5,
+        marketState: 'REGULAR'
+      }
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Show the latest live quote for NVDA',
+      sessionId: 'session-live-quote-cache',
+      userCurrency: 'USD',
+      userId: 'user-live-quote-cache'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'market_data_lookup' }),
+        expect.objectContaining({ tool: 'get_live_quote' })
+      ])
+    );
+    expect(dataProviderService.getQuotes).toHaveBeenCalledTimes(1);
   });
 
   it('uses z.ai glm provider when z_ai_glm_api_key is available', async () => {

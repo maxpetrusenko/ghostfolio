@@ -1,9 +1,9 @@
 import { DataProviderService } from '@ghostfolio/api/services/data-provider/data-provider.service';
-
 import { fetchSymbolNames } from './ai-agent.chat.helpers';
-import { AiAgentWebSearchService } from './ai-agent.web-search';
 
-interface NewsResultItem {
+const NEWS_SYMBOL_LIMIT = 2;
+
+export interface AiAgentStockNewsItem {
   link: string;
   publishedDate?: string;
   snippet: string;
@@ -11,9 +11,21 @@ interface NewsResultItem {
   title: string;
 }
 
+export interface AiAgentStockNewsResult {
+  results: AiAgentStockNewsItem[];
+  success: boolean;
+}
+
+export interface AiAgentWebSearchService {
+  searchStockNews: (
+    symbol: string,
+    companyName?: string
+  ) => Promise<AiAgentStockNewsResult>;
+}
+
 interface NewsResponse {
   query: string;
-  results: NewsResultItem[];
+  results: AiAgentStockNewsItem[];
   totalResults: number;
 }
 
@@ -43,7 +55,15 @@ export async function searchWebNewsForSymbols({
   const searchResultsBySymbol = new Map<string, SymbolNewsData>();
   const symbolsSearched: string[] = [];
 
-  if (symbols.length === 0) {
+  const normalizedSymbols = Array.from(
+    new Set(
+      symbols
+        .map((symbol) => symbol.trim().toUpperCase())
+        .filter(Boolean)
+    )
+  ).slice(0, NEWS_SYMBOL_LIMIT);
+
+  if (normalizedSymbols.length === 0) {
     return {
       formattedSummary: '',
       searchResultsBySymbol,
@@ -55,16 +75,22 @@ export async function searchWebNewsForSymbols({
   const symbolNames = await fetchSymbolNames({
     dataProviderService,
     portfolioAnalysis,
-    symbols
+    symbols: normalizedSymbols
   });
 
-  for (const symbol of symbols) {
-    const name = symbolNames.get(symbol) || symbol;
-    const searchResult = await aiAgentWebSearchService.searchStockNews(
-      symbol,
-      name
-    );
+  const searchEntries = await Promise.all(
+    normalizedSymbols.map(async (symbol) => {
+      const name = symbolNames.get(symbol) || symbol;
 
+      return {
+        symbol,
+        name,
+        searchResult: await aiAgentWebSearchService.searchStockNews(symbol, name)
+      };
+    })
+  );
+
+  for (const { name, searchResult, symbol } of searchEntries) {
     if (searchResult.success && searchResult.results.length > 0) {
       searchResultsBySymbol.set(symbol, {
         name,

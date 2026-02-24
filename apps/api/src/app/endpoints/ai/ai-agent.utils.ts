@@ -242,6 +242,9 @@ const TAX_ESTIMATE_QUERY_PATTERNS = [
   /\b(?:tax|taxes|liability|owed|owe)\b.*\b(?:estimate|estimat(?:e|ion)|calculate|calc)\b/,
   /\b(?:estimate|calculat(?:e|ion))\b.*\b(?:tax|liability)\b/
 ];
+const COMPANY_ALIAS_CONTEXT_PATTERNS = [
+  /\b(?:asset|company|earnings?|fundamental|fundamentals|market|news|price|quote|stock|ticker|valuation|portfolio|holding|investment|invest|buy|sell|trade|dividend|rebalance|compare)\b/
+];
 const COMPLIANCE_CHECK_QUERY_PATTERNS = [
   /\b(?:compliance|regulat(?:ion|ory)|policy)\b.*\b(?:check|review|scan)\b/,
   /\b(?:violations?|warnings?|restricted|rule\s+check)\b/
@@ -451,10 +454,21 @@ function normalizeSymbolCandidate(rawCandidate: string) {
 }
 
 export function extractSymbolsFromQuery(query: string) {
+  const normalizedQuery = normalizeIntentQuery(query);
+  const hasCompanyAliasContext = COMPANY_ALIAS_CONTEXT_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
   const matches = query.match(CANDIDATE_TICKER_PATTERN) ?? [];
-  const aliasSymbols = COMPANY_ALIAS_PATTERNS.filter(({ pattern }) => {
+  const aliasMatches = COMPANY_ALIAS_PATTERNS.filter(({ pattern }) => {
     return pattern.test(query);
-  }).map(({ symbol }) => symbol);
+  });
+  const hasMultipleAliasMatches = aliasMatches.length > 1;
+
+  const aliasSymbols = aliasMatches
+    .filter(() => {
+      return hasCompanyAliasContext || hasMultipleAliasMatches;
+    })
+    .map(({ symbol }) => symbol);
 
   return Array.from(
     new Set(

@@ -675,16 +675,19 @@ export class DataService {
   public postAiChat({
     query,
     sessionId,
-    symbols
+    symbols,
+    model
   }: {
     query: string;
     sessionId?: string;
     symbols?: string[];
+    model?: string;
   }) {
     return this.http.post<AiAgentChatResponse>('/api/v1/ai/chat', {
       query,
       sessionId,
-      symbols
+      symbols,
+      model
     });
   }
 

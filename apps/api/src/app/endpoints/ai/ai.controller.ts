@@ -74,6 +74,7 @@ export class AiController {
     return this.aiService.chat({
       languageCode: this.request.user.settings.settings.language,
       query: data.query,
+      ...(data.model ? { model: data.model } : {}),
       sessionId: data.sessionId,
       symbols: data.symbols,
       userCurrency: this.request.user.settings.settings.baseCurrency,

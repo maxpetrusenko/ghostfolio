@@ -13,5 +13,8 @@ export class AiChatDto {
   @IsArray()
   @IsString({ each: true })
   public symbols?: string[];
-}
 
+  @IsOptional()
+  @IsString()
+  public model?: string;
+}

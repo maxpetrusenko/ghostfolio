@@ -18,6 +18,7 @@ import { generateText } from 'ai';
 import { randomUUID } from 'node:crypto';
 import {
   AiAgentChatResponse,
+  AiAgentToolName,
   AiAgentToolCall
 } from './ai-agent.interfaces';
 import {
@@ -56,6 +57,28 @@ import {
   createPolicyRouteResponse,
   formatPolicyVerificationDetails
 } from './ai-agent.policy.utils';
+
+const PORTFOLIO_CONTEXT_SYMBOL_TOOLS = new Set([
+  'calculate_rebalance_plan',
+  'get_asset_fundamentals',
+  'get_current_holdings',
+  'get_portfolio_risk_metrics',
+  'get_portfolio_summary',
+  'portfolio_analysis',
+  'rebalance_plan',
+  'risk_assessment',
+  'simulate_trade_impact',
+  'stress_test'
+]);
+const ORDER_TOOL_TAKE_BY_NAME: Partial<Record<AiAgentToolName, number>> = {
+  get_recent_transactions: 5,
+  transaction_categorize: 50,
+  compliance_check: 100
+};
+type OrderActivity = Awaited<
+  ReturnType<OrderService['getOrders']>
+>['activities'][number];
+
 @Injectable()
 export class AiService {
   public constructor(
@@ -69,10 +92,12 @@ export class AiService {
   public async generateText({
     prompt,
     signal,
+    model,
     traceContext
   }: {
     prompt: string;
     signal?: AbortSignal;
+    model?: string;
     traceContext?: {
       query?: string;
       sessionId?: string;
@@ -85,6 +110,15 @@ export class AiService {
     const minimaxApiKey =
       process.env.minimax_api_key ?? process.env.MINIMAX_API_KEY;
     const minimaxModel = process.env.minimax_model ?? process.env.MINIMAX_MODEL;
+    const normalizedModel = (model ?? 'auto').toLowerCase();
+    const requestedModel = ['auto', 'glm', 'minimax'].includes(normalizedModel)
+      ? normalizedModel
+      : 'auto';
+    const shouldTryGlm = requestedModel === 'auto' || requestedModel === 'glm';
+    const shouldTryMinimax =
+      requestedModel === 'auto' || requestedModel === 'minimax';
+    const providerUnavailable = (provider: string) =>
+      `${provider}: not configured`;
     const providerErrors: string[] = [];
     const invokeProviderWithTracing = async ({
       model,
@@ -162,43 +196,55 @@ export class AiService {
       );
     };
 
-    if (zAiGlmApiKey) {
-      try {
-        return await invokeProviderWithTracing({
-          model: zAiGlmModel ?? 'glm-5',
-          provider: 'z_ai_glm',
-          run: () =>
-            generateTextWithZAiGlm({
-              apiKey: zAiGlmApiKey,
-              model: zAiGlmModel,
-              prompt,
-              signal
-            })
-        });
-      } catch (error) {
-        providerErrors.push(
-          `z_ai_glm: ${error instanceof Error ? error.message : 'request failed'}`
-        );
+    if (shouldTryGlm) {
+      if (!zAiGlmApiKey) {
+        if (requestedModel === 'glm') {
+          providerErrors.push(providerUnavailable('z_ai_glm'));
+        }
+      } else {
+        try {
+          return await invokeProviderWithTracing({
+            model: zAiGlmModel ?? 'glm-5',
+            provider: 'z_ai_glm',
+            run: () =>
+              generateTextWithZAiGlm({
+                apiKey: zAiGlmApiKey,
+                model: zAiGlmModel,
+                prompt,
+                signal
+              })
+          });
+        } catch (error) {
+          providerErrors.push(
+            `z_ai_glm: ${error instanceof Error ? error.message : 'request failed'}`
+          );
+        }
       }
     }
 
-    if (minimaxApiKey) {
-      try {
-        return await invokeProviderWithTracing({
-          model: minimaxModel ?? 'MiniMax-M2.5',
-          provider: 'minimax',
-          run: () =>
-            generateTextWithMinimax({
-              apiKey: minimaxApiKey,
-              model: minimaxModel,
-              prompt,
-              signal
-            })
-        });
-      } catch (error) {
-        providerErrors.push(
-          `minimax: ${error instanceof Error ? error.message : 'request failed'}`
-        );
+    if (shouldTryMinimax) {
+      if (!minimaxApiKey) {
+        if (requestedModel === 'minimax') {
+          providerErrors.push(providerUnavailable('minimax'));
+        }
+      } else {
+        try {
+          return await invokeProviderWithTracing({
+            model: minimaxModel ?? 'MiniMax-M2.5',
+            provider: 'minimax',
+            run: () =>
+              generateTextWithMinimax({
+                apiKey: minimaxApiKey,
+                model: minimaxModel,
+                prompt,
+                signal
+              })
+          });
+        } catch (error) {
+          providerErrors.push(
+            `minimax: ${error instanceof Error ? error.message : 'request failed'}`
+          );
+        }
       }
     }
 
@@ -236,6 +282,7 @@ export class AiService {
     query,
     sessionId,
     symbols,
+    model,
     userCurrency,
     userId
   }: {
@@ -243,6 +290,7 @@ export class AiService {
     query: string;
     sessionId?: string;
     symbols?: string[];
+    model?: string;
     userCurrency: string;
     userId: string;
   }): Promise<AiAgentChatResponse> {
@@ -298,540 +346,664 @@ export class AiService {
       let tradeImpactSummary: string | undefined;
       let transactionCategorizationSummary: string | undefined;
 
-      for (const toolName of policyDecision.toolsToExecute) {
-        const toolStartedAt = Date.now();
+      const shouldUsePortfolioContextForSymbols =
+        policyDecision.toolsToExecute.some((toolName) => {
+          return PORTFOLIO_CONTEXT_SYMBOL_TOOLS.has(toolName);
+        });
+      const maxOrderTakeForRequest = policyDecision.toolsToExecute.reduce(
+        (maxTake, toolName) => {
+          const requiredTake = ORDER_TOOL_TAKE_BY_NAME[toolName] ?? 0;
 
-        try {
-          if (toolName === 'portfolio_analysis') {
-            portfolioAnalysis = await runPortfolioAnalysis({
-              portfolioService: this.portfolioService,
-              userId
-            });
+          return Math.max(maxTake, requiredTake);
+        },
+        0
+      );
+      let portfolioAnalysisPromise:
+        | Promise<Awaited<ReturnType<typeof runPortfolioAnalysis>>>
+        | undefined;
+      let resolvedSymbolsPromise: Promise<string[]> | undefined;
+      let orderActivitiesPromise: Promise<OrderActivity[]> | undefined;
+      const marketDataBySymbolsCache = new Map<
+        string,
+        Promise<Awaited<ReturnType<typeof runMarketDataLookup>>>
+      >();
+      const assetProfilesBySymbolsCache = new Map<
+        string,
+        Promise<Record<string, Partial<SymbolProfile>>>
+      >();
+      const financialNewsBySymbolsCache = new Map<
+        string,
+        Promise<{ link: string; symbol: string; title: string }[]>
+      >();
 
-            toolCalls.push({
-              input: {},
-              outputSummary: `${portfolioAnalysis.holdingsCount} holdings analyzed`,
-              status: 'success',
-              tool: toolName
-            });
+      const getPortfolioAnalysis = () => {
+        if (!portfolioAnalysisPromise) {
+          portfolioAnalysisPromise = runPortfolioAnalysis({
+            portfolioService: this.portfolioService,
+            userId
+          }).then((analysis) => {
+            portfolioAnalysis = analysis;
 
-            citations.push({
-              confidence: 0.9,
-              snippet: `${portfolioAnalysis.holdingsCount} holdings, total ${portfolioAnalysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}`,
-              source: toolName
-            });
-          } else if (toolName === 'get_portfolio_summary') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            toolCalls.push({
-              input: {},
-              outputSummary: `portfolio total ${portfolioAnalysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.9,
-              snippet: `Portfolio summary: ${portfolioAnalysis.holdingsCount} holdings, total ${portfolioAnalysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}`,
-              source: toolName
-            });
-          } else if (toolName === 'get_current_holdings') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            const holdingsSummary = portfolioAnalysis.holdings
-              .slice(0, 3)
-              .map(({ allocationInPercentage, symbol }) => {
-                return `${symbol} ${(allocationInPercentage * 100).toFixed(1)}%`;
-              })
-              .join(', ');
-
-            toolCalls.push({
-              input: {},
-              outputSummary: `${portfolioAnalysis.holdingsCount} current holdings returned`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.88,
-              snippet:
-                holdingsSummary.length > 0
-                  ? `Current holdings: ${holdingsSummary}`
-                  : 'Current holdings are available with no active positions',
-              source: toolName
-            });
-          } else if (toolName === 'risk_assessment') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            riskAssessment = runRiskAssessment({
-              portfolioAnalysis
-            });
-
-            toolCalls.push({
-              input: {},
-              outputSummary: `concentration ${riskAssessment.concentrationBand}`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.85,
-              snippet: `top allocation ${(riskAssessment.topHoldingAllocation * 100).toFixed(2)}%, HHI ${riskAssessment.hhi.toFixed(3)}`,
-              source: toolName
-            });
-          } else if (toolName === 'get_portfolio_risk_metrics') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            if (!riskAssessment) {
-              riskAssessment = runRiskAssessment({
-                portfolioAnalysis
-              });
-            }
-
-            toolCalls.push({
-              input: {},
-              outputSummary: `risk metrics ${riskAssessment.concentrationBand} with HHI ${riskAssessment.hhi.toFixed(3)}`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.87,
-              snippet: `Risk metrics: concentration ${riskAssessment.concentrationBand}, top allocation ${(riskAssessment.topHoldingAllocation * 100).toFixed(2)}%, HHI ${riskAssessment.hhi.toFixed(3)}`,
-              source: toolName
-            });
-          } else if (toolName === 'market_data_lookup') {
-            const requestedSymbols = resolveSymbols({
-              portfolioAnalysis,
-              query: normalizedQuery,
-              symbols
-            });
-
-            marketData = await runMarketDataLookup({
-              dataProviderService: this.dataProviderService,
-              portfolioAnalysis,
-              symbols: requestedSymbols
-            });
-
-            toolCalls.push({
-              input: { symbols: requestedSymbols },
-              outputSummary: `${marketData.quotes.length}/${marketData.symbolsRequested.length} quotes resolved`,
-              status: 'success',
-              tool: toolName
-            });
-
-            if (marketData.quotes.length > 0) {
-              const topQuote = marketData.quotes[0];
-
-              citations.push({
-                confidence: 0.82,
-                snippet: `${topQuote.symbol} ${topQuote.marketPrice.toFixed(2)} ${topQuote.currency}`,
-                source: toolName
-              });
-            }
-          } else if (toolName === 'get_live_quote') {
-            const requestedSymbols = resolveSymbols({
-              portfolioAnalysis,
-              query: normalizedQuery,
-              symbols
-            });
-
-            marketData = await runMarketDataLookup({
-              dataProviderService: this.dataProviderService,
-              portfolioAnalysis,
-              symbols: requestedSymbols
-            });
-
-            toolCalls.push({
-              input: { symbols: requestedSymbols },
-              outputSummary: `${marketData.quotes.length}/${marketData.symbolsRequested.length} live quotes resolved`,
-              status: 'success',
-              tool: toolName
-            });
-
-            if (marketData.quotes.length > 0) {
-              const topQuote = marketData.quotes[0];
-
-              citations.push({
-                confidence: 0.82,
-                snippet: `Live quote: ${topQuote.symbol} ${topQuote.marketPrice.toFixed(2)} ${topQuote.currency}`,
-                source: toolName
-              });
-            }
-          } else if (toolName === 'get_asset_fundamentals') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            const requestedSymbols = resolveSymbols({
-              portfolioAnalysis,
-              query: normalizedQuery,
-              symbols
-            });
-            const symbolIdentifiers = this.extractSymbolIdentifiersFromPortfolio({
-              portfolioAnalysis,
-              symbols: requestedSymbols
-            });
-            const profilesBySymbol =
-              symbolIdentifiers.length > 0
-                ? await this.dataProviderService.getAssetProfiles(symbolIdentifiers)
-                : {};
-            const profileSymbols = Object.keys(profilesBySymbol);
-            const topProfile = profileSymbols[0]
-              ? profilesBySymbol[profileSymbols[0]]
-              : undefined;
-
-            assetFundamentalsSummary = this.buildAssetFundamentalsSummary({
-              portfolioAnalysis,
-              profilesBySymbol,
-              requestedSymbols,
-              userCurrency
-            });
-
-            toolCalls.push({
-              input: { symbols: requestedSymbols },
-              outputSummary: `${profileSymbols.length}/${requestedSymbols.length} fundamentals resolved`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.8,
-              snippet:
-                topProfile && profileSymbols[0]
-                  ? `Fundamentals: ${profileSymbols[0]} ${topProfile.name ?? profileSymbols[0]} (${topProfile.assetClass ?? 'unknown_class'})`
-                  : 'Fundamentals coverage is limited for requested symbols',
-              source: toolName
-            });
-          } else if (toolName === 'get_financial_news') {
-            const requestedSymbols = resolveSymbols({
-              portfolioAnalysis,
-              query: normalizedQuery,
-              symbols
-            });
-            const headlines = await this.getFinancialNewsHeadlines({
-              symbols: requestedSymbols
-            });
-
-            financialNewsSummary =
-              headlines.length > 0
-                ? [
-                    'News catalysts (latest):',
-                    ...headlines.slice(0, 5).map(({ symbol, title }) => {
-                      return `- ${symbol}: ${title}`;
-                    }),
-                    'Use headlines as catalyst context and confirm with filings, earnings transcripts, and guidance changes before acting.'
-                  ].join('\n')
-                : 'Financial news lookup returned no headlines for the requested symbols.';
-
-            toolCalls.push({
-              input: { symbols: requestedSymbols },
-              outputSummary: `${headlines.length} financial headlines resolved`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: headlines.length > 0 ? 0.75 : 0.6,
-              snippet:
-                headlines.length > 0
-                  ? `${headlines[0].symbol}: ${headlines[0].title}`
-                  : 'No financial headlines were returned',
-              source: toolName
-            });
-          } else if (toolName === 'get_recent_transactions') {
-            const { activities } = await this.orderService.getOrders({
-              sortColumn: 'date',
-              sortDirection: 'desc',
-              take: 5,
-              userCurrency,
-              userId
-            });
-            const latestActivities = activities.slice(0, 5);
-
-            recentTransactionsSummary =
-              latestActivities.length > 0
-                ? `Recent transactions: ${latestActivities
-                    .map((activity) => {
-                      const symbol =
-                        activity.SymbolProfile?.symbol ?? activity.symbolProfileId;
-
-                      return `${activity.type} ${symbol} ${activity.valueInBaseCurrency.toFixed(2)} ${userCurrency}`;
-                    })
-                    .join(' | ')}.`
-                : 'Recent transactions are currently unavailable.';
-
-            toolCalls.push({
-              input: { take: 5 },
-              outputSummary: `${latestActivities.length} recent transactions returned`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: latestActivities.length > 0 ? 0.84 : 0.65,
-              snippet:
-                latestActivities.length > 0
-                  ? `Latest transaction: ${latestActivities[0].type} ${(latestActivities[0].SymbolProfile?.symbol ?? latestActivities[0].symbolProfileId)} on ${new Date(latestActivities[0].date).toISOString().slice(0, 10)}`
-                  : 'No recent transactions found',
-              source: toolName
-            });
-          } else if (toolName === 'transaction_categorize') {
-            const { activities } = await this.orderService.getOrders({
-              sortColumn: 'date',
-              sortDirection: 'desc',
-              take: 50,
-              userCurrency,
-              userId
-            });
-            const recentActivities = activities.slice(0, 50);
-            const typeCounts = new Map<string, number>();
-            const symbolCounts = new Map<string, number>();
-
-            for (const activity of recentActivities) {
-              const type = String(activity.type ?? 'UNKNOWN').toUpperCase();
-              const symbol =
-                activity.SymbolProfile?.symbol ?? activity.symbolProfileId ?? 'UNKNOWN';
-
-              typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
-              symbolCounts.set(symbol, (symbolCounts.get(symbol) ?? 0) + 1);
-            }
-
-            const typeBreakdown = Array.from(typeCounts.entries())
-              .sort((a, b) => b[1] - a[1])
-              .map(([type, count]) => `${type} ${count}`)
-              .join(', ');
-            const activeSymbols = Array.from(symbolCounts.entries())
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 3)
-              .map(([symbol, count]) => `${symbol} ${count}`)
-              .join(', ');
-
-            transactionCategorizationSummary =
-              recentActivities.length > 0
-                ? [
-                    `Transaction categorization: ${recentActivities.length} recent transactions analyzed.`,
-                    `Type breakdown: ${typeBreakdown || 'n/a'}.`,
-                    `Most active symbols: ${activeSymbols || 'n/a'}.`
-                  ].join('\n')
-                : 'Transaction categorization: no recent transactions available.';
-
-            toolCalls.push({
-              input: { take: 50 },
-              outputSummary: `${recentActivities.length} transactions categorized`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: recentActivities.length > 0 ? 0.82 : 0.65,
-              snippet:
-                recentActivities.length > 0
-                  ? `Transaction categories: ${typeBreakdown || 'n/a'}`
-                  : 'No transactions available for categorization',
-              source: toolName
-            });
-          } else if (toolName === 'tax_estimate') {
-            const taxInput = this.extractTaxEstimateInput(normalizedQuery);
-            const taxableBase = Math.max(taxInput.income - taxInput.deductions, 0);
-            const estimatedLiability = taxableBase * taxInput.taxRate;
-
-            taxEstimateSummary = [
-              `Tax estimate (assumption-based): income ${taxInput.income.toFixed(2)} ${userCurrency}, deductions ${taxInput.deductions.toFixed(2)} ${userCurrency}.`,
-              `Estimated taxable base: ${taxableBase.toFixed(2)} ${userCurrency}.`,
-              `Estimated tax liability at ${(taxInput.taxRate * 100).toFixed(1)}%: ${estimatedLiability.toFixed(2)} ${userCurrency}.`,
-              'Assumptions: flat rate estimate for planning only; this is not filing-ready tax advice.'
-            ].join('\n');
-
-            toolCalls.push({
-              input: taxInput,
-              outputSummary: `estimated liability ${estimatedLiability.toFixed(2)} ${userCurrency}`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.74,
-              snippet: `Tax estimate: taxable base ${taxableBase.toFixed(2)} ${userCurrency}, liability ${estimatedLiability.toFixed(2)} ${userCurrency}`,
-              source: toolName
-            });
-          } else if (toolName === 'compliance_check') {
-            const { activities } = await this.orderService.getOrders({
-              sortColumn: 'date',
-              sortDirection: 'desc',
-              take: 100,
-              userCurrency,
-              userId
-            });
-            const complianceResult = this.runComplianceChecks({
-              activities
-            });
-
-            complianceCheckSummary = [
-              `Compliance check: ${complianceResult.violations.length} violations, ${complianceResult.warnings.length} warnings.`,
-              ...(complianceResult.violations.length > 0
-                ? [`Violations: ${complianceResult.violations.join(' | ')}.`]
-                : []),
-              ...(complianceResult.warnings.length > 0
-                ? [`Warnings: ${complianceResult.warnings.join(' | ')}.`]
-                : ['Warnings: no immediate rule flags detected from recent transactions.']),
-              'Review account type, jurisdiction, and broker-specific constraints before execution.'
-            ].join('\n');
-
-            toolCalls.push({
-              input: { take: 100 },
-              outputSummary: `${complianceResult.violations.length} violations, ${complianceResult.warnings.length} warnings`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: complianceResult.violations.length > 0 ? 0.8 : 0.7,
-              snippet:
-                complianceResult.violations.length > 0
-                  ? `Compliance violations: ${complianceResult.violations[0]}`
-                  : `Compliance warnings: ${complianceResult.warnings[0] ?? 'none from recent transaction scan'}`,
-              source: toolName
-            });
-          } else if (toolName === 'rebalance_plan') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            rebalancePlan = runRebalancePlan({
-              portfolioAnalysis
-            });
-
-            toolCalls.push({
-              input: { maxAllocationTarget: rebalancePlan.maxAllocationTarget },
-              outputSummary: `${rebalancePlan.overweightHoldings.length} overweight holdings`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.8,
-              snippet:
-                rebalancePlan.overweightHoldings.length > 0
-                  ? `${rebalancePlan.overweightHoldings[0].symbol} exceeds target by ${(rebalancePlan.overweightHoldings[0].reductionNeeded * 100).toFixed(1)}pp`
-                  : 'No overweight holdings above max allocation target',
-              source: toolName
-            });
-          } else if (toolName === 'stress_test') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            stressTest = runStressTest({
-              portfolioAnalysis
-            });
-
-            toolCalls.push({
-              input: { shockPercentage: stressTest.shockPercentage },
-              outputSummary: `estimated drawdown ${stressTest.estimatedDrawdownInBaseCurrency.toFixed(2)} ${userCurrency}`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.8,
-              snippet: `${(stressTest.shockPercentage * 100).toFixed(0)}% shock drawdown ${stressTest.estimatedDrawdownInBaseCurrency.toFixed(2)} ${userCurrency}`,
-              source: toolName
-            });
-          } else if (toolName === 'calculate_rebalance_plan') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            rebalancePlan = runRebalancePlan({
-              portfolioAnalysis
-            });
-
-            toolCalls.push({
-              input: { maxAllocationTarget: rebalancePlan.maxAllocationTarget },
-              outputSummary: `${rebalancePlan.overweightHoldings.length} rebalance actions calculated`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.82,
-              snippet:
-                rebalancePlan.overweightHoldings.length > 0
-                  ? `Rebalance action: ${rebalancePlan.overweightHoldings[0].symbol} trim ${(rebalancePlan.overweightHoldings[0].reductionNeeded * 100).toFixed(1)}pp`
-                  : 'Rebalance action: no holding exceeds target allocation',
-              source: toolName
-            });
-          } else if (toolName === 'simulate_trade_impact') {
-            if (!portfolioAnalysis) {
-              portfolioAnalysis = await runPortfolioAnalysis({
-                portfolioService: this.portfolioService,
-                userId
-              });
-            }
-
-            const tradeImpact = this.simulateTradeImpact({
-              portfolioAnalysis,
-              query: normalizedQuery
-            });
-            tradeImpactSummary = tradeImpact.summary;
-
-            toolCalls.push({
-              input: { query: normalizedQuery },
-              outputSummary: `trade impact simulated for ${tradeImpact.symbol}`,
-              status: 'success',
-              tool: toolName
-            });
-
-            citations.push({
-              confidence: 0.8,
-              snippet: `Trade impact: ${tradeImpact.symbol} projected allocation ${(tradeImpact.projectedAllocation * 100).toFixed(2)}%`,
-              source: toolName
-            });
-          }
-        } catch (error) {
-          toolCalls.push({
-            input: {},
-            outputSummary: error?.message ?? 'tool execution failed',
-            status: 'failed',
-            tool: toolName
+            return analysis;
           });
-        } finally {
-          toolExecutionInMs += Date.now() - toolStartedAt;
+        }
+
+        return portfolioAnalysisPromise;
+      };
+
+      const getResolvedSymbols = async () => {
+        if (!resolvedSymbolsPromise) {
+          resolvedSymbolsPromise = (async () => {
+            const analysisForResolution = shouldUsePortfolioContextForSymbols
+              ? await getPortfolioAnalysis()
+              : portfolioAnalysis;
+
+            return resolveSymbols({
+              portfolioAnalysis: analysisForResolution,
+              query: normalizedQuery,
+              symbols
+            });
+          })();
+        }
+
+        return resolvedSymbolsPromise;
+      };
+
+      const getMarketDataBySymbols = async (requestedSymbols: string[]) => {
+        const cacheKey = [...requestedSymbols].sort().join('|');
+
+        if (!marketDataBySymbolsCache.has(cacheKey)) {
+          marketDataBySymbolsCache.set(
+            cacheKey,
+            (async () => {
+              const analysisForMarketData = shouldUsePortfolioContextForSymbols
+                ? await getPortfolioAnalysis()
+                : portfolioAnalysis;
+              const lookup = await runMarketDataLookup({
+                dataProviderService: this.dataProviderService,
+                portfolioAnalysis: analysisForMarketData,
+                symbols: requestedSymbols
+              });
+              marketData = lookup;
+
+              return lookup;
+            })()
+          );
+        }
+
+        const lookup = await marketDataBySymbolsCache.get(cacheKey)!;
+        marketData = lookup;
+
+        return lookup;
+      };
+
+      const getAssetProfilesBySymbols = async (requestedSymbols: string[]) => {
+        if (requestedSymbols.length === 0) {
+          return {} as Record<string, Partial<SymbolProfile>>;
+        }
+
+        const analysis = await getPortfolioAnalysis();
+        const symbolIdentifiers = this.extractSymbolIdentifiersFromPortfolio({
+          portfolioAnalysis: analysis,
+          symbols: requestedSymbols
+        });
+        const cacheKey = symbolIdentifiers
+          .map(({ dataSource, symbol }) => {
+            return `${dataSource}:${symbol}`;
+          })
+          .sort()
+          .join('|');
+
+        if (!assetProfilesBySymbolsCache.has(cacheKey)) {
+          assetProfilesBySymbolsCache.set(
+            cacheKey,
+            this.dataProviderService.getAssetProfiles(symbolIdentifiers)
+          );
+        }
+
+        return assetProfilesBySymbolsCache.get(cacheKey)!;
+      };
+
+      const getRecentActivities = async (take: number) => {
+        if (!orderActivitiesPromise) {
+          const effectiveTake = maxOrderTakeForRequest > 0 ? maxOrderTakeForRequest : take;
+          orderActivitiesPromise = this.orderService
+            .getOrders({
+              sortColumn: 'date',
+              sortDirection: 'desc',
+              take: effectiveTake,
+              userCurrency,
+              userId
+            })
+            .then(({ activities }) => {
+              return activities;
+            });
+        }
+
+        const activities = await orderActivitiesPromise;
+
+        return activities.slice(0, take);
+      };
+
+      const getFinancialNewsBySymbols = async (requestedSymbols: string[]) => {
+        const cacheKey = [...requestedSymbols].sort().join('|');
+
+        if (!financialNewsBySymbolsCache.has(cacheKey)) {
+          financialNewsBySymbolsCache.set(
+            cacheKey,
+            this.getFinancialNewsHeadlines({
+              symbols: requestedSymbols
+            })
+          );
+        }
+
+        return financialNewsBySymbolsCache.get(cacheKey)!;
+      };
+
+      const toolExecutionStartedAt = Date.now();
+      const toolOutcomes = await Promise.all(
+        policyDecision.toolsToExecute.map(async (toolName) => {
+          try {
+            if (toolName === 'portfolio_analysis') {
+              const analysis = await getPortfolioAnalysis();
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.9,
+                    snippet: `${analysis.holdingsCount} holdings, total ${analysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: `${analysis.holdingsCount} holdings analyzed`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_portfolio_summary') {
+              const analysis = await getPortfolioAnalysis();
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.9,
+                    snippet: `Portfolio summary: ${analysis.holdingsCount} holdings, total ${analysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: `portfolio total ${analysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_current_holdings') {
+              const analysis = await getPortfolioAnalysis();
+              const holdingsSummary = analysis.holdings
+                .slice(0, 3)
+                .map(({ allocationInPercentage, symbol }) => {
+                  return `${symbol} ${(allocationInPercentage * 100).toFixed(1)}%`;
+                })
+                .join(', ');
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.88,
+                    snippet:
+                      holdingsSummary.length > 0
+                        ? `Current holdings: ${holdingsSummary}`
+                        : 'Current holdings are available with no active positions',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: `${analysis.holdingsCount} current holdings returned`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'risk_assessment') {
+              const analysis = await getPortfolioAnalysis();
+              const currentRiskAssessment = runRiskAssessment({
+                portfolioAnalysis: analysis
+              });
+              riskAssessment = currentRiskAssessment;
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.85,
+                    snippet: `top allocation ${(currentRiskAssessment.topHoldingAllocation * 100).toFixed(2)}%, HHI ${currentRiskAssessment.hhi.toFixed(3)}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: `concentration ${currentRiskAssessment.concentrationBand}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_portfolio_risk_metrics') {
+              const analysis = await getPortfolioAnalysis();
+              const currentRiskAssessment = runRiskAssessment({
+                portfolioAnalysis: analysis
+              });
+              riskAssessment = currentRiskAssessment;
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.87,
+                    snippet: `Risk metrics: concentration ${currentRiskAssessment.concentrationBand}, top allocation ${(currentRiskAssessment.topHoldingAllocation * 100).toFixed(2)}%, HHI ${currentRiskAssessment.hhi.toFixed(3)}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: `risk metrics ${currentRiskAssessment.concentrationBand} with HHI ${currentRiskAssessment.hhi.toFixed(3)}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'market_data_lookup') {
+              const requestedSymbols = await getResolvedSymbols();
+              const currentMarketData = await getMarketDataBySymbols(requestedSymbols);
+              const topQuote = currentMarketData.quotes[0];
+
+              return {
+                citations:
+                  topQuote !== undefined
+                    ? [
+                        {
+                          confidence: 0.82,
+                          snippet: `${topQuote.symbol} ${topQuote.marketPrice.toFixed(2)} ${topQuote.currency}`,
+                          source: toolName
+                        }
+                      ]
+                    : [],
+                toolCall: {
+                  input: { symbols: requestedSymbols },
+                  outputSummary: `${currentMarketData.quotes.length}/${currentMarketData.symbolsRequested.length} quotes resolved`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_live_quote') {
+              const requestedSymbols = await getResolvedSymbols();
+              const currentMarketData = await getMarketDataBySymbols(requestedSymbols);
+              const topQuote = currentMarketData.quotes[0];
+
+              return {
+                citations:
+                  topQuote !== undefined
+                    ? [
+                        {
+                          confidence: 0.82,
+                          snippet: `Live quote: ${topQuote.symbol} ${topQuote.marketPrice.toFixed(2)} ${topQuote.currency}`,
+                          source: toolName
+                        }
+                      ]
+                    : [],
+                toolCall: {
+                  input: { symbols: requestedSymbols },
+                  outputSummary: `${currentMarketData.quotes.length}/${currentMarketData.symbolsRequested.length} live quotes resolved`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_asset_fundamentals') {
+              const analysis = await getPortfolioAnalysis();
+              const requestedSymbols = await getResolvedSymbols();
+              const profilesBySymbol = await getAssetProfilesBySymbols(requestedSymbols);
+              const profileSymbols = Object.keys(profilesBySymbol);
+              const topProfile = profileSymbols[0]
+                ? profilesBySymbol[profileSymbols[0]]
+                : undefined;
+
+              assetFundamentalsSummary = this.buildAssetFundamentalsSummary({
+                portfolioAnalysis: analysis,
+                profilesBySymbol,
+                requestedSymbols,
+                userCurrency
+              });
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.8,
+                    snippet:
+                      topProfile && profileSymbols[0]
+                        ? `Fundamentals: ${profileSymbols[0]} ${topProfile.name ?? profileSymbols[0]} (${topProfile.assetClass ?? 'unknown_class'})`
+                        : 'Fundamentals coverage is limited for requested symbols',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { symbols: requestedSymbols },
+                  outputSummary: `${profileSymbols.length}/${requestedSymbols.length} fundamentals resolved`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_financial_news') {
+              const requestedSymbols = await getResolvedSymbols();
+              const headlines = await getFinancialNewsBySymbols(requestedSymbols);
+
+              financialNewsSummary =
+                headlines.length > 0
+                  ? [
+                      'News catalysts (latest):',
+                      ...headlines.slice(0, 5).map(({ symbol, title }) => {
+                        return `- ${symbol}: ${title}`;
+                      }),
+                      'Use headlines as catalyst context and confirm with filings, earnings transcripts, and guidance changes before acting.'
+                    ].join('\n')
+                  : 'Financial news lookup returned no headlines for the requested symbols.';
+
+              return {
+                citations: [
+                  {
+                    confidence: headlines.length > 0 ? 0.75 : 0.6,
+                    snippet:
+                      headlines.length > 0
+                        ? `${headlines[0].symbol}: ${headlines[0].title}`
+                        : 'No financial headlines were returned',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { symbols: requestedSymbols },
+                  outputSummary: `${headlines.length} financial headlines resolved`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_recent_transactions') {
+              const latestActivities = await getRecentActivities(5);
+
+              recentTransactionsSummary =
+                latestActivities.length > 0
+                  ? `Recent transactions: ${latestActivities
+                      .map((activity) => {
+                        const symbol =
+                          activity.SymbolProfile?.symbol ?? activity.symbolProfileId;
+
+                        return `${activity.type} ${symbol} ${activity.valueInBaseCurrency.toFixed(2)} ${userCurrency}`;
+                      })
+                      .join(' | ')}.`
+                  : 'Recent transactions are currently unavailable.';
+
+              return {
+                citations: [
+                  {
+                    confidence: latestActivities.length > 0 ? 0.84 : 0.65,
+                    snippet:
+                      latestActivities.length > 0
+                        ? `Latest transaction: ${latestActivities[0].type} ${(latestActivities[0].SymbolProfile?.symbol ?? latestActivities[0].symbolProfileId)} on ${new Date(latestActivities[0].date).toISOString().slice(0, 10)}`
+                        : 'No recent transactions found',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { take: 5 },
+                  outputSummary: `${latestActivities.length} recent transactions returned`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'transaction_categorize') {
+              const recentActivities = await getRecentActivities(50);
+              const typeCounts = new Map<string, number>();
+              const symbolCounts = new Map<string, number>();
+
+              for (const activity of recentActivities) {
+                const type = String(activity.type ?? 'UNKNOWN').toUpperCase();
+                const symbol =
+                  activity.SymbolProfile?.symbol ?? activity.symbolProfileId ?? 'UNKNOWN';
+
+                typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+                symbolCounts.set(symbol, (symbolCounts.get(symbol) ?? 0) + 1);
+              }
+
+              const typeBreakdown = Array.from(typeCounts.entries())
+                .sort((a, b) => b[1] - a[1])
+                .map(([type, count]) => `${type} ${count}`)
+                .join(', ');
+              const activeSymbols = Array.from(symbolCounts.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([symbol, count]) => `${symbol} ${count}`)
+                .join(', ');
+
+              transactionCategorizationSummary =
+                recentActivities.length > 0
+                  ? [
+                      `Transaction categorization: ${recentActivities.length} recent transactions analyzed.`,
+                      `Type breakdown: ${typeBreakdown || 'n/a'}.`,
+                      `Most active symbols: ${activeSymbols || 'n/a'}.`
+                    ].join('\n')
+                  : 'Transaction categorization: no recent transactions available.';
+
+              return {
+                citations: [
+                  {
+                    confidence: recentActivities.length > 0 ? 0.82 : 0.65,
+                    snippet:
+                      recentActivities.length > 0
+                        ? `Transaction categories: ${typeBreakdown || 'n/a'}`
+                        : 'No transactions available for categorization',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { take: 50 },
+                  outputSummary: `${recentActivities.length} transactions categorized`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'tax_estimate') {
+              const taxInput = this.extractTaxEstimateInput(normalizedQuery);
+              const taxableBase = Math.max(taxInput.income - taxInput.deductions, 0);
+              const estimatedLiability = taxableBase * taxInput.taxRate;
+
+              taxEstimateSummary = [
+                `Tax estimate (assumption-based): income ${taxInput.income.toFixed(2)} ${userCurrency}, deductions ${taxInput.deductions.toFixed(2)} ${userCurrency}.`,
+                `Estimated taxable base: ${taxableBase.toFixed(2)} ${userCurrency}.`,
+                `Estimated tax liability at ${(taxInput.taxRate * 100).toFixed(1)}%: ${estimatedLiability.toFixed(2)} ${userCurrency}.`,
+                'Assumptions: flat rate estimate for planning only; this is not filing-ready tax advice.'
+              ].join('\n');
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.74,
+                    snippet: `Tax estimate: taxable base ${taxableBase.toFixed(2)} ${userCurrency}, liability ${estimatedLiability.toFixed(2)} ${userCurrency}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: taxInput,
+                  outputSummary: `estimated liability ${estimatedLiability.toFixed(2)} ${userCurrency}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'compliance_check') {
+              const activities = await getRecentActivities(100);
+              const complianceResult = this.runComplianceChecks({
+                activities
+              });
+
+              complianceCheckSummary = [
+                `Compliance check: ${complianceResult.violations.length} violations, ${complianceResult.warnings.length} warnings.`,
+                ...(complianceResult.violations.length > 0
+                  ? [`Violations: ${complianceResult.violations.join(' | ')}.`]
+                  : []),
+                ...(complianceResult.warnings.length > 0
+                  ? [`Warnings: ${complianceResult.warnings.join(' | ')}.`]
+                  : ['Warnings: no immediate rule flags detected from recent transactions.']),
+                'Review account type, jurisdiction, and broker-specific constraints before execution.'
+              ].join('\n');
+
+              return {
+                citations: [
+                  {
+                    confidence: complianceResult.violations.length > 0 ? 0.8 : 0.7,
+                    snippet:
+                      complianceResult.violations.length > 0
+                        ? `Compliance violations: ${complianceResult.violations[0]}`
+                        : `Compliance warnings: ${complianceResult.warnings[0] ?? 'none from recent transaction scan'}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { take: 100 },
+                  outputSummary: `${complianceResult.violations.length} violations, ${complianceResult.warnings.length} warnings`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'rebalance_plan') {
+              const analysis = await getPortfolioAnalysis();
+              const currentRebalancePlan = runRebalancePlan({
+                portfolioAnalysis: analysis
+              });
+              rebalancePlan = currentRebalancePlan;
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.8,
+                    snippet:
+                      currentRebalancePlan.overweightHoldings.length > 0
+                        ? `${currentRebalancePlan.overweightHoldings[0].symbol} exceeds target by ${(currentRebalancePlan.overweightHoldings[0].reductionNeeded * 100).toFixed(1)}pp`
+                        : 'No overweight holdings above max allocation target',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {
+                    maxAllocationTarget: currentRebalancePlan.maxAllocationTarget
+                  },
+                  outputSummary: `${currentRebalancePlan.overweightHoldings.length} overweight holdings`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'stress_test') {
+              const analysis = await getPortfolioAnalysis();
+              const currentStressTest = runStressTest({
+                portfolioAnalysis: analysis
+              });
+              stressTest = currentStressTest;
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.8,
+                    snippet: `${(currentStressTest.shockPercentage * 100).toFixed(0)}% shock drawdown ${currentStressTest.estimatedDrawdownInBaseCurrency.toFixed(2)} ${userCurrency}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { shockPercentage: currentStressTest.shockPercentage },
+                  outputSummary: `estimated drawdown ${currentStressTest.estimatedDrawdownInBaseCurrency.toFixed(2)} ${userCurrency}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'calculate_rebalance_plan') {
+              const analysis = await getPortfolioAnalysis();
+              const currentRebalancePlan = runRebalancePlan({
+                portfolioAnalysis: analysis
+              });
+              rebalancePlan = currentRebalancePlan;
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.82,
+                    snippet:
+                      currentRebalancePlan.overweightHoldings.length > 0
+                        ? `Rebalance action: ${currentRebalancePlan.overweightHoldings[0].symbol} trim ${(currentRebalancePlan.overweightHoldings[0].reductionNeeded * 100).toFixed(1)}pp`
+                        : 'Rebalance action: no holding exceeds target allocation',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {
+                    maxAllocationTarget: currentRebalancePlan.maxAllocationTarget
+                  },
+                  outputSummary: `${currentRebalancePlan.overweightHoldings.length} rebalance actions calculated`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'simulate_trade_impact') {
+              const analysis = await getPortfolioAnalysis();
+              const tradeImpact = this.simulateTradeImpact({
+                portfolioAnalysis: analysis,
+                query: normalizedQuery
+              });
+              tradeImpactSummary = tradeImpact.summary;
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.8,
+                    snippet: `Trade impact: ${tradeImpact.symbol} projected allocation ${(tradeImpact.projectedAllocation * 100).toFixed(2)}%`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { query: normalizedQuery },
+                  outputSummary: `trade impact simulated for ${tradeImpact.symbol}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            }
+
+            return {
+              citations: [],
+              toolCall: {
+                input: {},
+                outputSummary: 'tool execution skipped',
+                status: 'failed' as const,
+                tool: toolName
+              }
+            };
+          } catch (error) {
+            return {
+              citations: [],
+              toolCall: {
+                input: {},
+                outputSummary:
+                  error instanceof Error ? error.message : 'tool execution failed',
+                status: 'failed' as const,
+                tool: toolName
+              }
+            };
+          }
+        })
+      );
+      toolExecutionInMs = Date.now() - toolExecutionStartedAt;
+
+      for (const { citations: toolCitations, toolCall } of toolOutcomes) {
+        toolCalls.push(toolCall);
+
+        for (const citation of toolCitations) {
+          citations.push(citation);
         }
       }
+
 
       addVerificationChecks({
         marketData,
@@ -894,6 +1066,7 @@ export class AiService {
           generateText: (options) =>
             this.generateText({
               ...options,
+              model,
               traceContext: {
                 query: normalizedQuery,
                 sessionId: resolvedSessionId,
@@ -1056,29 +1229,30 @@ export class AiService {
         return Number.parseFloat(match[1].replace(/,/g, ''));
       })
       .filter((value) => Number.isFinite(value));
-    const incomeMatch = normalized.match(
-      /\b(?:income|salary|earnings?)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i
-    );
-    const deductionsMatch = normalized.match(
-      /\b(?:deduction|deductions|deductible|write[-\s]?off)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i
-    );
-    const taxRateMatch = normalized.match(
-      /\b(?:tax\s*rate|rate)\b[^\d]*([0-9]{1,2}(?:\.[0-9]+)?)\s*%/i
-    );
+    const incomePattern =
+      /\b(?:income|salary|earnings?)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i;
+    const deductionsPattern =
+      /\b(?:deduction|deductions|deductible|write[-\s]?off)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i;
+    const taxRatePattern = /\b(?:tax\s*rate|rate)\b[^\d]*([0-9]{1,2}(?:\.[0-9]+)?)\s*%/i;
+    const incomeMatch = incomePattern.exec(normalized);
+    const deductionsMatch = deductionsPattern.exec(normalized);
+    const taxRateMatch = taxRatePattern.exec(normalized);
 
     const parsedIncome = incomeMatch
       ? Number.parseFloat(incomeMatch[1].replace(/,/g, ''))
       : numericTokens[0];
     const parsedDeductions = deductionsMatch
       ? Number.parseFloat(deductionsMatch[1].replace(/,/g, ''))
-      : numericTokens[1] ?? 0;
+      : numericTokens[1];
     const parsedTaxRate = taxRateMatch
       ? Number.parseFloat(taxRateMatch[1]) / 100
       : undefined;
 
     return {
-      deductions: Number.isFinite(parsedDeductions) ? parsedDeductions : 0,
-      income: Number.isFinite(parsedIncome) ? parsedIncome : 0,
+      deductions: Number.isFinite(parsedDeductions) ? parsedDeductions : undefined,
+      hasDeductions: Number.isFinite(parsedDeductions),
+      hasIncome: Number.isFinite(parsedIncome),
+      income: Number.isFinite(parsedIncome) ? parsedIncome : undefined,
       taxRate:
         Number.isFinite(parsedTaxRate) && parsedTaxRate > 0 && parsedTaxRate < 1
           ? parsedTaxRate
@@ -1089,12 +1263,12 @@ export class AiService {
   private runComplianceChecks({
     activities
   }: {
-    activities: Array<{
+    activities: {
       date: Date | string;
       symbolProfileId?: string;
       SymbolProfile?: { symbol?: string };
       type: string;
-    }>;
+    }[];
   }) {
     const violations: string[] = [];
     const warnings: string[] = [];
@@ -1199,42 +1373,45 @@ export class AiService {
           .filter(Boolean)
       )
     ).slice(0, 2);
-    const headlines: { link: string; symbol: string; title: string }[] = [];
+    const headlinesBySymbol = await Promise.all(
+      targetSymbols.map(async (symbol) => {
+        try {
+          const response = await fetch(
+            `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(symbol)}&region=US&lang=en-US`
+          );
 
-    for (const symbol of targetSymbols) {
-      try {
-        const response = await fetch(
-          `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(symbol)}&region=US&lang=en-US`
-        );
-
-        if (!response.ok) {
-          continue;
-        }
-
-        const xml = await response.text();
-        const itemPattern = /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>/gi;
-        let match: RegExpExecArray | null = itemPattern.exec(xml);
-        let addedForSymbol = 0;
-
-        while (match && addedForSymbol < 3) {
-          const title = this.decodeXmlEntities(match[1]).trim();
-          const link = this.decodeXmlEntities(match[2]).trim();
-
-          if (title) {
-            headlines.push({
-              link,
-              symbol,
-              title
-            });
-            addedForSymbol += 1;
+          if (!response.ok) {
+            return [];
           }
 
-          match = itemPattern.exec(xml);
-        }
-      } catch {}
-    }
+          const xml = await response.text();
+          const itemPattern = /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>/gi;
+          let match: RegExpExecArray | null = itemPattern.exec(xml);
+          const symbolHeadlines: { link: string; symbol: string; title: string }[] = [];
 
-    return headlines.slice(0, 5);
+          while (match && symbolHeadlines.length < 3) {
+            const title = this.decodeXmlEntities(match[1]).trim();
+            const link = this.decodeXmlEntities(match[2]).trim();
+
+            if (title) {
+              symbolHeadlines.push({
+                link,
+                symbol,
+                title
+              });
+            }
+
+            match = itemPattern.exec(xml);
+          }
+
+          return symbolHeadlines;
+        } catch {
+          return [];
+        }
+      })
+    );
+
+    return headlinesBySymbol.flat().slice(0, 5);
   }
 
   private buildAssetFundamentalsSummary({
@@ -1334,7 +1511,7 @@ export class AiService {
       return fallback;
     }
 
-    const normalized = entries.reduce<Array<{ label: string; weight?: number }>>(
+    const normalized = entries.reduce<{ label: string; weight?: number }[]>(
       (accumulator, entry) => {
         if (!entry || typeof entry !== 'object') {
           return accumulator;

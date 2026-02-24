@@ -37,6 +37,12 @@ describe('AiAgentUtils', () => {
     ]);
   });
 
+  it('does not map common words to symbols without finance context', () => {
+    expect(extractSymbolsFromQuery('I bought an apple and read a blocked app note.')).toEqual(
+      []
+    );
+  });
+
   it('extracts symbols from expanded popular company-name aliases', () => {
     const symbols = extractSymbolsFromQuery(
       'fundamentals on jpmorgan, eli lilly, and procter and gamble'
