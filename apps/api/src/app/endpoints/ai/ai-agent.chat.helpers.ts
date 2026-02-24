@@ -919,9 +919,11 @@ export async function setUserPreferences({
 
 export async function fetchSymbolNames({
   dataProviderService,
+  portfolioAnalysis,
   symbols
 }: {
   dataProviderService: DataProviderService;
+  portfolioAnalysis?: PortfolioAnalysisResult;
   symbols: string[];
 }): Promise<Map<string, string>> {
   const symbolNames = new Map<string, string>();
@@ -931,7 +933,27 @@ export async function fetchSymbolNames({
   }
 
   try {
-    const profilesBySymbol = await dataProviderService.getAssetProfiles(symbols);
+    const symbolIdentifiers = symbols.map((symbol) => {
+      if (portfolioAnalysis) {
+        const holding = portfolioAnalysis.holdings.find((holding) => {
+          return holding.symbol === symbol;
+        });
+
+        return {
+          dataSource: holding?.dataSource || DataSource.YAHOO,
+          symbol
+        };
+      }
+
+      return {
+        dataSource: DataSource.YAHOO,
+        symbol
+      };
+    });
+
+    const profilesBySymbol = await dataProviderService.getAssetProfiles(
+      symbolIdentifiers
+    );
 
     for (const symbol of symbols) {
       if (symbolNames.has(symbol)) {

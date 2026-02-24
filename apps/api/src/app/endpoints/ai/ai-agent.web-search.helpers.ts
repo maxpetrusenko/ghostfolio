@@ -54,6 +54,7 @@ export async function searchWebNewsForSymbols({
 
   const symbolNames = await fetchSymbolNames({
     dataProviderService,
+    portfolioAnalysis,
     symbols
   });
 
