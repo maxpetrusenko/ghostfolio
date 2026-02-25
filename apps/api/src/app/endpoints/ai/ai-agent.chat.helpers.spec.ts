@@ -729,6 +729,24 @@ describe('AiAgentChatHelpers', () => {
     );
   });
 
+  it('keeps action execution summary in fallback answer', async () => {
+    const answer = await buildAnswer({
+      generateText: jest.fn().mockRejectedValue(new Error('offline')),
+      languageCode: 'en',
+      memory: { turns: [] },
+      query: 'add 1000 usd seed funds for testing',
+      userCurrency: 'USD',
+      additionalContextSummaries: ['seed_funds executed: seed funds order abc123 created']
+    });
+
+    expect(answer).toContain(
+      'seed_funds executed: seed funds order abc123 created'
+    );
+    expect(answer).not.toContain(
+      'Portfolio context is available. Ask about holdings, risk concentration, or symbol prices for deeper analysis.'
+    );
+  });
+
   it('sanitizes malformed user preference payload fields', async () => {
     const redisCacheService = {
       get: jest.fn().mockResolvedValue(

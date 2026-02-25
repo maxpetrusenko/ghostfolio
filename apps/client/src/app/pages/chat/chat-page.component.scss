@@ -9,6 +9,8 @@
   --ai-chat-user-background: rgba(var(--palette-primary-500), 0.1);
   --ai-chat-user-border: rgba(var(--palette-primary-500), 0.3);
   display: block;
+  height: 100%;
+  min-height: 0;
 }
 
 :host-context(.theme-dark) {
@@ -24,6 +26,7 @@
 }
 
 .chat-workspace {
+  flex: 1;
   background: linear-gradient(
     180deg,
     var(--ai-chat-card-background) 0%,
@@ -31,13 +34,76 @@
   );
   border: 1px solid var(--ai-chat-border-color);
   border-radius: 0.9rem;
+  padding: 0.85rem 0.85rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-page {
+  display: flex;
+  gap: 0.85rem;
+  height: 100%;
+  min-height: calc(100vh - 12rem);
   padding: 0.85rem;
 }
 
+.chat-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: min(21rem, 32vw);
+  min-width: 17.5rem;
+}
+
+.sidebar-panel {
+  background: linear-gradient(
+    180deg,
+    var(--ai-chat-card-background) 0%,
+    transparent 100%
+  );
+  border: 1px solid var(--ai-chat-border-color);
+  border-radius: 0.9rem;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.85rem;
+}
+
+.chat-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-main-header {
+  margin-bottom: 0.75rem;
+  padding: 0.25rem 0.25rem 0;
+}
+
 .chat-log {
-  max-height: 32rem;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0.1rem 0.2rem 0.2rem;
+  position: relative;
+}
+
+.chat-bottom {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--palette-primary-500), 0) 0%,
+    rgba(var(--palette-primary-500), 0.06) 45%,
+    rgba(var(--palette-primary-500), 0.1) 100%
+  );
+  border-top: 1px solid var(--ai-chat-border-color);
+  margin-top: 0.35rem;
+  padding-top: 0.75rem;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
 }
 
 .chat-search-field {
@@ -85,6 +151,12 @@
 textarea::selection {
   background: var(--ai-chat-selection-background);
   color: var(--ai-chat-selection-text);
+}
+
+:host ::ng-deep .response-details-panel::selection,
+:host ::ng-deep .response-details-panel *::selection {
+  background: rgba(0, 120, 212, 0.35);
+  color: #ffffff;
 }
 
 .chat-message-header {
@@ -152,14 +224,20 @@ textarea::selection {
 
 :host ::ng-deep .chat-search-field .mat-mdc-form-field-icon-prefix,
 :host ::ng-deep .chat-search-field .mat-mdc-form-field-icon-suffix,
-:host ::ng-deep .chat-search-field .mat-mdc-form-field-icon-prefix .chat-field-prefix {
+:host
+  ::ng-deep
+  .chat-search-field
+  .mat-mdc-form-field-icon-prefix
+  .chat-field-prefix {
   align-items: center;
   display: inline-flex;
   justify-content: center;
 }
 
 .conversation-list {
-  max-height: 42rem;
+  flex: 1;
+  max-height: none;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 0.25rem;
 }
@@ -174,7 +252,7 @@ textarea::selection {
   flex: 1;
   flex-direction: column;
   min-width: 0;
-  text-align: left;
+  text-align: center;
 }
 
 .conversation-title-editor {
@@ -220,8 +298,9 @@ textarea::selection {
   color: var(--ai-chat-message-text);
   border-radius: 0.75rem;
   display: flex;
+  align-items: center;
+  justify-content: center;
   flex-direction: column;
-  justify-content: flex-start;
   min-height: 3.6rem;
   padding: 0.7rem 0.85rem;
 }
@@ -238,6 +317,7 @@ textarea::selection {
   font-weight: 600;
   gap: 0.25rem;
   line-height: 1.2;
+  justify-content: center;
 }
 
 .conversation-title-text {
@@ -249,31 +329,6 @@ textarea::selection {
 .conversation-title-icon {
   color: var(--ai-chat-muted-text);
   flex-shrink: 0;
-}
-
-.conversation-meta {
-  color: var(--ai-chat-muted-text) !important;
-  display: flex;
-  flex-direction: column;
-  font-size: 0.64rem;
-  gap: 0.02rem;
-  line-height: 1.1;
-  margin-top: 0.25rem;
-  white-space: nowrap;
-}
-
-.conversation-meta-date {
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.conversation-meta-time {
-  font-size: 0.6rem;
-  font-weight: 500;
-  opacity: 0.72;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .conversation-action,
@@ -346,6 +401,66 @@ textarea::selection {
   margin-top: 0.5rem;
 }
 
+.chat-new-message-button {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  border: 1px solid var(--ai-chat-border-color);
+  border-radius: 9999px;
+  padding: 0.3rem 0.72rem;
+  background: color-mix(
+    in srgb,
+    var(--ai-chat-card-background) 72%,
+    rgba(var(--palette-primary-500), 0.25)
+  );
+  color: var(--ai-chat-message-text);
+  font-size: 0.8rem;
+  z-index: 4;
+}
+
+.assistant-rendered-block {
+  color: var(--ai-chat-message-text);
+}
+
+.assistant-actions ol {
+  margin: 0.35rem 0 0;
+  padding-left: 1.15rem;
+}
+
+.assistant-trust {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.assistant-trust-chip {
+  border: 1px solid var(--ai-chat-border-color);
+  border-radius: 999px;
+  color: var(--ai-chat-message-text);
+  display: inline-flex;
+  font-size: 0.77rem;
+  font-weight: 600;
+  padding: 0.2rem 0.52rem;
+}
+
+.assistant-confidence-high {
+  background: rgba(34, 197, 94, 0.18);
+  color: rgb(187 247 208);
+}
+
+.assistant-confidence-medium {
+  background: rgba(250, 204, 21, 0.18);
+  color: rgb(254 240 138);
+}
+
+.assistant-confidence-low {
+  background: rgba(248, 113, 113, 0.18);
+  color: rgb(254 202 202);
+}
+
 .chat-preference-field input::placeholder {
   opacity: 0.7;
 }
@@ -408,6 +523,7 @@ textarea::selection {
   min-width: min(18rem, calc(100vw - 2rem));
   overflow-y: auto;
   white-space: normal;
+  user-select: text;
 }
 
 .response-details-section {
@@ -429,12 +545,45 @@ textarea::selection {
   margin-top: 0.25rem;
 }
 
+.tool-call-success,
+.verification-passed {
+  color: rgb(34, 197, 94);
+}
+
+.tool-call-failed,
+.verification-failed {
+  color: rgb(248, 113, 113);
+}
+
+.verification-warning {
+  color: rgb(250, 204, 21);
+}
+
 @media (max-width: 991.98px) {
+  .chat-page {
+    flex-direction: column;
+    min-height: auto;
+    padding: 0.65rem;
+  }
+
+  .chat-sidebar {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .sidebar-panel {
+    max-height: 16rem;
+  }
+
+  .chat-main {
+    min-height: 40rem;
+  }
+
   .conversation-list {
     max-height: 16rem;
   }
 
   .chat-log {
-    max-height: 24rem;
+    max-height: none;
   }
 }

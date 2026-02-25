@@ -58,6 +58,12 @@ textarea::selection {
   color: var(--ai-chat-selection-text);
 }
 
+:host ::ng-deep .response-details-panel::selection,
+:host ::ng-deep .response-details-panel *::selection {
+  background: rgba(0, 120, 212, 0.35);
+  color: #ffffff;
+}
+
 .chat-message-header {
   align-items: center;
   color: var(--ai-chat-muted-text) !important;
@@ -118,6 +124,7 @@ textarea::selection {
   min-width: min(18rem, calc(100vw - 2rem));
   overflow-y: auto;
   white-space: normal;
+  user-select: text;
 }
 
 .response-details-section {

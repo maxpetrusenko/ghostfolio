@@ -36,9 +36,23 @@
           i18n
           mat-flat-button
           [ngClass]="{
-            'font-weight-bold': currentRoute === internalRoutes.portfolio.path,
+            'font-weight-bold': isChatRoute(),
+            'text-decoration-underline': isChatRoute()
+          }"
+          [routerLink]="internalRoutes.portfolio.subRoutes.chat.routerLink"
+          >Chat</a
+        >
+      </li>
+      <li class="list-inline-item">
+        <a
+          class="d-none d-sm-block"
+          i18n
+          mat-flat-button
+          [ngClass]="{
+            'font-weight-bold':
+              currentRoute === internalRoutes.portfolio.path && !isChatRoute(),
             'text-decoration-underline':
-              currentRoute === internalRoutes.portfolio.path
+              currentRoute === internalRoutes.portfolio.path && !isChatRoute()
           }"
           [routerLink]="routerLinkPortfolio"
           >Portfolio</a
@@ -251,8 +265,17 @@
             class="d-flex d-sm-none"
             i18n
             mat-menu-item
+            [ngClass]="{ 'font-weight-bold': isChatRoute() }"
+            [routerLink]="internalRoutes.portfolio.subRoutes.chat.routerLink"
+            >Chat</a
+          >
+          <a
+            class="d-flex d-sm-none"
+            i18n
+            mat-menu-item
             [ngClass]="{
-              'font-weight-bold': currentRoute === internalRoutes.portfolio.path
+              'font-weight-bold':
+                currentRoute === internalRoutes.portfolio.path && !isChatRoute()
             }"
             [routerLink]="routerLinkPortfolio"
             >Portfolio</a

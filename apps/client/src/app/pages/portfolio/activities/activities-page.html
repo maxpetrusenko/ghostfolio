@@ -54,7 +54,11 @@
     </div>
   }
 
-  @if (isDemoUser) {
+  @if (
+    !hasImpersonationId &&
+    hasPermissionToCreateActivity &&
+    !user.settings.isRestrictedView
+  ) {
     <div class="fab-container add-funds-fab">
       <button
         class="align-items-center d-flex justify-content-center"
@@ -64,7 +68,7 @@
         (click)="onAddFunds()"
       >
         <ion-icon class="mr-2" name="cash-outline" />
-        <span i18n>Add Funds</span>
+        <span i18n>Seed Funds</span>
       </button>
     </div>
   }

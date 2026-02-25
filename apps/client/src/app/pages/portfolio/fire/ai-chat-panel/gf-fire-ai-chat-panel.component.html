@@ -3,12 +3,13 @@
     <div class="mb-3">
       <h2 class="h5 mb-1" i18n>AI Retirement Assistant</h2>
       <p class="mb-0 text-muted" i18n>
-        Ask questions about your FIRE plan, retirement scenarios, and withdrawal strategies.
+        Ask questions about your FIRE plan, retirement scenarios, and withdrawal
+        strategies.
       </p>
     </div>
 
     @if (!hasPermissionToReadAiPrompt) {
-      <div class="alert alert-warning mb-0" role="alert" i18n>
+      <div class="alert alert-warning mb-0" i18n role="alert">
         You need AI prompt permission to use this assistant.
       </div>
     } @else {
@@ -32,24 +33,10 @@
           i18n-aria-label
           matInput
           rows="3"
-          [(ngModel)]="query"
           [disabled]="isSubmitting"
+          [(ngModel)]="query"
           (keydown.enter)="onSubmitFromKeyboard($event)"
         ></textarea>
-      </mat-form-field>
-
-      <mat-form-field class="ai-chat-panel-preference-field w-100">
-        <mat-label i18n>Next response preference</mat-label>
-        <input
-          aria-label="Next response preference"
-          i18n-aria-label
-          matInput
-          type="text"
-          [(ngModel)]="nextResponsePreference"
-          [disabled]="isSubmitting"
-          placeholder="Optional: adjust tone, format, or focus for next answer"
-        />
-        <mat-hint i18n>Optional for the next response only.</mat-hint>
       </mat-form-field>
 
       <div class="align-items-center d-flex mb-3">
@@ -73,7 +60,12 @@
         </div>
       }
 
-      <div aria-live="polite" aria-relevant="additions text" class="chat-log" role="log">
+      <div
+        aria-live="polite"
+        aria-relevant="additions text"
+        class="chat-log"
+        role="log"
+      >
         @for (message of visibleMessages; track message.id) {
           <div
             class="chat-message mb-3 p-3 rounded"
@@ -81,7 +73,9 @@
             [class.user]="message.role === 'user'"
           >
             <div class="chat-message-header mb-1 text-muted">
-              <span class="role-label text-uppercase">{{ getRoleLabel(message.role) }}</span>
+              <span class="role-label text-uppercase">{{
+                getRoleLabel(message.role)
+              }}</span>
               <span class="ml-2 timestamp">{{
                 message.createdAt | date: 'shortTime'
               }}</span>
@@ -118,14 +112,25 @@
             @if (message.feedback) {
               <div class="align-items-center d-flex feedback-controls mt-2">
                 <span class="feedback-label" i18n>Rate this response:</span>
-                <mat-form-field class="feedback-comment-field mr-2" appearance="outline" subscriptSizing="dynamic">
+                <mat-form-field
+                  appearance="outline"
+                  class="feedback-comment-field mr-2"
+                  subscriptSizing="dynamic"
+                >
                   <mat-label i18n>Comment</mat-label>
                   <input
                     matInput
                     type="text"
+                    [disabled]="
+                      message.feedback.isSubmitting || !!message.feedback.rating
+                    "
                     [ngModel]="message.feedback.comment ?? ''"
-                    [disabled]="message.feedback.isSubmitting || !!message.feedback.rating"
-                    (ngModelChange)="onFeedbackCommentChange({ comment: $event, messageId: message.id })"
+                    (ngModelChange)="
+                      onFeedbackCommentChange({
+                        comment: $event,
+                        messageId: message.id
+                      })
+                    "
                   />
                 </mat-form-field>
                 <button
@@ -135,7 +140,9 @@
                   [disabled]="
                     message.feedback.isSubmitting || !!message.feedback.rating
                   "
-                  (click)="onRateResponse({ messageId: message.id, rating: 'up' })"
+                  (click)="
+                    onRateResponse({ messageId: message.id, rating: 'up' })
+                  "
                 >
                   <ng-container i18n>Helpful</ng-container>
                 </button>
@@ -145,7 +152,9 @@
                   [disabled]="
                     message.feedback.isSubmitting || !!message.feedback.rating
                   "
-                  (click)="onRateResponse({ messageId: message.id, rating: 'down' })"
+                  (click)="
+                    onRateResponse({ messageId: message.id, rating: 'down' })
+                  "
                 >
                   <ng-container i18n>Needs work</ng-container>
                 </button>
@@ -161,58 +170,63 @@
         }
       </div>
 
-      <mat-menu #responseDetailsMenu="matMenu" class="no-max-width" xPosition="before">
-        <div class="response-details-panel p-3" (click)="$event.stopPropagation()">
+      <mat-menu
+        #responseDetailsMenu="matMenu"
+        class="no-max-width"
+        xPosition="before"
+      >
+        <div
+          class="response-details-panel p-3"
+          (click)="$event.stopPropagation()"
+        >
           @if (activeResponseDetails; as details) {
+            <div class="response-details-section">
+              <strong i18n>Confidence</strong>:
+              {{ details.confidence.score * 100 | number: '1.0-0' }}% ({{
+                details.confidence.band
+              }})
+            </div>
+
+            @if (details.llmInvocation) {
               <div class="response-details-section">
-                <strong i18n>Response</strong>:
-                <span class="ml-1">{{ details.answer }}</span>
+                <strong i18n>LLM</strong>:
+                <span class="ml-1">{{ details.llmInvocation.provider }}</span>
+                <span class="ml-1">({{ details.llmInvocation.model }})</span>
               </div>
+            }
 
+            @if (details.toolCalls.length > 0) {
               <div class="response-details-section">
-                <strong i18n>Confidence</strong>:
-                {{ details.confidence.score * 100 | number: '1.0-0' }}%
-                ({{ details.confidence.band }})
+                <strong i18n>Tools</strong>
+                <ul class="mb-0 pl-3 response-details-list">
+                  @for (toolCall of details.toolCalls; track $index) {
+                    <li>
+                      <span class="font-weight-bold">{{ toolCall.tool }}</span>
+                      -
+                      {{ toolCall.status }}
+                      <div>
+                        <span class="text-muted" i18n>Input</span>:
+                        {{ toolCall.input | json }}
+                      </div>
+                      <div>
+                        <span class="text-muted" i18n>Output</span>:
+                        {{ toolCall.outputSummary }}
+                      </div>
+                    </li>
+                  }
+                </ul>
               </div>
+            }
 
-              @if (details.llmInvocation) {
-                <div class="response-details-section">
-                  <strong i18n>LLM</strong>:
-                  <span class="ml-1">{{ details.llmInvocation.provider }}</span>
-                  <span class="ml-1">({{ details.llmInvocation.model }})</span>
-                </div>
-              }
-
-              @if (details.toolCalls.length > 0) {
-                <div class="response-details-section">
-                  <strong i18n>Tools</strong>
-                  <ul class="mb-0 pl-3 response-details-list">
-                    @for (toolCall of details.toolCalls; track $index) {
-                      <li>
-                        <span class="font-weight-bold">{{ toolCall.tool }}</span>
-                        -
-                        {{ toolCall.status }}
-                        <div>
-                          <span class="text-muted" i18n>Input</span>:
-                          {{ toolCall.input | json }}
-                        </div>
-                        <div>
-                          <span class="text-muted" i18n>Output</span>:
-                          {{ toolCall.outputSummary }}
-                        </div>
-                      </li>
-                    }
-                  </ul>
-                </div>
-              }
-
-              @if (details.citations.length > 0) {
-                <div class="response-details-section">
+            @if (details.citations.length > 0) {
+              <div class="response-details-section">
                 <strong i18n>Citations</strong>
                 <ul class="mb-0 pl-3 response-details-list">
                   @for (citation of details.citations; track $index) {
                     <li>
-                      <span class="font-weight-bold">{{ citation.source }}</span>
+                      <span class="font-weight-bold">{{
+                        citation.source
+                      }}</span>
                       -
                       {{ citation.snippet }}
                     </li>
@@ -238,22 +252,24 @@
             }
 
             @if (details.observability) {
-                    <div class="response-details-section">
-                      <strong i18n>Observability</strong>:
-                      <span class="ml-1"
-                        >{{ details.observability.latencyInMs }}ms, ~{{
-                          details.observability.tokenEstimate.total
-                        }}
-                        tokens</span
-                      >
-                      @if (details.observability.traceId) {
-                        <div class="response-details-trace">
-                          <strong i18n>Trace ID</strong>:
-                          <span class="ml-1">{{ details.observability.traceId }}</span>
-                        </div>
-                      }
-                    </div>
-                  }
+              <div class="response-details-section">
+                <strong i18n>Observability</strong>:
+                <span class="ml-1"
+                  >{{ details.observability.latencyInMs }}ms, ~{{
+                    details.observability.tokenEstimate.total
+                  }}
+                  tokens</span
+                >
+                @if (details.observability.traceId) {
+                  <div class="response-details-trace">
+                    <strong i18n>Trace ID</strong>:
+                    <span class="ml-1">{{
+                      details.observability.traceId
+                    }}</span>
+                  </div>
+                }
+              </div>
+            }
           } @else {
             <span class="text-muted" i18n>No response details available.</span>
           }

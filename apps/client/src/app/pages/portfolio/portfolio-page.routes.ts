@@ -12,7 +12,7 @@ export const routes: Routes = [
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: internalRoutes.portfolio.subRoutes.chat.path
+        redirectTo: internalRoutes.portfolio.subRoutes.analysis.path
       },
       {
         path: internalRoutes.portfolio.subRoutes.analysis.path,

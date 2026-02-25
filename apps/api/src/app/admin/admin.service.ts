@@ -658,8 +658,8 @@ export class AdminService {
 
       return this.symbolProfileService.getSymbolProfiles([
         {
-          dataSource: dataSource as DataSource,
-          symbol: symbol as string
+          dataSource: dataSource,
+          symbol: symbol
         }
       ])?.[0];
     }

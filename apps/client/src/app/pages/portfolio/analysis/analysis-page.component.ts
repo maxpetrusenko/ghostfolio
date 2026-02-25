@@ -45,11 +45,8 @@ import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
-import { GfAiChatPanelComponent } from './ai-chat-panel/ai-chat-panel.component';
-
 @Component({
   imports: [
-    GfAiChatPanelComponent,
     GfBenchmarkComparatorComponent,
     GfInvestmentChartComponent,
     GfPremiumIndicatorComponent,
@@ -90,7 +87,6 @@ export class GfAnalysisPageComponent implements OnDestroy, OnInit {
   public isLoadingInvestmentTimelineChart: boolean;
   public isLoadingPortfolioPrompt: boolean;
   public mode: GroupBy = 'month';
-  private aiChatRefreshTimer?: ReturnType<typeof setTimeout>;
   public modeOptions: ToggleOption[] = [
     { label: $localize`Monthly`, value: 'month' },
     { label: $localize`Yearly`, value: 'year' }
@@ -229,21 +225,6 @@ export class GfAnalysisPageComponent implements OnDestroy, OnInit {
   public ngOnDestroy() {
     this.unsubscribeSubject.next();
     this.unsubscribeSubject.complete();
-
-    if (this.aiChatRefreshTimer) {
-      clearTimeout(this.aiChatRefreshTimer);
-    }
-  }
-
-  public onAiChatCompleted() {
-    if (this.aiChatRefreshTimer) {
-      clearTimeout(this.aiChatRefreshTimer);
-    }
-
-    this.aiChatRefreshTimer = setTimeout(() => {
-      this.aiChatRefreshTimer = undefined;
-      this.update();
-    }, 800);
   }
 
   private fetchDividendsAndInvestments() {

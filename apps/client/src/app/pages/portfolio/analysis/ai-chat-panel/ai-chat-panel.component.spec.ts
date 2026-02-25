@@ -31,7 +31,7 @@ function createChatResponse({
     model: string;
     provider: string;
   };
-  toolCalls?: Array<{
+    toolCalls?: {
     input: Record<string, unknown>;
     outputSummary: string;
     status: 'failed' | 'success';
@@ -53,7 +53,7 @@ function createChatResponse({
       | 'transaction_categorize'
       | 'tax_estimate'
       | 'compliance_check';
-  }>;
+      }[];
   observability?: {
     latencyBreakdownInMs: {
       llmGenerationInMs: number;
@@ -87,15 +87,14 @@ function createChatResponse({
       sessionId,
       turns
     },
-    toolCalls:
-      toolCalls ?? [
+    toolCalls: toolCalls ?? [
       {
         input: {},
         outputSummary: '2 holdings analyzed',
         status: 'success',
         tool: 'portfolio_analysis'
       }
-      ],
+    ],
     verification: [
       {
         check: 'market_data_coverage',
@@ -269,7 +268,8 @@ describe('GfAiChatPanelComponent', () => {
     fixture.detectChanges();
 
     const nativeElement = fixture.nativeElement as HTMLElement;
-    const chatLogText = nativeElement.querySelector('.chat-log')?.textContent ?? '';
+    const chatLogText =
+      nativeElement.querySelector('.chat-log')?.textContent ?? '';
 
     expect(nativeElement.querySelector('.chat-metadata')).toBeNull();
     expect(chatLogText).not.toContain('Confidence');
@@ -279,7 +279,9 @@ describe('GfAiChatPanelComponent', () => {
     const detailsTrigger = nativeElement.querySelector(
       '.chat-details-trigger'
     ) as HTMLButtonElement | null;
-    const detailsIcon = nativeElement.querySelector('.chat-details-trigger svg.chat-details-icon');
+    const detailsIcon = nativeElement.querySelector(
+      '.chat-details-trigger svg.chat-details-icon'
+    );
 
     expect(detailsTrigger).toBeTruthy();
     expect(detailsIcon).toBeTruthy();
@@ -305,29 +307,6 @@ describe('GfAiChatPanelComponent', () => {
     expect(overlayText).toContain('2 holdings analyzed');
     expect(overlayText).toContain('market_data_coverage');
   }));
-
-  it('sends next response preference when provided', () => {
-    dataService.postAiChat.mockReturnValue(
-      of(
-        createChatResponse({
-          answer: 'Portfolio response',
-          sessionId: 'session-pref',
-          turns: 1
-        })
-      )
-    );
-    component.query = 'Summarize risk';
-    component.nextResponsePreference = 'Give me short bullet points.';
-
-    component.onSubmit();
-
-    expect(dataService.postAiChat).toHaveBeenCalledWith({
-      query: 'Summarize risk',
-      nextResponsePreference: 'Give me short bullet points.',
-      sessionId: undefined
-    });
-    expect(component.nextResponsePreference).toBe('');
-  });
 
   it('reuses session id across consecutive prompts', () => {
     dataService.postAiChat

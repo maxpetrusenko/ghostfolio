@@ -6,7 +6,8 @@ import {
 } from './ai-agent.interfaces';
 
 const CANDIDATE_TICKER_PATTERN = /\$?[A-Za-z0-9.]{1,10}/g;
-const NORMALIZED_TICKER_PATTERN = /^(?=.*[A-Z])[A-Z0-9]{1,6}(?:\.[A-Z0-9]{1,4})?$/;
+const NORMALIZED_TICKER_PATTERN =
+  /^(?=.*[A-Z])[A-Z0-9]{1,6}(?:\.[A-Z0-9]{1,4})?$/;
 const SYMBOL_STOP_WORDS = new Set([
   'AND',
   'FOR',
@@ -178,6 +179,8 @@ const REBALANCE_KEYWORDS = [
 ];
 
 const STRESS_TEST_KEYWORDS = ['crash', 'drawdown', 'shock', 'stress'];
+const STRESS_TEST_TYPOS = ['strestt', 'stresss', 'stresstest'];
+
 const PORTFOLIO_CONTEXT_KEYWORDS = [
   'account',
   'allocation',
@@ -203,8 +206,10 @@ const HISTORICAL_PERFORMANCE_QUERY_PATTERNS = [
   /\b(?:how\s+(?:has|well\s+has).*(?:performed?|doing)|performance\s+over\s+time)\b/
 ];
 const FIRE_QUERY_PATTERNS = [
-  /\b(?:fire|financial\s+independence|retire(?:ment|d)?|safe\s+withdrawal|withdrawal\s+rate)\b/,
-  /\b(?:on\s+track\s+for\s+(?:retirement|fire)|when\s+can\s+i\s+retire)\b/
+  /\b(?:financial\s+independence|retire(?:ment|d)?|safe\s+withdrawal|withdrawal\s+rate)\b/,
+  /\bfire\s+(?:plan|path|goal|read|readiness|retirement|independence|withdrawal|rate|calculator|projection)\b/i,
+  /\b(?:on\s+track\s+for\s+(?:retirement|fire)|when\s+can\s+i\s+retire|am\s+i\s+(?:ready|prepared)\s+for\s+retirement)\b/i,
+  /\b(?:retire\s+at\s+(?:the|what)\s+age|when\s+is\s+the\s+right\s+time\s+to\s+retire|getting\s+old|getting\s+older)\b/i
 ];
 const PORTFOLIO_VALUE_CONTEXT_PATTERN =
   /\b(?:i|my|me|portfolio|account|accounts|holdings|invested|investment|total)\b/;
@@ -258,6 +263,7 @@ const REBALANCE_CALCULATOR_QUERY_PATTERNS = [
   /\b(?:calculate\s+rebalance|rebalance\s+plan|target\s+allocation)\b/,
   /\b(?:80\s*20|70\s*30|60\s*40)\b.*\b(?:allocation|portfolio)\b/
 ];
+const MARKET_CONTEXT_QUERY_PATTERNS = [/\b(?:market\s+context)\b/];
 const TRADE_IMPACT_QUERY_PATTERNS = [
   /\b(?:simulate\s+trade|trade\s+impact|what\s+if\s+i\s+(?:buy|sell))\b/,
   /\b(?:if\s+i\s+buy|if\s+i\s+sell)\b/
@@ -308,11 +314,12 @@ const ACTIVITY_HISTORY_QUERY_PATTERNS = [
   /\b(?:activity)\b.*\b(?:history|summary)\b/
 ];
 const DEMO_DATA_QUERY_PATTERNS = [
-  /\b(?:demo\s+data|sample\s+data|mock\s+data)\b/
+  /\b(?:demo\s+data|sample\s+data|mock\s+data|scenario\s+planning)\b/
 ];
-const CREATE_ACCOUNT_QUERY_PATTERNS = [
-  /\b(?:create|open|add)\b.*\baccount\b/
+const SEED_FUNDS_QUERY_PATTERNS = [
+  /\b(?:seed\s+(?:money|funds|data)|add(?:ing)?\s+test\s+(?:money|funds|data)|quick\s+check|top\s+up|load\s+test\s+money|fund\s+my\s+account)\b/
 ];
+const CREATE_ACCOUNT_QUERY_PATTERNS = [/\b(?:create|open|add)\b.*\baccount\b/];
 const CREATE_ORDER_QUERY_PATTERNS = [
   /\b(?:create|place|submit|make|execute|put)\b.*\border\b/i,
   /\b(?:buy|purchase|trade|sell)\b.*\b\d+\s*(?:usd|eur|gbp|cad|chf|jpy|aud|shares?|units?|\$)/i
@@ -400,9 +407,11 @@ function getAnswerQualitySignals({
     return normalizedAnswerLowerCase.includes(keyword);
   });
   const hasNumericSignal = /\d/.test(normalizedAnswer);
-  const disallowedPhraseDetected = DISALLOWED_RESPONSE_PATTERNS.some((pattern) => {
-    return pattern.test(normalizedAnswer);
-  });
+  const disallowedPhraseDetected = DISALLOWED_RESPONSE_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedAnswer);
+    }
+  );
 
   return {
     disallowedPhraseDetected,
@@ -428,11 +437,17 @@ export function isGeneratedAnswerReliable({
     return false;
   }
 
-  if (qualitySignals.wordCount < MINIMUM_GENERATED_ANSWER_WORDS) {
+  if (
+    (qualitySignals.hasInvestmentIntent || qualitySignals.hasNumericIntent) &&
+    qualitySignals.wordCount < MINIMUM_GENERATED_ANSWER_WORDS
+  ) {
     return false;
   }
 
-  if (qualitySignals.hasInvestmentIntent && !qualitySignals.hasActionableGuidance) {
+  if (
+    qualitySignals.hasInvestmentIntent &&
+    !qualitySignals.hasActionableGuidance
+  ) {
     return false;
   }
 
@@ -457,19 +472,24 @@ export function evaluateAnswerQuality({
     issues.push('Response contains a generic AI disclaimer');
   }
 
-  if (qualitySignals.wordCount < MINIMUM_GENERATED_ANSWER_WORDS) {
-    issues.push(
-      `Response length is short (${qualitySignals.wordCount} words; target >= ${MINIMUM_GENERATED_ANSWER_WORDS})`
-    );
+  if (qualitySignals.hasInvestmentIntent || qualitySignals.hasNumericIntent) {
+    if (qualitySignals.wordCount < MINIMUM_GENERATED_ANSWER_WORDS) {
+      issues.push(
+        `Response length is short (${qualitySignals.wordCount} words; target >= ${MINIMUM_GENERATED_ANSWER_WORDS})`
+      );
+    }
+
+    if (qualitySignals.sentenceCount < 2) {
+      issues.push(
+        `Response uses limited structure (${qualitySignals.sentenceCount} sentence)`
+      );
+    }
   }
 
-  if (qualitySignals.sentenceCount < 2) {
-    issues.push(
-      `Response uses limited structure (${qualitySignals.sentenceCount} sentence)`
-    );
-  }
-
-  if (qualitySignals.hasInvestmentIntent && !qualitySignals.hasActionableGuidance) {
+  if (
+    qualitySignals.hasInvestmentIntent &&
+    !qualitySignals.hasActionableGuidance
+  ) {
     issues.push('Investment request lacks explicit action guidance');
   }
 
@@ -497,9 +517,7 @@ export function evaluateAnswerQuality({
 
 function normalizeSymbolCandidate(rawCandidate: string) {
   const hasDollarPrefix = rawCandidate.startsWith('$');
-  const candidate = hasDollarPrefix
-    ? rawCandidate.slice(1)
-    : rawCandidate;
+  const candidate = hasDollarPrefix ? rawCandidate.slice(1) : rawCandidate;
 
   if (!candidate) {
     return null;
@@ -526,9 +544,11 @@ function normalizeSymbolCandidate(rawCandidate: string) {
 
 export function extractSymbolsFromQuery(query: string) {
   const normalizedQuery = normalizeIntentQuery(query);
-  const hasCompanyAliasContext = COMPANY_ALIAS_CONTEXT_PATTERNS.some((pattern) => {
-    return pattern.test(normalizedQuery);
-  });
+  const hasCompanyAliasContext = COMPANY_ALIAS_CONTEXT_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
   const matches = query.match(CANDIDATE_TICKER_PATTERN) ?? [];
   const aliasMatches = COMPANY_ALIAS_PATTERNS.filter(({ pattern }) => {
     return pattern.test(query);
@@ -542,14 +562,12 @@ export function extractSymbolsFromQuery(query: string) {
     .map(({ symbol }) => symbol);
 
   return Array.from(
-    new Set(
-      [
-        ...matches
-          .map((candidate) => normalizeSymbolCandidate(candidate))
-          .filter(Boolean),
-        ...aliasSymbols
-      ]
-    )
+    new Set([
+      ...matches
+        .map((candidate: string) => normalizeSymbolCandidate(candidate))
+        .filter((val): val is string => val !== null),
+      ...aliasSymbols
+    ])
   );
 }
 
@@ -581,9 +599,11 @@ export function determineToolPlan({
   const hasRebalanceIntent = REBALANCE_KEYWORDS.some((keyword) => {
     return normalizedQuery.includes(keyword);
   });
-  const hasStressTestIntent = STRESS_TEST_KEYWORDS.some((keyword) => {
-    return normalizedQuery.includes(keyword);
-  });
+  const hasStressTestIntent = [...STRESS_TEST_KEYWORDS, ...STRESS_TEST_TYPOS].some(
+    (keyword) => {
+      return normalizedQuery.includes(keyword);
+    }
+  );
   const hasPortfolioContextIntent = PORTFOLIO_CONTEXT_KEYWORDS.some(
     (keyword) => {
       return normalizedQuery.includes(keyword);
@@ -608,11 +628,10 @@ export function determineToolPlan({
     PORTFOLIO_VALUE_QUESTION_PATTERN.test(normalizedQuery) &&
     PORTFOLIO_VALUE_KEYWORD_PATTERN.test(normalizedQuery) &&
     PORTFOLIO_VALUE_CONTEXT_PATTERN.test(normalizedQuery);
-  const hasPortfolioValueIntent = PORTFOLIO_VALUE_QUERY_PATTERNS.some(
-    (pattern) => {
+  const hasPortfolioValueIntent =
+    PORTFOLIO_VALUE_QUERY_PATTERNS.some((pattern) => {
       return pattern.test(normalizedQuery);
-    }
-  ) || hasBroadPortfolioValueIntent;
+    }) || hasBroadPortfolioValueIntent;
   const hasPortfolioSummaryIntent = PORTFOLIO_SUMMARY_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
@@ -623,11 +642,10 @@ export function determineToolPlan({
       return pattern.test(normalizedQuery);
     }
   );
-  const hasPortfolioRiskMetricsIntent = PORTFOLIO_RISK_METRICS_QUERY_PATTERNS.some(
-    (pattern) => {
+  const hasPortfolioRiskMetricsIntent =
+    PORTFOLIO_RISK_METRICS_QUERY_PATTERNS.some((pattern) => {
       return pattern.test(normalizedQuery);
-    }
-  );
+    });
   const hasRecentTransactionsIntent = RECENT_TRANSACTIONS_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
@@ -636,14 +654,13 @@ export function determineToolPlan({
   const hasLiveQuoteIntent = LIVE_QUOTE_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
-  const hasAssetFundamentalsIntent = ASSET_FUNDAMENTALS_QUERY_PATTERNS.some(
-    (pattern) => {
+  const hasAssetFundamentalsIntent =
+    ASSET_FUNDAMENTALS_QUERY_PATTERNS.some((pattern) => {
       return pattern.test(normalizedQuery);
-    }
-  ) ||
-  ASSET_FUNDAMENTALS_INTENT_FRAGMENTS.some((fragment) => {
-    return normalizedQuery.includes(fragment);
-  });
+    }) ||
+    ASSET_FUNDAMENTALS_INTENT_FRAGMENTS.some((fragment) => {
+      return normalizedQuery.includes(fragment);
+    });
   const hasFinancialNewsIntent = FINANCIAL_NEWS_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
@@ -657,6 +674,10 @@ export function determineToolPlan({
   const hasTradeImpactIntent = TRADE_IMPACT_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
+  const hasMarketContextIntent =
+    MARKET_CONTEXT_QUERY_PATTERNS.some((pattern) => {
+      return pattern.test(normalizedQuery);
+    }) || normalizedQuery.includes('market context');
   const hasTransactionCategorizationIntent =
     TRANSACTION_CATEGORIZE_QUERY_PATTERNS.some((pattern) => {
       return pattern.test(normalizedQuery);
@@ -699,23 +720,39 @@ export function determineToolPlan({
   const hasDemoDataIntent = DEMO_DATA_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
-  const hasCreateAccountIntent = CREATE_ACCOUNT_QUERY_PATTERNS.some((pattern) => {
+  const hasSeedFundsIntent = SEED_FUNDS_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
+  const hasCreateAccountIntent = CREATE_ACCOUNT_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
   const hasCreateOrderIntent = CREATE_ORDER_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
-  const hasExplicitSymbol = extractedSymbols.length > 0;
+  const hasExplicitNonFireSymbol =
+    extractedSymbols.some(
+      (symbol) => !(hasFireIntent && symbol === 'FIRE')
+    ) &&
+    extractedSymbols.length > 0;
   const hasTickerDecisionIntent =
-    hasExplicitSymbol &&
-    (hasDecisionAnalysisIntent || hasResearchIntent);
+    hasExplicitNonFireSymbol && (hasDecisionAnalysisIntent || hasResearchIntent);
   const hasDecisionValuationIntent =
     hasAssetFundamentalsIntent ||
     /\b(?:valuation|metrics?|market\s*cap|p\s*e|earnings|dividend)\b/.test(
       normalizedQuery
     );
   const hasDecisionCatalystIntent =
-    hasFinancialNewsIntent || /\b(?:catalyst|catalysts|news)\b/.test(normalizedQuery);
+    hasFinancialNewsIntent ||
+    /\b(?:catalyst|catalysts|news)\b/.test(normalizedQuery);
+  const hasDirectFinancialNewsIntent = hasFinancialNewsIntent
+    ? true
+    : /\bnews\b/.test(normalizedQuery) && hasExplicitNonFireSymbol;
+
+  if (hasDirectFinancialNewsIntent) {
+    selectedTools.add('get_financial_news');
+  }
 
   if (
     normalizedQuery.includes('portfolio') ||
@@ -757,11 +794,15 @@ export function determineToolPlan({
     selectedTools.add('get_portfolio_summary');
     selectedTools.add('risk_assessment');
     selectedTools.add('stress_test');
+    selectedTools.add('fire_analysis');
   }
 
   if (
-    hasRebalanceIntent ||
-    (hasInvestmentIntent && (!hasTickerDecisionIntent || hasPortfolioContextIntent))
+    (hasRebalanceIntent ||
+      (hasInvestmentIntent &&
+        (!hasTickerDecisionIntent || hasPortfolioContextIntent))) &&
+    !hasDemoDataIntent &&
+    !hasSeedFundsIntent
   ) {
     selectedTools.add('portfolio_analysis');
     selectedTools.add('risk_assessment');
@@ -786,9 +827,13 @@ export function determineToolPlan({
     if (hasDecisionValuationIntent && hasDecisionCatalystIntent) {
       selectedTools.add('market_data_lookup');
     }
+
+    if (hasMarketContextIntent && hasExplicitNonFireSymbol) {
+      selectedTools.add('market_data_lookup');
+    }
   }
 
-  if (hasHistoricalPerformanceIntent && hasExplicitSymbol) {
+  if (hasHistoricalPerformanceIntent && hasExplicitNonFireSymbol) {
     selectedTools.add('price_history');
   }
 
@@ -796,7 +841,10 @@ export function determineToolPlan({
     normalizedQuery.includes('quote') ||
     normalizedQuery.includes('price') ||
     normalizedQuery.includes('ticker') ||
-    (!hasSymbolLookupIntent && hasExplicitSymbol && !hasTickerDecisionIntent);
+    (!hasSymbolLookupIntent &&
+      hasExplicitNonFireSymbol &&
+      !hasTickerDecisionIntent &&
+      !hasDirectFinancialNewsIntent);
   const hasMarketTierCandidate =
     hasSymbolLookupIntent ||
     hasPriceHistoryIntent ||
@@ -804,9 +852,10 @@ export function determineToolPlan({
     hasAssetFundamentalsIntent ||
     hasFinancialNewsIntent ||
     hasLiveQuoteIntent ||
-    hasGenericMarketLookupIntent;
+    hasGenericMarketLookupIntent ||
+    hasMarketContextIntent;
 
-  if (hasMarketTierCandidate) {
+  if (hasMarketTierCandidate && !hasFireIntent && !hasSeedFundsIntent) {
     if (hasSymbolLookupIntent) {
       selectedTools.add('symbol_lookup');
     } else if (hasPriceHistoryIntent || hasHistoricalPerformanceIntent) {
@@ -817,9 +866,21 @@ export function determineToolPlan({
       selectedTools.add('get_financial_news');
     } else if (hasLiveQuoteIntent) {
       selectedTools.add('get_live_quote');
+    } else if (hasMarketContextIntent && hasExplicitNonFireSymbol) {
+      selectedTools.add('market_data_lookup');
     } else if (hasGenericMarketLookupIntent) {
       selectedTools.add('market_data_lookup');
     }
+  }
+
+  if (
+    hasMarketContextIntent &&
+    hasExplicitNonFireSymbol &&
+    !hasFireIntent &&
+    !hasSeedFundsIntent &&
+    !selectedTools.has('market_data_lookup')
+  ) {
+    selectedTools.add('market_data_lookup');
   }
 
   if (hasRebalanceCalculatorIntent) {
@@ -865,6 +926,10 @@ export function determineToolPlan({
     selectedTools.add('demo_data');
   }
 
+  if (hasSeedFundsIntent) {
+    selectedTools.add('seed_funds');
+  }
+
   if (hasCreateAccountIntent) {
     selectedTools.add('create_account');
   }
@@ -900,7 +965,10 @@ export function calculateConfidence({
   const verificationPassRate =
     verification.length > 0 ? passedVerification / verification.length : 0;
 
-  let score = 0.4 + toolSuccessRate * 0.35 + verificationPassRate * 0.25;
+  let score =
+    toolCalls.length === 0
+      ? 0.2 + verificationPassRate * 0.3
+      : 0.4 + toolSuccessRate * 0.35 + verificationPassRate * 0.25;
   score -= failedVerification * 0.1;
   score = Math.max(0, Math.min(1, score));
 

@@ -17,9 +17,11 @@ export interface AiAgentMemoryState {
 }
 
 export type AiAgentResponseStylePreference = 'concise' | 'detailed';
+export type AiAgentResponseTemplatePreference = 'strict_contract';
 
 export interface AiAgentUserPreferenceState {
   responseStyle?: AiAgentResponseStylePreference;
+  responseTemplateMode?: AiAgentResponseTemplatePreference;
   updatedAt?: string;
 }
 

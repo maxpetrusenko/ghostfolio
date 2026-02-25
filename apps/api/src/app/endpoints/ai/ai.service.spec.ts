@@ -578,7 +578,9 @@ describe('AiService', () => {
               answer: 'Recent transactions: BUY AAPL 1200.50 USD.',
               query: 'Show my recent transactions',
               timestamp: '2026-02-24T18:40:00.000Z',
-              toolCalls: [{ status: 'success', tool: 'get_recent_transactions' }]
+              toolCalls: [
+                { status: 'success', tool: 'get_recent_transactions' }
+              ]
             }
           ]
         });
@@ -615,7 +617,9 @@ describe('AiService', () => {
       success: true
     });
     redisCacheService.get.mockImplementation(async (key: string) => {
-      if (key === 'ai-agent-memory-user-follow-up-fresh-session-follow-up-fresh') {
+      if (
+        key === 'ai-agent-memory-user-follow-up-fresh-session-follow-up-fresh'
+      ) {
         return JSON.stringify({
           turns: [
             {
@@ -692,7 +696,9 @@ describe('AiService', () => {
     });
 
     expect(savePreferenceResult.answer).toContain('Saved preference');
-    expect(redisStore.get('ai-agent-preferences-user-pref')).toContain('concise');
+    expect(redisStore.get('ai-agent-preferences-user-pref')).toContain(
+      'concise'
+    );
 
     const recallPreferenceResult = await subject.chat({
       languageCode: 'en',
@@ -887,10 +893,54 @@ describe('AiService', () => {
         expect.objectContaining({
           check: 'tool_execution',
           status: 'warning'
+        }),
+        expect.objectContaining({
+          check: 'confidence_guardrail',
+          status: 'warning'
         })
       ])
     );
-    expect(result.answer).toContain('limited availability');
+    expect(result.answer).toContain(
+      'Insufficient confidence to answer safely with the current evidence.'
+    );
+  });
+
+  it('returns abstain response when tool route has low confidence and no successful tool evidence', async () => {
+    dataProviderService.getQuotes.mockRejectedValue(
+      new Error('market provider unavailable')
+    );
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockResolvedValue({
+      text: 'As an AI, I cannot provide financial advice.'
+    } as never);
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'What is the current price of NVDA?',
+      sessionId: 'session-low-confidence-tools',
+      userCurrency: 'USD',
+      userId: 'user-low-confidence-tools'
+    });
+
+    expect(result.toolCalls).toEqual([
+      expect.objectContaining({
+        outputSummary: 'market provider unavailable',
+        status: 'failed',
+        tool: 'market_data_lookup'
+      })
+    ]);
+    expect(result.answer).toContain(
+      'Insufficient confidence to answer safely with the current evidence.'
+    );
+    expect(result.verification).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'confidence_guardrail',
+          status: 'warning'
+        })
+      ])
+    );
+    expect(result.confidence.band).toBe('low');
   });
 
   it('flags numerical consistency warning when allocation sum exceeds tolerance', async () => {
@@ -974,8 +1024,8 @@ describe('AiService', () => {
       userId: 'user-capability'
     });
 
-    expect(result.answer).toContain('Show my recent transactions');
-    expect(result.answer).toContain('Get live quote, fundamentals, and news for AAPL');
+    expect(result.answer).toContain('What you can ask me:');
+    expect(result.answer).toContain('How do I place a test order?');
     expect(result.toolCalls).toEqual([]);
   });
 
@@ -1045,7 +1095,9 @@ describe('AiService', () => {
         })
       ])
     );
-    expect(result.answer).toContain("I don't have any recorded transactions yet for this account.");
+    expect(result.answer).toContain(
+      "I don't have any recorded transactions yet for this account."
+    );
   });
 
   it('executes fundamentals and trade impact tools for explicit analysis queries', async () => {
@@ -1229,7 +1281,9 @@ describe('AiService', () => {
     expect(result.answer).toContain(
       'Tax estimate (assumption-based): income 120000.00 USD, deductions 0.00 USD.'
     );
-    expect(result.answer).toContain('Income or deductions were partially inferred');
+    expect(result.answer).toContain(
+      'Income or deductions were partially inferred'
+    );
   });
 
   it('keeps missing income explicit when only deductions are provided', async () => {
@@ -1238,7 +1292,8 @@ describe('AiService', () => {
 
     const result = await subject.chat({
       languageCode: 'en',
-      query: 'Can you calculate my tax estimate? Deductions are 20000 and tax rate 20%',
+      query:
+        'Can you calculate my tax estimate? Deductions are 20000 and tax rate 20%',
       sessionId: 'session-tax-deductions-only',
       userCurrency: 'USD',
       userId: 'user-tax-deductions-only'
@@ -1305,10 +1360,19 @@ describe('AiService', () => {
 
     expect(result.toolCalls).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ status: 'success', tool: 'account_overview' }),
+        expect.objectContaining({
+          status: 'success',
+          tool: 'account_overview'
+        }),
         expect.objectContaining({ status: 'success', tool: 'exchange_rate' }),
-        expect.objectContaining({ status: 'success', tool: 'market_benchmarks' }),
-        expect.objectContaining({ status: 'success', tool: 'activity_history' }),
+        expect.objectContaining({
+          status: 'success',
+          tool: 'market_benchmarks'
+        }),
+        expect.objectContaining({
+          status: 'success',
+          tool: 'activity_history'
+        }),
         expect.objectContaining({ status: 'success', tool: 'demo_data' })
       ])
     );
@@ -1358,6 +1422,53 @@ describe('AiService', () => {
     );
     expect(accountService.createAccount).toHaveBeenCalled();
     expect(orderService.createOrder).toHaveBeenCalled();
+  });
+
+  it('adds seed funds for explicit seed funding requests', async () => {
+    accountService.getAccounts.mockResolvedValue([
+      {
+        balance: 500,
+        currency: 'USD',
+        id: 'account-1',
+        name: 'Testing'
+      }
+    ]);
+    orderService.createOrder.mockResolvedValue({
+      id: 'order-seed-1',
+      type: 'INTEREST'
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Add 1000 USD seed funds for testing',
+      sessionId: 'session-seed-funds',
+      userCurrency: 'USD',
+      userId: 'user-seed-funds'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'seed_funds' })
+      ])
+    );
+
+    const createOrderInput = orderService.createOrder.mock.calls[0]?.[0];
+    expect(createOrderInput).toMatchObject({
+      accountId: 'account-1',
+      comment: 'Seed funds added',
+      currency: 'USD',
+      date: expect.any(Date),
+      fee: 0,
+      quantity: 1,
+      type: 'INTEREST',
+      unitPrice: 1000,
+      updateAccountBalance: true
+    });
+    expect(createOrderInput.SymbolProfile.connectOrCreate.create.symbol).toMatch(
+      /^GF_SEED_\d+$/
+    );
   });
 
   it('asks for missing order details for vague order requests', async () => {
@@ -1570,7 +1681,13 @@ describe('AiService', () => {
         expect.objectContaining({ tool: 'portfolio_analysis' }),
         expect.objectContaining({ tool: 'get_portfolio_summary' }),
         expect.objectContaining({ tool: 'risk_assessment' }),
-        expect.objectContaining({ tool: 'stress_test' })
+        expect.objectContaining({ tool: 'stress_test' }),
+        expect.objectContaining({ tool: 'fire_analysis' })
+      ])
+    );
+    expect(result.toolCalls).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ tool: 'market_data_lookup' })
       ])
     );
   });
@@ -1681,36 +1798,26 @@ describe('AiService', () => {
     expect(propertyService.getByKey).not.toHaveBeenCalled();
   });
 
-  it('falls back to minimax when z.ai request fails', async () => {
+  it('uses minimax when ChatGPT is not configured in auto mode', async () => {
     process.env.z_ai_glm_api_key = 'zai-key';
     process.env.minimax_api_key = 'minimax-key';
     process.env.minimax_model = 'MiniMax-M2.5';
 
-    const fetchMock = jest
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500
-      })
-      .mockResolvedValueOnce({
-        json: jest.fn().mockResolvedValue({
-          choices: [{ message: { content: 'minimax-response' } }]
-        }),
-        ok: true
-      });
+    const fetchMock = jest.fn().mockResolvedValue({
+      json: jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'minimax-response' } }]
+      }),
+      ok: true
+    });
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await subject.generateText({
       prompt: 'fallback test'
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      'https://api.z.ai/api/paas/v4/chat/completions',
-      expect.any(Object)
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
       'https://api.minimax.io/v1/chat/completions',
       expect.any(Object)
     );
@@ -1720,13 +1827,6 @@ describe('AiService', () => {
     expect(aiObservabilityService.recordLlmInvocation).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        model: 'glm-5',
-        provider: 'z_ai_glm'
-      })
-    );
-    expect(aiObservabilityService.recordLlmInvocation).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
         model: 'MiniMax-M2.5',
         provider: 'minimax',
         responseText: 'minimax-response'
@@ -1734,29 +1834,19 @@ describe('AiService', () => {
     );
   });
 
-  it('falls back to openai when minimax request fails', async () => {
+  it('tries chatgpt first in auto mode', async () => {
     process.env.z_ai_glm_api_key = 'zai-key';
     process.env.minimax_api_key = 'minimax-key';
     process.env.minimax_model = 'MiniMax-M2.5';
     process.env.openai_api_key = 'openai-key';
     process.env.openai_model = 'gpt-4o-mini';
 
-    const fetchMock = jest
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500
+    const fetchMock = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'openai-response' } }]
       })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 502
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: jest.fn().mockResolvedValue({
-          choices: [{ message: { content: 'openai-response' } }]
-        })
-      });
+    });
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await subject.generateText({
@@ -1765,30 +1855,46 @@ describe('AiService', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      'https://api.z.ai/api/paas/v4/chat/completions',
-      expect.any(Object)
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'https://api.minimax.io/v1/chat/completions',
-      expect.any(Object)
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
       'https://api.openai.com/v1/chat/completions',
       expect.any(Object)
     );
     expect(result).toEqual({
       text: 'openai-response'
     });
-    expect(aiObservabilityService.recordLlmInvocation).toHaveBeenNthCalledWith(
-      3,
+    expect(aiObservabilityService.recordLlmInvocation).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'gpt-4o-mini',
         provider: 'openai',
         responseText: 'openai-response'
       })
     );
+  });
+
+  it('uses chatgpt alias as openai', async () => {
+    process.env.openai_api_key = 'openai-key';
+    process.env.openai_model = 'gpt-4o-mini';
+
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'chatgpt-alias-response' } }]
+      })
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await subject.generateText({
+      model: 'chatgpt',
+      prompt: 'chatgpt alias test'
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/chat/completions',
+      expect.any(Object)
+    );
+    expect(result).toEqual({
+      text: 'chatgpt-alias-response'
+    });
   });
 
   it('uses openai provider when explicitly requested', async () => {
@@ -1834,24 +1940,22 @@ describe('AiService', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        text: jest
-          .fn()
-          .mockResolvedValue(
-            JSON.stringify({
-              id: 'chatcmpl-1',
-              model: 'gpt-4o-mini',
-              choices: [
-                {
-                  index: 0,
-                  message: {
-                    role: 'assistant',
-                    content: 'openrouter-response'
-                  },
-                  finish_reason: 'stop'
-                }
-              ]
-            })
-          ),
+        text: jest.fn().mockResolvedValue(
+          JSON.stringify({
+            id: 'chatcmpl-1',
+            model: 'gpt-4o-mini',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: 'openrouter-response'
+                },
+                finish_reason: 'stop'
+              }
+            ]
+          })
+        ),
         headers: {
           forEach: jest.fn()
         },

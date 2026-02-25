@@ -73,12 +73,12 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
   public errorMessage: string;
   public isSubmitting = false;
   public query = '';
-  public nextResponsePreference = '';
   public readonly starterPrompts = [
-    $localize`Am I on track for early retirement?`,
-    $localize`What if I increase my savings rate by 5%?`,
-    $localize`How does a market crash affect my FIRE date?`,
-    $localize`Explain my safe withdrawal rate options.`
+    $localize`Am I on track for FIRE?`,
+    $localize`What is my current portfolio overview?`,
+    $localize`Estimate my taxes for this year.`,
+    $localize`How can I make an order?`,
+    $localize`Add test data for a quick check.`
   ];
   public readonly userRoleLabel = $localize`You`;
 
@@ -208,8 +208,6 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
 
   public onSubmit() {
     const normalizedQuery = this.query?.trim();
-    const nextResponsePreference = this.nextResponsePreference?.trim();
-
     if (
       !this.hasPermissionToReadAiPrompt ||
       this.isSubmitting ||
@@ -227,14 +225,10 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
     this.errorMessage = undefined;
     this.isSubmitting = true;
     this.query = '';
-    this.nextResponsePreference = '';
 
     this.dataService
       .postAiChat({
         query: normalizedQuery,
-        ...(nextResponsePreference
-          ? { nextResponsePreference }
-          : {}),
         sessionId: this.chatSessionId
       })
       .pipe(
@@ -316,8 +310,7 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
         this.STORAGE_KEY_MESSAGES,
         JSON.stringify(this.chatMessages.slice(-this.MAX_STORED_MESSAGES))
       );
-    } catch {
-    }
+    } catch {}
   }
 
   private restoreChatState() {

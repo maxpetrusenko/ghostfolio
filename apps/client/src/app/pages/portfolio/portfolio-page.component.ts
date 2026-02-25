@@ -9,7 +9,6 @@ import { addIcons } from 'ionicons';
 import {
   analyticsOutline,
   calculatorOutline,
-  chatbubblesOutline,
   pieChartOutline,
   scanOutline,
   swapVerticalOutline
@@ -42,11 +41,6 @@ export class PortfolioPageComponent implements OnDestroy, OnInit {
       .subscribe((state) => {
         if (state?.user) {
           this.tabs = [
-            {
-              iconName: 'chatbubbles-outline',
-              label: internalRoutes.portfolio.subRoutes.chat.title,
-              routerLink: internalRoutes.portfolio.subRoutes.chat.routerLink
-            },
             {
               iconName: 'analytics-outline',
               label: internalRoutes.portfolio.subRoutes.analysis.title,
@@ -84,7 +78,6 @@ export class PortfolioPageComponent implements OnDestroy, OnInit {
     addIcons({
       analyticsOutline,
       calculatorOutline,
-      chatbubblesOutline,
       pieChartOutline,
       scanOutline,
       swapVerticalOutline

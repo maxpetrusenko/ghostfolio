@@ -28,14 +28,13 @@ const CONCISE_RESPONSE_STYLE_PATTERN =
   /\b(?:(?:concise|brief|short)\s+(?:answers?|responses?|replies?)|(?:answers?|responses?|replies?)\s+(?:concise|brief|short)|(?:answer|reply)\s+(?:briefly|concisely)|keep (?:the )?(?:answers?|responses?|replies?) (?:short|brief|concise))\b/i;
 const DETAILED_RESPONSE_STYLE_PATTERN =
   /\b(?:(?:detailed|verbose|longer)\s+(?:answers?|responses?|replies?)|(?:answers?|responses?|replies?)\s+(?:detailed|verbose|longer)|(?:answer|reply)\s+(?:in detail|verbosely)|(?:more|extra)\s+detail)\b/i;
+const STRICT_RESPONSE_TEMPLATE_TRIGGER_PATTERN =
+  /from now on,?\s+reply using this template only/i;
 const PREFERENCE_RECALL_PATTERN =
   /\b(?:what do you remember about me|show (?:my )?preferences?|what are my preferences?|which preferences (?:do|did) you (?:remember|save))\b/i;
 const RECOMMENDATION_INTENT_PATTERN =
   /\b(?:how do i|what should i do|help me|fix|reduce|diversif|deconcentrat|rebalance|recommend|what can i do)\b/i;
-const RECOMMENDATION_REQUIRED_SECTIONS = [
-  /option 1/i,
-  /option 2/i
-];
+const RECOMMENDATION_REQUIRED_SECTIONS = [/option 1/i, /option 2/i];
 const RECOMMENDATION_SUPPORTING_SECTIONS = [
   /summary:/i,
   /assumptions:/i,
@@ -61,7 +60,10 @@ const DECISION_ANALYSIS_INTENT_PATTERN =
 export const AI_AGENT_MEMORY_MAX_TURNS = 10;
 
 function getLlmTimeoutInMs() {
-  const parsed = Number.parseInt(process.env.AI_AGENT_LLM_TIMEOUT_IN_MS ?? '', 10);
+  const parsed = Number.parseInt(
+    process.env.AI_AGENT_LLM_TIMEOUT_IN_MS ?? '',
+    10
+  );
 
   return Number.isFinite(parsed) && parsed > 0
     ? parsed
@@ -77,16 +79,23 @@ function sanitizeUserPreferences(
 
   return {
     responseStyle:
-      preferences.responseStyle === 'concise' || preferences.responseStyle === 'detailed'
+      preferences.responseStyle === 'concise' ||
+      preferences.responseStyle === 'detailed'
         ? preferences.responseStyle
         : undefined,
+    responseTemplateMode:
+      preferences.responseTemplateMode === 'strict_contract'
+        ? preferences.responseTemplateMode
+        : undefined,
     updatedAt:
-      typeof preferences.updatedAt === 'string' ? preferences.updatedAt : undefined
+      typeof preferences.updatedAt === 'string'
+        ? preferences.updatedAt
+        : undefined
   };
 }
 
 function hasStoredPreferences(preferences: AiAgentUserPreferenceState) {
-  return Boolean(preferences.responseStyle);
+  return Boolean(preferences.responseStyle || preferences.responseTemplateMode);
 }
 
 function getResponseInstruction({
@@ -189,15 +198,17 @@ function buildRecommendationContext({
   const totalLongValue = longHoldings.reduce((sum, { valueInBaseCurrency }) => {
     return sum + valueInBaseCurrency;
   }, 0);
-  const topContributors = longHoldings.slice(0, 3).map(({ symbol, valueInBaseCurrency }) => {
-    return {
-      name: symbol,
-      pct:
-        totalLongValue > 0
-          ? Number((valueInBaseCurrency / totalLongValue).toFixed(4))
-          : 0
-    };
-  });
+  const topContributors = longHoldings
+    .slice(0, 3)
+    .map(({ symbol, valueInBaseCurrency }) => {
+      return {
+        name: symbol,
+        pct:
+          totalLongValue > 0
+            ? Number((valueInBaseCurrency / totalLongValue).toFixed(4))
+            : 0
+      };
+    });
   const topHoldingPct =
     riskAssessment?.topHoldingAllocation ??
     (topContributors.length > 0 ? topContributors[0].pct : 0);
@@ -257,9 +268,8 @@ function buildRecommendationFallback({
   const topAllocationsSummary = longHoldings
     .slice(0, 3)
     .map(({ symbol, valueInBaseCurrency }) => {
-      const allocation = totalLongValue > 0
-        ? (valueInBaseCurrency / totalLongValue) * 100
-        : 0;
+      const allocation =
+        totalLongValue > 0 ? (valueInBaseCurrency / totalLongValue) * 100 : 0;
 
       return `${symbol} ${allocation.toFixed(1)}%`;
     })
@@ -288,12 +298,16 @@ function isDetailedRecommendationAnswer(answer: string) {
   }
 
   const words = normalizedAnswer.split(/\s+/).filter(Boolean);
-  const hasRequiredOptions = RECOMMENDATION_REQUIRED_SECTIONS.every((pattern) => {
-    return pattern.test(normalizedAnswer);
-  });
-  const supportingSectionMatches = RECOMMENDATION_SUPPORTING_SECTIONS.filter((pattern) => {
-    return pattern.test(normalizedAnswer);
-  }).length;
+  const hasRequiredOptions = RECOMMENDATION_REQUIRED_SECTIONS.every(
+    (pattern) => {
+      return pattern.test(normalizedAnswer);
+    }
+  );
+  const supportingSectionMatches = RECOMMENDATION_SUPPORTING_SECTIONS.filter(
+    (pattern) => {
+      return pattern.test(normalizedAnswer);
+    }
+  ).length;
 
   return (
     words.length >= MINIMUM_RECOMMENDATION_WORDS &&
@@ -319,6 +333,10 @@ export function createPreferenceSummaryResponse({
 
   if (userPreferences.responseStyle) {
     sections.push(`- response style: ${userPreferences.responseStyle}`);
+  }
+
+  if (userPreferences.responseTemplateMode === 'strict_contract') {
+    sections.push('- response template mode: strict_contract');
   }
 
   return sections.join('\n');
@@ -350,6 +368,30 @@ export function resolvePreferenceUpdate({
 
   const wantsConcise = CONCISE_RESPONSE_STYLE_PATTERN.test(normalizedQuery);
   const wantsDetailed = DETAILED_RESPONSE_STYLE_PATTERN.test(normalizedQuery);
+  const wantsStrictTemplate =
+    STRICT_RESPONSE_TEMPLATE_TRIGGER_PATTERN.test(normalizedQuery);
+
+  if (wantsStrictTemplate && !wantsConcise && !wantsDetailed) {
+    if (normalizedPreferences.responseTemplateMode === 'strict_contract') {
+      return {
+        acknowledgement:
+          'I will continue using the strict template for all future responses.',
+        shouldPersist: false,
+        userPreferences: normalizedPreferences
+      };
+    }
+
+    return {
+      acknowledgement:
+        'I will answer using your requested template structure going forward.',
+      shouldPersist: true,
+      userPreferences: {
+        ...normalizedPreferences,
+        responseTemplateMode: 'strict_contract',
+        updatedAt: new Date().toISOString()
+      }
+    };
+  }
 
   if (wantsConcise === wantsDetailed) {
     return {
@@ -358,9 +400,8 @@ export function resolvePreferenceUpdate({
     };
   }
 
-  const responseStyle: AiAgentUserPreferenceState['responseStyle'] = wantsConcise
-    ? 'concise'
-    : 'detailed';
+  const responseStyle: AiAgentUserPreferenceState['responseStyle'] =
+    wantsConcise ? 'concise' : 'detailed';
 
   if (normalizedPreferences.responseStyle === responseStyle) {
     return {
@@ -381,6 +422,207 @@ export function resolvePreferenceUpdate({
   };
 }
 
+function normalizeAllocationPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return value > 1.01 ? value : value * 100;
+}
+
+function buildHoldingsTable({
+  holdings,
+  totalValueInBaseCurrency,
+  userCurrency
+}: {
+  holdings: PortfolioAnalysisResult['holdings'];
+  totalValueInBaseCurrency: number;
+  userCurrency: string;
+}) {
+  if (holdings.length === 0) {
+    return [
+      '| Symbol | Value | % |',
+      '| --- | --- | --- |',
+      '| No holdings returned | 0 | 0.00% |'
+    ];
+  }
+
+  const normalizedTotal =
+    totalValueInBaseCurrency > 0 ? totalValueInBaseCurrency : 1;
+
+  const rows = holdings.map((holding) => {
+    const allocationPercent = normalizeAllocationPercent(
+      holding.valueInBaseCurrency / normalizedTotal
+    );
+
+    return `| ${holding.symbol} | ${holding.valueInBaseCurrency.toFixed(2)} ${userCurrency} | ${allocationPercent.toFixed(2)}% |`;
+  });
+
+  return ['| Symbol | Value | % |', '| --- | --- | --- |', ...rows];
+}
+
+function truncateToWordLimit(value: string, maxWords: number) {
+  const words = value.trim().replace(/\s+/g, ' ').split(' ');
+
+  if (words.length <= maxWords) {
+    return value.trim();
+  }
+
+  return `${words.slice(0, maxWords).join(' ')}...`;
+}
+
+function hasRebalanceTargetKeyword(query: string) {
+  return /\b(?:decrease|diversif|rebalance|reduce|target|trim|<|<=)\b/i.test(
+    query
+  );
+}
+
+function buildStrictTemplateAnswer({
+  marketData,
+  portfolioAnalysis,
+  query,
+  rebalancePlan,
+  rebalancePlanSummary,
+  riskAssessment,
+  tradeImpactSummary,
+  userCurrency
+}: {
+  marketData?: MarketDataLookupResult;
+  portfolioAnalysis?: PortfolioAnalysisResult;
+  query: string;
+  rebalancePlan?: RebalancePlanResult;
+  rebalancePlanSummary?: string;
+  riskAssessment?: RiskAssessmentResult;
+  tradeImpactSummary?: string;
+  userCurrency: string;
+}) {
+  const normalizedQuery = query.toLowerCase();
+  const requestedHoldingsTable =
+    /(holdings?|allocation|portfolio|positions|what do i own|show me)/i.test(
+      normalizedQuery
+    );
+  const wantsSimulation =
+    /simulate|trade impact|before and after|before\/after/i.test(
+      normalizedQuery
+    );
+  const directSentences: string[] = [];
+  const keyNumbers: string[] = [];
+  const recommendedActions: string[] = [];
+  const allocationSum = portfolioAnalysis?.allocationSum;
+  const normalizedAllocationSum =
+    allocationSum !== undefined
+      ? allocationSum <= 2
+        ? allocationSum * 100
+        : allocationSum
+      : undefined;
+  const allocationSumDifference = normalizedAllocationSum
+    ? normalizedAllocationSum - 100
+    : 0;
+
+  if (portfolioAnalysis) {
+    directSentences.push(
+      `Portfolio analysis completed on ${portfolioAnalysis.holdingsCount} holdings with ${portfolioAnalysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency} total.`
+    );
+  } else {
+    directSentences.push('Portfolio context is available for review.');
+  }
+
+  if (riskAssessment) {
+    directSentences.push(
+      `Concentration is ${riskAssessment.concentrationBand} with top holding ${(
+        riskAssessment.topHoldingAllocation * 100
+      ).toFixed(1)}% and HHI ${riskAssessment.hhi.toFixed(3)}.`
+    );
+  } else if (rebalancePlan) {
+    directSentences.push(
+      `Rebalancing pressure detected with ${rebalancePlan.overweightHoldings.length} holdings above target exposure.`
+    );
+  }
+
+  if (requestedHoldingsTable && portfolioAnalysis) {
+    keyNumbers.push(`Holdings table (symbol, value, %):`);
+    keyNumbers.push(
+      ...buildHoldingsTable({
+        holdings: portfolioAnalysis.holdings,
+        totalValueInBaseCurrency: portfolioAnalysis.totalValueInBaseCurrency,
+        userCurrency
+      })
+    );
+    keyNumbers.push(
+      `Allocation reconciliation: ${(normalizedAllocationSum ?? 0).toFixed(4)}% (difference ${allocationSumDifference.toFixed(4)}pp).`
+    );
+  }
+
+  if (marketData?.quotes) {
+    const resolvedSymbols = marketData.quotes.map(({ symbol }) => symbol);
+    const unresolvedSymbols = marketData.symbolsRequested.filter(
+      (symbol) => !resolvedSymbols.includes(symbol)
+    );
+    keyNumbers.push(
+      `Quotes requested: ${marketData.symbolsRequested.join(', ') || 'none'}.`
+    );
+    keyNumbers.push(
+      `Resolved quotes: ${resolvedSymbols.join(', ') || 'none'}; unresolved: ${unresolvedSymbols.join(', ') || 'none'}.`
+    );
+  }
+
+  if (rebalancePlanSummary) {
+    keyNumbers.push(rebalancePlanSummary);
+  }
+
+  if (tradeImpactSummary) {
+    keyNumbers.push(tradeImpactSummary);
+  }
+
+  if (rebalancePlan?.overweightHoldings?.length) {
+    rebalancePlan.overweightHoldings
+      .slice(0, 3)
+      .forEach((overweightHolding) => {
+        if (!hasRebalanceTargetKeyword(normalizedQuery)) {
+          return;
+        }
+
+        recommendedActions.push(
+          `Trim ${overweightHolding.symbol} by ${(overweightHolding.reductionNeeded * 100).toFixed(1)}pp toward ${(
+            rebalancePlan.maxAllocationTarget * 100
+          ).toFixed(1)}%.`
+        );
+      });
+  }
+
+  if (wantsSimulation && riskAssessment) {
+    recommendedActions.push(
+      `Use a single-pass rebalance simulation to verify post-trade top allocation and HHI before execution.`
+    );
+  }
+
+  if (recommendedActions.length === 0) {
+    recommendedActions.push(
+      'No immediate trade action requested in this query; add target context to get executable steps.'
+    );
+  }
+
+  const section: string[] = [];
+  section.push('Direct answer (1-2 lines)');
+  section.push(directSentences.slice(0, 2).join(' '));
+  section.push('\nKey numbers (bullets)');
+  section.push(...keyNumbers.map((line) => `- ${line}`));
+  section.push('\nRecommended actions (max 3, concrete)');
+  section.push(...recommendedActions.slice(0, 3).map((line) => `- ${line}`));
+
+  if (
+    hasRebalanceTargetKeyword(normalizedQuery) &&
+    requestedHoldingsTable === false &&
+    recommendedActions.length === 1
+  ) {
+    section.push(
+      '\nFollow-up question: What is your preferred constraint set (new money only, tax context, and execution window)?'
+    );
+  }
+
+  return truncateToWordLimit(section.join('\n'), 120);
+}
+
 export async function buildAnswer({
   additionalContextSummaries,
   assetFundamentalsSummary,
@@ -390,9 +632,11 @@ export async function buildAnswer({
   languageCode,
   marketData,
   memory,
+  rebalancePlanSummary,
   portfolioAnalysis,
   query,
   recentTransactionsSummary,
+  fireAnalysisSummary,
   rebalancePlan,
   riskAssessment,
   stressTest,
@@ -408,12 +652,17 @@ export async function buildAnswer({
   financialNewsSummary?: string;
   generateText: ({
     prompt,
+    messages,
     signal,
     model,
     onLlmInvocation,
     traceContext
   }: {
     prompt: string;
+    messages?: {
+      content: string;
+      role: 'assistant' | 'system' | 'user';
+    }[];
     signal?: AbortSignal;
     model?: string;
     onLlmInvocation?: (invocation: { model: string; provider: string }) => void;
@@ -429,6 +678,7 @@ export async function buildAnswer({
   portfolioAnalysis?: PortfolioAnalysisResult;
   query: string;
   recentTransactionsSummary?: string;
+  fireAnalysisSummary?: string;
   rebalancePlan?: RebalancePlanResult;
   riskAssessment?: RiskAssessmentResult;
   stressTest?: StressTestResult;
@@ -436,6 +686,7 @@ export async function buildAnswer({
   tradeImpactSummary?: string;
   transactionCategorizationSummary?: string;
   userPreferences?: AiAgentUserPreferenceState;
+  rebalancePlanSummary?: string;
   userCurrency: string;
 }) {
   const fallbackSections: string[] = [];
@@ -456,12 +707,26 @@ export async function buildAnswer({
   });
   const hasRecommendationIntent = isRecommendationIntentQuery(query);
   const hasFundamentalsIntent = isFundamentalsIntentQuery(normalizedQuery);
-  const hasDecisionAnalysisIntent = DECISION_ANALYSIS_INTENT_PATTERN.test(
-    normalizedQuery
-  );
+  const hasDecisionAnalysisIntent =
+    DECISION_ANALYSIS_INTENT_PATTERN.test(normalizedQuery);
   const shouldUseDetailedAnalysisPrompt =
     userPreferences?.responseStyle !== 'concise' &&
     (hasFundamentalsIntent || hasDecisionAnalysisIntent || hasInvestmentIntent);
+
+  if (userPreferences?.responseTemplateMode === 'strict_contract') {
+    const strictAnswer = buildStrictTemplateAnswer({
+      marketData,
+      portfolioAnalysis,
+      query,
+      rebalancePlan,
+      rebalancePlanSummary,
+      riskAssessment,
+      tradeImpactSummary,
+      userCurrency
+    });
+
+    return strictAnswer;
+  }
 
   if (riskAssessment) {
     fallbackSections.push(
@@ -492,6 +757,10 @@ export async function buildAnswer({
     );
   }
 
+  if (fireAnalysisSummary) {
+    fallbackSections.push(fireAnalysisSummary);
+  }
+
   if (portfolioAnalysis?.holdings?.length > 0) {
     const longHoldings = portfolioAnalysis.holdings
       .filter(({ valueInBaseCurrency }) => {
@@ -500,9 +769,12 @@ export async function buildAnswer({
       .sort((a, b) => {
         return b.valueInBaseCurrency - a.valueInBaseCurrency;
       });
-    const totalLongValue = longHoldings.reduce((sum, { valueInBaseCurrency }) => {
-      return sum + valueInBaseCurrency;
-    }, 0);
+    const totalLongValue = longHoldings.reduce(
+      (sum, { valueInBaseCurrency }) => {
+        return sum + valueInBaseCurrency;
+      },
+      0
+    );
 
     fallbackSections.push(
       `Total portfolio value: ${portfolioAnalysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency} across ${portfolioAnalysis.holdingsCount} holdings.`
@@ -516,10 +788,13 @@ export async function buildAnswer({
         })
         .join(', ');
 
-      fallbackSections.push(`Largest long allocations: ${topLongHoldingsSummary}.`);
+      fallbackSections.push(
+        `Largest long allocations: ${topLongHoldingsSummary}.`
+      );
 
       if (hasInvestmentIntent) {
-        const topLongShare = longHoldings[0].valueInBaseCurrency / totalLongValue;
+        const topLongShare =
+          longHoldings[0].valueInBaseCurrency / totalLongValue;
 
         if (topLongShare >= 0.35) {
           fallbackSections.push(
@@ -593,9 +868,43 @@ export async function buildAnswer({
     );
   }
 
-  const fallbackAnswer = userPreferences?.responseStyle === 'concise'
-    ? fallbackSections.slice(0, 2).join('\n')
-    : fallbackSections.join('\n');
+  const fallbackAnswer =
+    userPreferences?.responseStyle === 'concise'
+      ? fallbackSections.slice(0, 2).join('\n')
+      : fallbackSections.join('\n');
+  const llmMessages: {
+    content: string;
+    role: 'assistant' | 'system' | 'user';
+  }[] = [
+    {
+      content: 'You are a neutral financial assistant.',
+      role: 'system'
+    },
+    ...memory.turns.flatMap(
+      ({
+        answer,
+        query: turnQuery
+      }): {
+        content: string;
+        role: 'assistant' | 'system' | 'user';
+      }[] => {
+        return [
+          {
+            content: turnQuery,
+            role: 'user'
+          },
+          {
+            content: answer,
+            role: 'assistant'
+          }
+        ];
+      }
+    ),
+    {
+      content: `Query: ${query}`,
+      role: 'user'
+    }
+  ];
   const recentSessionContext = formatRecentMemoryTurns(memory);
   const recommendationContext = buildRecommendationContext({
     portfolioAnalysis,
@@ -646,18 +955,18 @@ export async function buildAnswer({
           `Use at least 140 words unless user preference is concise.`,
           getResponseInstruction({ userPreferences })
         ].join('\n')
-    : [
-        `You are a neutral financial assistant.`,
-        `User currency: ${userCurrency}`,
-        `Language code: ${languageCode}`,
-        `Query: ${query}`,
-        `Session turns available: ${memory.turns.length}`,
-        `Recent session context:`,
-        recentSessionContext,
-        `Context summary:`,
-        fallbackAnswer,
-        getResponseInstruction({ userPreferences })
-      ].join('\n');
+      : [
+          `You are a neutral financial assistant.`,
+          `User currency: ${userCurrency}`,
+          `Language code: ${languageCode}`,
+          `Query: ${query}`,
+          `Session turns available: ${memory.turns.length}`,
+          `Recent session context:`,
+          recentSessionContext,
+          `Context summary:`,
+          fallbackAnswer,
+          getResponseInstruction({ userPreferences })
+        ].join('\n');
   const llmTimeoutInMs = getLlmTimeoutInMs();
   const abortController = new AbortController();
   let timeoutId: NodeJS.Timeout | undefined;
@@ -665,6 +974,7 @@ export async function buildAnswer({
   try {
     const generated = await Promise.race([
       generateText({
+        messages: llmMessages,
         prompt: llmPrompt,
         signal: abortController.signal
       }),
@@ -686,12 +996,15 @@ export async function buildAnswer({
         query
       })
     ) {
-      if (!hasRecommendationIntent || isDetailedRecommendationAnswer(generatedAnswer)) {
+      if (
+        !hasRecommendationIntent ||
+        isDetailedRecommendationAnswer(generatedAnswer)
+      ) {
         return generatedAnswer;
       }
     }
-  } catch {}
-  finally {
+  } catch {
+  } finally {
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
@@ -803,7 +1116,8 @@ export function resolveSymbols({
   // Only derive symbols from portfolio if no symbols were explicitly requested
   const derivedSymbols =
     directSymbols.length === 0
-      ? portfolioAnalysis?.holdings.slice(0, 3).map(({ symbol }) => symbol) ?? []
+      ? (portfolioAnalysis?.holdings.slice(0, 3).map(({ symbol }) => symbol) ??
+        [])
       : [];
 
   return Array.from(new Set([...directSymbols, ...derivedSymbols]));
@@ -920,7 +1234,8 @@ export function runRiskAssessment({
             return Math.max(allocationInPercentage, 0);
           })
           .filter((value) => value > 0);
-  const topHoldingAllocation = allocations.length > 0 ? Math.max(...allocations) : 0;
+  const topHoldingAllocation =
+    allocations.length > 0 ? Math.max(...allocations) : 0;
   const hhi = allocations.reduce((sum, allocation) => {
     return sum + allocation * allocation;
   }, 0);
@@ -992,12 +1307,12 @@ export async function fetchSymbolNames({
   try {
     const symbolIdentifiers = symbols.map((symbol) => {
       if (portfolioAnalysis) {
-        const holding = portfolioAnalysis.holdings.find((holding) => {
+        const matchingHolding = portfolioAnalysis.holdings.find((holding) => {
           return holding.symbol === symbol;
         });
 
         return {
-          dataSource: holding?.dataSource || DataSource.YAHOO,
+          dataSource: matchingHolding?.dataSource || DataSource.YAHOO,
           symbol
         };
       }
@@ -1008,9 +1323,8 @@ export async function fetchSymbolNames({
       };
     });
 
-    const profilesBySymbol = await dataProviderService.getAssetProfiles(
-      symbolIdentifiers
-    );
+    const profilesBySymbol =
+      await dataProviderService.getAssetProfiles(symbolIdentifiers);
 
     for (const symbol of symbols) {
       if (symbolNames.has(symbol)) {

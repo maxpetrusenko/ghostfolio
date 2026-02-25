@@ -1,14 +1,14 @@
 import {
+  applyToolExecutionPolicy,
+  createPolicyRouteResponse
+} from './ai-agent.policy.utils';
+import {
   calculateConfidence,
   determineToolPlan,
   evaluateAnswerQuality,
   extractSymbolsFromQuery,
   isGeneratedAnswerReliable
 } from './ai-agent.utils';
-import {
-  applyToolExecutionPolicy,
-  createPolicyRouteResponse
-} from './ai-agent.policy.utils';
 
 describe('AiAgentUtils', () => {
   it('extracts and deduplicates symbols from query', () => {
@@ -38,9 +38,9 @@ describe('AiAgentUtils', () => {
   });
 
   it('does not map common words to symbols without finance context', () => {
-    expect(extractSymbolsFromQuery('I bought an apple and read a blocked app note.')).toEqual(
-      []
-    );
+    expect(
+      extractSymbolsFromQuery('I bought an apple and read a blocked app note.')
+    ).toEqual([]);
   });
 
   it('extracts symbols from expanded popular company-name aliases', () => {
@@ -98,6 +98,14 @@ describe('AiAgentUtils', () => {
     ).toEqual([]);
   });
 
+  it('does not route standalone FIRE text to FIRE tools', () => {
+    expect(
+      determineToolPlan({
+        query: 'This is totally unrelated to fire.'
+      })
+    ).toEqual([]);
+  });
+
   it('returns no tools for self-identity queries', () => {
     expect(
       determineToolPlan({
@@ -129,10 +137,11 @@ describe('AiAgentUtils', () => {
     expect(decision.toolsToExecute).toEqual([]);
     expect(decision.blockReason).toBe('no_tool_query');
     expect(
-      createPolicyRouteResponse({ policyDecision: decision, query: 'Who are you?' })
-    ).toContain(
-      'Ghostfolio AI'
-    );
+      createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'Who are you?'
+      })
+    ).toContain('Ghostfolio AI');
   });
 
   it('returns deterministic arithmetic result for direct no-tool arithmetic query', () => {
@@ -143,9 +152,9 @@ describe('AiAgentUtils', () => {
 
     expect(decision.route).toBe('direct');
     expect(decision.toolsToExecute).toEqual([]);
-    expect(createPolicyRouteResponse({ policyDecision: decision, query: '2+2' })).toBe(
-      '2+2 = 4'
-    );
+    expect(
+      createPolicyRouteResponse({ policyDecision: decision, query: '2+2' })
+    ).toBe('2+2 = 4');
   });
 
   it('keeps finance-intent prompts on clarify route even with capability phrasing', () => {
@@ -168,7 +177,7 @@ describe('AiAgentUtils', () => {
     expect(decision.toolsToExecute).toEqual([]);
     expect(decision.blockReason).toBe('unknown');
     expect(createPolicyRouteResponse({ policyDecision: decision })).toContain(
-      'Which one should I run next?'
+      'Insufficient confidence to proceed safely'
     );
   });
 
@@ -239,7 +248,22 @@ describe('AiAgentUtils', () => {
       'portfolio_analysis',
       'get_portfolio_summary',
       'risk_assessment',
-      'stress_test'
+      'stress_test',
+      'fire_analysis'
+    ]);
+  });
+
+  it('routes age-related FIRE prompts to retirement analysis', () => {
+    expect(
+      determineToolPlan({
+        query: "I'm getting old, am I close to retirement age?"
+      })
+    ).toEqual([
+      'portfolio_analysis',
+      'get_portfolio_summary',
+      'risk_assessment',
+      'stress_test',
+      'fire_analysis'
     ]);
   });
 
@@ -263,6 +287,14 @@ describe('AiAgentUtils', () => {
     expect(
       determineToolPlan({
         query: 'Run a drawdown stress test on my portfolio'
+      })
+    ).toEqual(['portfolio_analysis', 'risk_assessment', 'stress_test']);
+  });
+
+  it('selects stress test tool for common misspelling of stress', () => {
+    expect(
+      determineToolPlan({
+        query: 'Run a strestt test on my portfolio'
       })
     ).toEqual(['portfolio_analysis', 'risk_assessment', 'stress_test']);
   });
@@ -323,6 +355,14 @@ describe('AiAgentUtils', () => {
     ).toEqual(['get_financial_news']);
   });
 
+  it('selects financial news tool for direct symbol news requests', () => {
+    expect(
+      determineToolPlan({
+        query: 'apple news this year?'
+      })
+    ).toEqual(['get_financial_news']);
+  });
+
   it('selects transaction categorization tool for transaction pattern prompts', () => {
     expect(
       determineToolPlan({
@@ -334,7 +374,8 @@ describe('AiAgentUtils', () => {
   it('selects tax estimate tool for tax liability prompts', () => {
     expect(
       determineToolPlan({
-        query: 'Estimate my tax liability for income 120000 and deductions 20000'
+        query:
+          'Estimate my tax liability for income 120000 and deductions 20000'
       })
     ).toEqual(['tax_estimate']);
   });
@@ -409,6 +450,32 @@ describe('AiAgentUtils', () => {
         query: 'Load demo data'
       })
     ).toEqual(['demo_data']);
+  });
+
+  it('selects demo data tool for test-data quick-check prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Add test data for a quick check'
+      })
+    ).toEqual(['seed_funds']);
+  });
+
+  it('selects seed funds tool for adding seed money', () => {
+    expect(
+      determineToolPlan({
+        query: 'Add seed money 2500 for testing'
+      })
+    ).toEqual(['seed_funds']);
+  });
+
+  it('keeps both seed funds and account overview tool when requested together', () => {
+    expect(
+      determineToolPlan({
+        query: 'Add seed funds and show my account balance'
+      })
+    ).toEqual(
+      expect.arrayContaining(['seed_funds', 'account_overview'])
+    );
   });
 
   it('selects create account tool for account creation prompts', () => {
@@ -497,7 +564,7 @@ describe('AiAgentUtils', () => {
     expect(['high', 'medium', 'low']).toContain(confidence.band);
   });
 
-  it('uses medium band at the 0.6 confidence threshold', () => {
+  it('keeps no-tool responses in low confidence band', () => {
     const confidence = calculateConfidence({
       toolCalls: [],
       verification: [
@@ -529,8 +596,8 @@ describe('AiAgentUtils', () => {
       ]
     });
 
-    expect(confidence.score).toBe(0.6);
-    expect(confidence.band).toBe('medium');
+    expect(confidence.score).toBe(0.44);
+    expect(confidence.band).toBe('low');
   });
 
   it('uses high band at the 0.8 confidence threshold', () => {
@@ -666,9 +733,12 @@ describe('AiAgentUtils', () => {
       expected: [],
       query: 'what can you do'
     }
-  ])('extractSymbolsFromQuery handles edge case: $query', ({ expected, query }) => {
-    expect(extractSymbolsFromQuery(query)).toEqual(expected);
-  });
+  ])(
+    'extractSymbolsFromQuery handles edge case: $query',
+    ({ expected, query }) => {
+      expect(extractSymbolsFromQuery(query)).toEqual(expected);
+    }
+  );
 
   it.each([
     {
@@ -680,7 +750,11 @@ describe('AiAgentUtils', () => {
       query: 'holdings summary'
     },
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan'
+      ],
       query: 'allocation snapshot'
     },
     {
@@ -708,15 +782,27 @@ describe('AiAgentUtils', () => {
       query: 'market context'
     },
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan'
+      ],
       query: 'where should I invest next'
     },
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan'
+      ],
       query: 'trim overweight positions'
     },
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan'
+      ],
       query: 'sell and rebalance'
     },
     {
@@ -732,11 +818,20 @@ describe('AiAgentUtils', () => {
       query: 'stress scenario'
     },
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan', 'market_data_lookup'],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan',
+        'market_data_lookup'
+      ],
       query: 'rebalance portfolio and quote NVDA'
     },
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment', 'market_data_lookup'],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'market_data_lookup'
+      ],
       query: 'analyze risk and market price'
     },
     {
@@ -762,50 +857,42 @@ describe('AiAgentUtils', () => {
     {
       expected: true,
       query: 'How should I rebalance and reduce concentration risk?',
-      text:
-        'Trim your top position by 4% and direct the next 1500 USD to two smaller holdings. Recheck concentration after each contribution.'
+      text: 'Trim your top position by 4% and direct the next 1500 USD to two smaller holdings. Recheck concentration after each contribution.'
     },
     {
       expected: true,
       query: 'What is my market price exposure?',
-      text:
-        'AAPL is 210.12 USD and MSFT is 455.90 USD. Market exposure remains concentrated in your top position.'
+      text: 'AAPL is 210.12 USD and MSFT is 455.90 USD. Market exposure remains concentrated in your top position.'
     },
     {
       expected: false,
       query: 'Should I buy more MSFT?',
-      text:
-        'As an AI, I cannot provide financial advice and you should consult a financial advisor.'
+      text: 'As an AI, I cannot provide financial advice and you should consult a financial advisor.'
     },
     {
       expected: false,
       query: 'What are my risk metrics right now?',
-      text:
-        'Risk seems elevated overall with concentration concerns but no specific values are available.'
+      text: 'Risk seems elevated overall with concentration concerns but no specific values are available.'
     },
     {
       expected: false,
       query: 'Where should I invest next?',
-      text:
-        'Consider your long-term goals.'
+      text: 'Consider your long-term goals.'
     },
     {
       expected: true,
       query: 'Where should I invest next?',
-      text:
-        'Allocate 70% of new money to positions outside your top holding and 30% to broad-market exposure. This lowers concentration without forced selling.'
+      text: 'Allocate 70% of new money to positions outside your top holding and 30% to broad-market exposure. This lowers concentration without forced selling.'
     },
     {
       expected: true,
       query: 'Run stress drawdown estimate',
-      text:
-        'Under a 20% shock, estimated drawdown is 3200 USD and projected value is 12800 USD. Reduce single-name concentration to improve downside stability.'
+      text: 'Under a 20% shock, estimated drawdown is 3200 USD and projected value is 12800 USD. Reduce single-name concentration to improve downside stability.'
     },
     {
       expected: false,
       query: 'Run stress drawdown estimate',
-      text:
-        'Stress impact could be meaningful and diversification may help over time.'
+      text: 'Stress impact could be meaningful and diversification may help over time.'
     },
     {
       expected: false,
@@ -815,8 +902,7 @@ describe('AiAgentUtils', () => {
     {
       expected: true,
       query: 'What is concentration risk now?',
-      text:
-        'Top holding is 52.4% with HHI 0.331. Trim 2-4 percentage points from the top position or add to underweight holdings.'
+      text: 'Top holding is 52.4% with HHI 0.331. Trim 2-4 percentage points from the top position or add to underweight holdings.'
     }
   ])(
     'isGeneratedAnswerReliable=$expected for quality gate case',
@@ -834,62 +920,52 @@ describe('AiAgentUtils', () => {
     {
       expectedStatus: 'passed',
       query: 'How should I rebalance risk?',
-      text:
-        'Top holding is 48%. Trim 3% from the largest position and add to two underweight holdings. Re-evaluate concentration in one week.'
+      text: 'Top holding is 48%. Trim 3% from the largest position and add to two underweight holdings. Re-evaluate concentration in one week.'
     },
     {
       expectedStatus: 'warning',
       query: 'Show concentration and market price risk',
-      text:
-        'Concentration is elevated and diversification would improve resilience over time.'
+      text: 'Concentration is elevated and diversification would improve resilience over time.'
     },
     {
       expectedStatus: 'warning',
       query: 'Where should I invest next?',
-      text:
-        'You can diversify over time by considering additional positions that fit your risk profile and timeline.'
+      text: 'You can diversify over time by considering additional positions that fit your risk profile and timeline.'
     },
     {
       expectedStatus: 'failed',
       query: 'Where should I invest next?',
-      text:
-        'As an AI, I cannot provide financial advice and you should consult a financial advisor.'
+      text: 'As an AI, I cannot provide financial advice and you should consult a financial advisor.'
     },
     {
       expectedStatus: 'warning',
       query: 'What is my drawdown risk right now?',
-      text:
-        'Drawdown risk exists and depends on current concentration and market volatility.'
+      text: 'Drawdown risk exists and depends on current concentration and market volatility.'
     },
     {
       expectedStatus: 'passed',
       query: 'What is my drawdown risk right now?',
-      text:
-        'At a 20% shock, projected drawdown is 2600 USD. Reduce your top position by 2-3 points to lower downside risk concentration.'
+      text: 'At a 20% shock, projected drawdown is 2600 USD. Reduce your top position by 2-3 points to lower downside risk concentration.'
     },
     {
       expectedStatus: 'warning',
       query: 'Show my market quote and risk',
-      text:
-        'AAPL is high and risk is elevated.'
+      text: 'AAPL is high and risk is elevated.'
     },
     {
       expectedStatus: 'passed',
       query: 'Show my market quote and risk',
-      text:
-        'AAPL is 212.40 USD and top holding concentration is 46.2%. Rebalance by directing new cash into lower-weight holdings.'
+      text: 'AAPL is 212.40 USD and top holding concentration is 46.2%. Rebalance by directing new cash into lower-weight holdings.'
     },
     {
       expectedStatus: 'warning',
       query: 'Analyze performance and allocation',
-      text:
-        'Performance and allocation are stable.'
+      text: 'Performance and allocation are stable.'
     },
     {
       expectedStatus: 'passed',
       query: 'Analyze performance and allocation',
-      text:
-        'Portfolio return is 8.4% and top allocation is 41.0%. Add to underweight positions to keep concentration from rising.'
+      text: 'Portfolio return is 8.4% and top allocation is 41.0%. Add to underweight positions to keep concentration from rising.'
     }
   ])(
     'evaluateAnswerQuality returns $expectedStatus',

@@ -1,16 +1,17 @@
+import { ApiService } from '@ghostfolio/api/services/api/api.service';
+
 import { REQUEST } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 
-import { ApiService } from '@ghostfolio/api/services/api/api.service';
-
-import { AiController } from './ai.controller';
-import { AiFeedbackService } from './ai-feedback.service';
 import { AiChatDto } from './ai-chat.dto';
+import { AiFeedbackService } from './ai-feedback.service';
+import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 
 describe('AiController', () => {
   let controller: AiController;
   let aiService: {
+    run: jest.Mock;
     chat: jest.Mock;
     getPrompt: jest.Mock;
   };

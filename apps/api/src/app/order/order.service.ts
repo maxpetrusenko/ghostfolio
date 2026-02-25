@@ -655,7 +655,7 @@ export class OrderService {
               platform: true
             }
           },
-          // eslint-disable-next-line @typescript-eslint/naming-convention
+
           SymbolProfile: true,
           tags: true
         },

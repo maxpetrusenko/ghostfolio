@@ -73,11 +73,12 @@ export class GfAiChatPanelComponent implements OnDestroy {
   public errorMessage: string;
   public isSubmitting = false;
   public query = '';
-  public nextResponsePreference = '';
   public readonly starterPrompts = [
-    $localize`Give me a portfolio risk summary.`,
-    $localize`What are my top concentration risks right now?`,
-    $localize`Show me the latest market prices for my top holdings.`
+    $localize`How is my portfolio performing?`,
+    $localize`Estimate my taxes for this year.`,
+    $localize`Am I on track for FIRE?`,
+    $localize`How can I make an order?`,
+    $localize`Add test data for a quick check.`
   ];
   public readonly userRoleLabel = $localize`You`;
 
@@ -207,8 +208,6 @@ export class GfAiChatPanelComponent implements OnDestroy {
 
   public onSubmit() {
     const normalizedQuery = this.query?.trim();
-    const nextResponsePreference = this.nextResponsePreference?.trim();
-
     if (
       !this.hasPermissionToReadAiPrompt ||
       this.isSubmitting ||
@@ -226,14 +225,10 @@ export class GfAiChatPanelComponent implements OnDestroy {
     this.errorMessage = undefined;
     this.isSubmitting = true;
     this.query = '';
-    this.nextResponsePreference = '';
 
     this.dataService
       .postAiChat({
         query: normalizedQuery,
-        ...(nextResponsePreference
-          ? { nextResponsePreference }
-          : {}),
         sessionId: this.chatSessionId
       })
       .pipe(

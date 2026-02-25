@@ -34,6 +34,8 @@ const REBALANCE_CONFIRMATION_KEYWORDS = [
   'invest',
   'make',
   'open',
+  'plan',
+  'allocat',
   'order',
   'place',
   'rebalanc',
@@ -62,6 +64,9 @@ const VAGUE_ORDER_QUERY_PATTERN =
   /\b(?:make an order|order|buy|purchase|invest in)\s+(?:for|of|)?\s*(?:\$?\s*[A-Z]{1,6}|tesla|apple|amazon|google|microsoft|nvidia|meta|tesla)\b/i;
 const DETAILED_ORDER_QUERY_PATTERN =
   /\b(?:buy|purchase|invest|order|create|place|submit)\b.*\b(?:\$?\s*\d+[,\d]*\s*(?:usd|eur|gbp|cad|chf|jpy|aud)|\d+\s+shares?|100\s+shares|\d+\s+units?)\b/i;
+const SEED_FUNDS_QUERY_PATTERN =
+  /\b(?:seed|test|top up|fund|add funds?)\b/i;
+const SEED_FUNDS_AMOUNT_PATTERN = /\$?\d+(?:,\d{3})*(?:\.\d{1,2})?/;
 const REBALANCE_TARGET_DETAIL_PATTERN =
   /\b(?:\d{1,2}(?:\.\d{1,2})?\s*%|target\s+allocation|max(?:imum)?\s+position|80\s*\/\s*20|70\s*\/\s*30|60\s*\/\s*40)\b/i;
 const REBALANCE_FUNDING_DETAIL_PATTERN =
@@ -98,7 +103,8 @@ const READ_ONLY_TOOLS = new Set<AiAgentToolName>([
   'portfolio_analysis',
   'risk_assessment',
   'market_data_lookup',
-  'stress_test'
+  'stress_test',
+  'fire_analysis'
 ]);
 const ALL_TOOL_NAMES: AiAgentToolName[] = [
   'portfolio_analysis',
@@ -106,6 +112,7 @@ const ALL_TOOL_NAMES: AiAgentToolName[] = [
   'market_data_lookup',
   'rebalance_plan',
   'stress_test',
+  'fire_analysis',
   'account_overview',
   'exchange_rate',
   'get_portfolio_summary',
@@ -122,20 +129,27 @@ const ALL_TOOL_NAMES: AiAgentToolName[] = [
   'demo_data',
   'create_account',
   'create_order',
+  'seed_funds',
   'calculate_rebalance_plan',
   'simulate_trade_impact',
   'transaction_categorize',
   'tax_estimate',
   'compliance_check'
 ];
-const INTENT_TOOL_ALLOWLISTS: Record<'readOnly' | 'action', Set<AiAgentToolName>> = {
+const INTENT_TOOL_ALLOWLISTS: Record<
+  'readOnly' | 'action',
+  Set<AiAgentToolName>
+> = {
   action: new Set(ALL_TOOL_NAMES),
   readOnly: READ_ONLY_TOOLS
 };
 const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 8;
-const DEFAULT_MAX_TOOL_CALLS_PER_TOOL: Partial<Record<AiAgentToolName, number>> = {
+const DEFAULT_MAX_TOOL_CALLS_PER_TOOL: Partial<
+  Record<AiAgentToolName, number>
+> = {
   create_account: 1,
   create_order: 1,
+  seed_funds: 1,
   compliance_check: 1,
   rebalance_plan: 1,
   calculate_rebalance_plan: 1,
@@ -151,6 +165,7 @@ export type AiAgentPolicyBlockReason =
   | 'needs_confirmation'
   | 'needs_rebalance_details'
   | 'needs_order_details'
+  | 'needs_seed_funds_details'
   | 'unauthorized_access'
   | 'tool_rate_limit'
   | 'unknown';
@@ -200,8 +215,7 @@ function isNoToolDirectQuery(query: string) {
   }
 
   return (
-    SIMPLE_ARITHMETIC_OPERATOR_PATTERN.test(normalized) &&
-    /\d/.test(normalized)
+    SIMPLE_ARITHMETIC_OPERATOR_PATTERN.test(normalized) && /\d/.test(normalized)
   );
 }
 
@@ -239,8 +253,7 @@ function isUnauthorizedPortfolioQuery(query: string) {
   const referencesOtherUserData =
     /\b(?:john'?s|someone else'?s|another user'?s|other users'?|all users'?|everyone'?s|their)\b/.test(
       normalized
-    ) &&
-    /\b(?:portfolio|account|holdings?|balance|data)\b/.test(normalized);
+    ) && /\b(?:portfolio|account|holdings?|balance|data)\b/.test(normalized);
   const requestsSystemWideData =
     /\bwhat portfolios do you have access to\b/.test(normalized) ||
     /\bshow all (?:users|portfolios|accounts)\b/.test(normalized);
@@ -408,7 +421,11 @@ function evaluateArithmeticExpression(expression: string) {
 
   skipWhitespace();
 
-  if (result === undefined || cursor !== expression.length || !Number.isFinite(result)) {
+  if (
+    result === undefined ||
+    cursor !== expression.length ||
+    !Number.isFinite(result)
+  ) {
     return undefined;
   }
 
@@ -456,16 +473,18 @@ function createNoToolDirectResponse(query?: string) {
       '- Portfolio: total value, holdings, allocation, analysis',
       '- Risk: concentration assessment, stress testing, diversification',
       '- FIRE: retirement planning, safe withdrawal rates, savings scenarios',
+      '- Taxes: estimate liabilities and review tax-related impacts',
       '- Market: live quotes, fundamentals, news for any symbol',
       '- Transactions: recent activity, categorization, tax estimates',
-      '- Advice: rebalancing options, trade impact simulations',
+      '- Orders: place or simulate trades, build a sample order',
+      '- Data: add test data or portfolio snapshots',
       '',
       'Try one of these:',
-      '- "How much money do I have?"',
-      '- "Show my top holdings"',
-      '- "What is my concentration risk?"',
-      '- "Get fundamentals and news for MSFT"',
-      '- "Am I on track for retirement?"'
+      '- "How is my portfolio performing?"',
+      '- "Estimate my taxes for this year"',
+      '- "Can I stay on track for FIRE?"',
+      '- "How can I make an order?"',
+      '- "Add test data for a quick check"'
     ].join('\n');
   }
 
@@ -475,10 +494,11 @@ function createNoToolDirectResponse(query?: string) {
       'I analyze concentration risk, summarize holdings, fetch quotes and fundamentals, pull recent transactions, simulate trade impact, and compose rebalance options.',
       'I answer with citations and I abstain when confidence is low or data is missing.',
       'Try one of these:',
-      '- "Give me a concentration risk summary"',
-      '- "Show my recent transactions"',
-      '- "Get fundamentals and news for NVDA"',
-      '- "Simulate trade impact if I buy 1000 USD of MSFT"'
+      '- "Show me my portfolio allocation"',
+      '- "Estimate taxes for income and gains"',
+      '- "Run a FIRE scenario with higher saving"',
+      '- "Create a paper order to test execution"',
+      '- "Load test data for quick validation"'
     ].join('\n');
   }
 
@@ -509,41 +529,33 @@ function createNoToolDirectResponse(query?: string) {
       '- Chat (/chat): dedicated AI chat interface for any financial questions',
       '',
       'What you can ask me:',
-      '- Account: "Show my account balances and total value"',
-      '- Holdings: "What are my top holdings?" or "Show my portfolio allocation"',
-      '- Risk: "Analyze my concentration risk" or "What is my portfolio risk level?"',
-      '- Advice: "Help me diversify" or "How should I rebalance?"',
-      '- News: "Get latest news for AAPL" or "Show news for my holdings"',
-      '- FIRE: "Am I on track for early retirement?" or "What if I increase savings by 5%?"',
-      '- Quotes: "Get live price for TSLA" or "Show fundamentals for NVDA"',
-      '- Transactions: "Show my recent transactions"',
-      '- Stress Testing: "Simulate a 20% market drop impact"',
-      '- Trade Impact: "What happens if I invest 2000 USD in VTI?"',
+      '- Portfolio: balances, holdings, allocation, concentration',
+      '- Taxes: tax estimates, withholding impact, gain/loss impact',
+      '- FIRE: retirement timeline and savings scenarios',
+      '- Portfolio actions: orders, rebalance direction, trade simulation',
+      '- Data: review or load test data for checks',
       '',
       'Try these examples:',
-      '- "Analyze my concentration risk"',
-      '- "Show my recent transactions and current holdings"',
-      '- "Get live quote, fundamentals, and news for AAPL"',
-      '- "Calculate rebalance plan to keep each holding below 35%"',
-      '- "Simulate trade impact if I invest 2000 USD into VTI"'
+      '- "Review my portfolio and tax impact"',
+      '- "Am I on track for FIRE?"',
+      '- "How do I place a test order?"',
+      '- "Add a small set of test data and summarize it"'
     ].join('\n');
   }
 
   return [
-    'I am Ghostfolio AI. I can help with portfolio analysis, retirement planning (FIRE), risk assessment, market data, and more.',
+    'Insufficient confidence to provide a reliable answer from this query alone.',
     '',
-    'Quick things to try:',
-    '- Account: "How much money do I have?"',
-    '- Holdings: "Show my top holdings"',
-    '- Risk: "What is my concentration risk?"',
-    '- Advice: "Help me diversify my portfolio"',
-    '- News: "Get latest news for AAPL or my holdings"',
-    '- FIRE: "When can I retire?" (use FIRE page)',
-    '- Quotes: "Get price for TSLA"',
-    '- Rebalancing: "Calculate a rebalance plan"',
-    '- Stress Test: "Simulate a market crash impact"',
+    'Provide one concrete request so I can run the right checks safely.',
     '',
-    'Visit /portfolio/analysis or /portfolio/fire for AI-powered insights tailored to each page.'
+    'Useful formats:',
+    '- "Analyze my portfolio allocation and concentration"',
+    '- "Get latest quote and fundamentals for NVDA"',
+    '- "Estimate tax impact for 5000 USD realized gains"',
+    '- "Run a FIRE scenario with 15% higher savings"',
+    '- "Explain why this result changed from last turn"',
+    '',
+    'I will return verified output with confidence and citations when enough context is available.'
   ].join('\n');
 }
 
@@ -561,17 +573,19 @@ export function applyToolExecutionPolicy({
 }): AiAgentToolPolicyDecision {
   const normalizedQuery = query.toLowerCase();
   const deduplicatedPlannedTools = Array.from(new Set(plannedTools));
+  const hasSeedFundsIntent = SEED_FUNDS_QUERY_PATTERN.test(query);
   const hasActionIntent = includesKeyword({
     keywords: REBALANCE_CONFIRMATION_KEYWORDS,
     normalizedQuery
-  });
+  }) || hasSeedFundsIntent;
   const hasReadIntent = includesKeyword({
     keywords: FINANCE_READ_INTENT_KEYWORDS,
     normalizedQuery
   });
   const effectiveLimits = {
     maxToolCallsPerRequest:
-      policyLimits?.maxToolCallsPerRequest ?? DEFAULT_MAX_TOOL_CALLS_PER_REQUEST,
+      policyLimits?.maxToolCallsPerRequest ??
+      DEFAULT_MAX_TOOL_CALLS_PER_REQUEST,
     maxToolCallsPerTool:
       policyLimits?.maxToolCallsPerTool ?? DEFAULT_MAX_TOOL_CALLS_PER_TOOL
   };
@@ -625,9 +639,16 @@ export function applyToolExecutionPolicy({
   let toolsToExecute = deduplicatedPlannedTools;
   let blockedByPolicy = false;
   let blockReason: AiAgentPolicyBlockReason = 'none';
+  const hasRebalancePlan = deduplicatedPlannedTools.includes('rebalance_plan');
+  const explicitlyNeedsRebalanceDetails = /\brebalance\s+me\b/i.test(
+    normalizedQuery
+  );
 
   if (toolsToExecute.length > effectiveLimits.maxToolCallsPerRequest) {
-    toolsToExecute = toolsToExecute.slice(0, effectiveLimits.maxToolCallsPerRequest);
+    toolsToExecute = toolsToExecute.slice(
+      0,
+      effectiveLimits.maxToolCallsPerRequest
+    );
     blockedByPolicy = true;
     blockReason = 'tool_rate_limit';
   }
@@ -641,22 +662,18 @@ export function applyToolExecutionPolicy({
     blockReason = blockReason === 'none' ? 'read_only' : blockReason;
   }
 
-  if (!hasActionIntent && toolsToExecute.includes('rebalance_plan')) {
-    toolsToExecute = toolsToExecute.filter((tool) => {
-      return tool !== 'rebalance_plan';
-    });
-    blockedByPolicy = true;
-    blockReason = 'needs_confirmation';
-  } else if (toolsToExecute.includes('rebalance_plan')) {
-    const hasRebalanceTargetDetails = REBALANCE_TARGET_DETAIL_PATTERN.test(query);
-    const hasRebalanceFundingDetails = REBALANCE_FUNDING_DETAIL_PATTERN.test(query);
+  if (toolsToExecute.includes('rebalance_plan')) {
+    const hasRebalanceTargetDetails =
+      REBALANCE_TARGET_DETAIL_PATTERN.test(query);
+    const hasRebalanceFundingDetails =
+      REBALANCE_FUNDING_DETAIL_PATTERN.test(query);
     const hasRebalanceTaxDetails = REBALANCE_TAX_DETAIL_PATTERN.test(query);
-
-    if (
+    const isMissingRebalanceDetails =
       !hasRebalanceTargetDetails ||
       !hasRebalanceFundingDetails ||
-      !hasRebalanceTaxDetails
-    ) {
+      !hasRebalanceTaxDetails;
+
+    if (explicitlyNeedsRebalanceDetails && isMissingRebalanceDetails) {
       toolsToExecute = toolsToExecute.filter((tool) => {
         return tool !== 'rebalance_plan';
       });
@@ -678,6 +695,19 @@ export function applyToolExecutionPolicy({
     }
   }
 
+  if (toolsToExecute.includes('seed_funds')) {
+    const hasSeedFundsIntent = SEED_FUNDS_QUERY_PATTERN.test(query);
+    const hasAmount = SEED_FUNDS_AMOUNT_PATTERN.test(query);
+
+    if (hasSeedFundsIntent && !hasAmount) {
+      toolsToExecute = toolsToExecute.filter((tool) => {
+        return tool !== 'seed_funds';
+      });
+      blockedByPolicy = true;
+      blockReason = 'needs_seed_funds_details';
+    }
+  }
+
   if (!hasActionIntent) {
     const readOnlyTools = toolsToExecute.filter((tool) => {
       return READ_ONLY_TOOLS.has(tool);
@@ -687,6 +717,13 @@ export function applyToolExecutionPolicy({
       toolsToExecute = readOnlyTools;
       blockedByPolicy = true;
       blockReason = blockReason === 'none' ? 'read_only' : blockReason;
+    }
+
+    if (hasRebalancePlan && !toolsToExecute.includes('rebalance_plan')) {
+      blockReason =
+        blockReason === 'none' || blockReason === 'read_only'
+          ? 'needs_confirmation'
+          : blockReason;
     }
   }
 
@@ -700,11 +737,12 @@ export function applyToolExecutionPolicy({
 
     return {
       blockedByPolicy: blockedByPolicy || deduplicatedPlannedTools.length > 0,
-      blockReason: blockReason === 'none'
-        ? route === 'clarify'
-          ? 'unknown'
-          : 'no_tool_query'
-        : blockReason,
+      blockReason:
+        blockReason === 'none'
+          ? route === 'clarify'
+            ? 'unknown'
+            : 'no_tool_query'
+          : blockReason,
       forcedDirect: false,
       plannedTools: deduplicatedPlannedTools,
       limits: effectiveLimits,
@@ -745,6 +783,13 @@ export function createPolicyRouteResponse({
 Or review your portfolio first: "Show my holdings and cash balance"`;
     }
 
+    if (policyDecision.blockReason === 'needs_seed_funds_details') {
+      return `To add seed funds, provide a numeric amount in your request. For example:
+"Add 1000 USD seed money"
+"Top up account with 5000 for testing"
+"Seed funds 250 EUR"`;
+    }
+
     if (policyDecision.blockReason === 'needs_rebalance_details') {
       return `To create a rebalance plan, please include:
 - target allocation or max position constraint
@@ -758,14 +803,16 @@ Example: "Rebalance to max 35% position, use new cash first, taxable account."`;
       return `I can explain the previous result, but I need the target context. Ask a direct follow-up like "Why is my concentration high?" or "Explain that risk summary in detail."`;
     }
 
-    return `I can help with allocation review, concentration risk, market prices, stress scenarios, and tax planning. Which one should I run next? Example: "Show concentration risk" or "Tax checklist for this year".`;
+    return `Insufficient confidence to proceed safely with the current request. Share one concrete objective and scope (portfolio, symbol, tax, or FIRE), and include constraints if relevant.`;
   }
 
   if (
     policyDecision.route === 'direct' &&
     policyDecision.blockReason === 'no_tool_query'
   ) {
-    const arithmeticResult = query ? evaluateSimpleArithmetic(query) : undefined;
+    const arithmeticResult = query
+      ? evaluateSimpleArithmetic(query)
+      : undefined;
 
     if (arithmeticResult) {
       return arithmeticResult;
@@ -781,7 +828,7 @@ Example: "Rebalance to max 35% position, use new cash first, taxable account."`;
     return `I can access only your own portfolio data in this account. Ask about your holdings, balance, risk, or allocation and I will help.`;
   }
 
-  return `I can help with portfolio analysis, concentration risk, market prices, and stress scenarios. Ask a portfolio question when you are ready.`;
+  return `Insufficient confidence to answer this request safely. Please rephrase with a concrete finance objective so I can run verified checks.`;
 }
 
 export function formatPolicyVerificationDetails({
@@ -789,12 +836,14 @@ export function formatPolicyVerificationDetails({
 }: {
   policyDecision: AiAgentToolPolicyDecision;
 }) {
-  const plannedTools = policyDecision.plannedTools.length > 0
-    ? policyDecision.plannedTools.join(', ')
-    : 'none';
-  const executedTools = policyDecision.toolsToExecute.length > 0
-    ? policyDecision.toolsToExecute.join(', ')
-    : 'none';
+  const plannedTools =
+    policyDecision.plannedTools.length > 0
+      ? policyDecision.plannedTools.join(', ')
+      : 'none';
+  const executedTools =
+    policyDecision.toolsToExecute.length > 0
+      ? policyDecision.toolsToExecute.join(', ')
+      : 'none';
 
   return `route=${policyDecision.route}; blocked_by_policy=${policyDecision.blockedByPolicy}; block_reason=${policyDecision.blockReason}; forced_direct=${policyDecision.forcedDirect}; planned_tools=${plannedTools}; executed_tools=${executedTools}`;
 }

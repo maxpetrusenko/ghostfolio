@@ -275,6 +275,12 @@ export class GfHeaderComponent implements OnChanges {
     this.isMenuOpen = true;
   }
 
+  public isChatRoute() {
+    return this.router.url.includes(
+      `/${internalRoutes.portfolio.path}/${internalRoutes.portfolio.subRoutes.chat.path}`
+    );
+  }
+
   public onOpenAssistant() {
     this.assistantElement.initialize();
   }

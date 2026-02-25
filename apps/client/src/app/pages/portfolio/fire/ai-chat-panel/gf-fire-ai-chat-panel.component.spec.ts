@@ -31,7 +31,7 @@ function createChatResponse({
     model: string;
     provider: string;
   };
-  toolCalls?: Array<{
+  toolCalls?: {
     input: Record<string, unknown>;
     outputSummary: string;
     status: 'failed' | 'success';
@@ -53,7 +53,7 @@ function createChatResponse({
       | 'transaction_categorize'
       | 'tax_estimate'
       | 'compliance_check';
-  }>;
+  }[];
   observability?: {
     latencyBreakdownInMs: {
       llmGenerationInMs: number;
@@ -170,10 +170,11 @@ describe('GfFireAiChatPanelComponent', () => {
     });
 
     it('should have FIRE-specific starter prompts', () => {
-      expect(component.starterPrompts).toContain('Am I on track for early retirement?');
-      expect(component.starterPrompts).toContain('What if I increase my savings rate by 5%?');
-      expect(component.starterPrompts).toContain('How does a market crash affect my FIRE date?');
-      expect(component.starterPrompts).toContain('Explain my safe withdrawal rate options.');
+      expect(component.starterPrompts).toContain('Am I on track for FIRE?');
+      expect(component.starterPrompts).toContain('What is my current portfolio overview?');
+      expect(component.starterPrompts).toContain('Estimate my taxes for this year.');
+      expect(component.starterPrompts).toContain('How can I make an order?');
+      expect(component.starterPrompts).toContain('Add test data for a quick check.');
     });
 
     it('should use FIRE-specific storage keys', () => {
@@ -552,9 +553,9 @@ describe('GfFireAiChatPanelComponent', () => {
       expect(overlayText).toContain('gpt-4o-mini');
       expect(overlayText).toContain('Tools');
       expect(overlayText).toContain('portfolio_analysis');
-      expect(overlayText).toContain('Trace ID');
-      expect(overlayText).toContain('fire-trace-details');
-    });
+    expect(overlayText).toContain('Trace ID');
+    expect(overlayText).toContain('fire-trace-details');
+    }));
 
     it('displays trace ID when available in observability', fakeAsync(() => {
       dataService.postAiChat.mockReturnValue(

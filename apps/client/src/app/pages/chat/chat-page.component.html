@@ -1,472 +1,552 @@
-<div class="container">
-  <h1 class="h3 mb-3 text-center" i18n>AI Chat</h1>
+<div class="chat-page">
+  <aside class="chat-sidebar">
+    <div class="sidebar-panel">
+      <div
+        class="align-items-center conversation-toolbar d-flex justify-content-between"
+      >
+        <h2 class="h6 mb-0" i18n>Conversations</h2>
 
-  <div class="row">
-    <div class="col-lg-4 mb-3 mb-lg-0">
-      <mat-card appearance="outlined" class="h-100">
-        <mat-card-content>
-          <div class="align-items-center conversation-toolbar d-flex justify-content-between">
-            <h2 class="h6 mb-0" i18n>Conversations</h2>
+        <button
+          aria-label="New chat"
+          class="conversation-create"
+          i18n-aria-label
+          i18n-matTooltip
+          mat-icon-button
+          matTooltip="New chat"
+          type="button"
+          (click)="onNewChat()"
+        >
+          <lucide-icon [img]="icons.messageSquarePlus" [size]="18" />
+        </button>
+      </div>
 
-            <button
-              aria-label="New chat"
-              class="conversation-create"
-              i18n-aria-label
-              i18n-matTooltip
-              mat-icon-button
-              matTooltip="New chat"
-              type="button"
-              (click)="onNewChat()"
-            >
-              <lucide-icon [img]="icons.messageSquarePlus" [size]="18" />
-            </button>
-          </div>
+      <mat-form-field appearance="outline" class="chat-search-field mt-3 w-100">
+        <mat-label i18n>Search chats</mat-label>
+        <span aria-hidden="true" class="chat-field-prefix" matPrefix>
+          <lucide-icon
+            class="chat-field-icon"
+            [img]="icons.search"
+            [size]="16"
+          />
+        </span>
+        <input
+          aria-label="Search chats"
+          class="chat-search-input"
+          i18n-aria-label
+          matInput
+          type="text"
+          [(ngModel)]="conversationSearchQuery"
+        />
+      </mat-form-field>
 
-            <mat-form-field appearance="outline" class="chat-search-field mt-3 w-100">
-              <mat-label i18n>Search chats</mat-label>
-              <span
-                matPrefix
-                class="chat-field-prefix"
-                aria-hidden="true"
-              >
-                <lucide-icon
-                  class="chat-field-icon"
-                  [img]="icons.search"
-                  [size]="16"
+      <div class="conversation-list mt-3">
+        @for (
+          conversation of filteredConversations;
+          track trackConversationById($index, conversation)
+        ) {
+          <div
+            class="align-items-center conversation-row d-flex mb-2"
+            [attr.data-conversation-id]="conversation.id"
+          >
+            @if (editingConversationId === conversation.id) {
+              <div class="conversation-title-editor flex-grow-1">
+                <input
+                  aria-label="Rename chat"
+                  autocomplete="off"
+                  class="conversation-title-edit-input"
+                  i18n-aria-label
+                  type="text"
+                  [attr.data-conversation-id]="conversation.id"
+                  [attr.id]="'conversation-title-edit-' + conversation.id"
+                  [(ngModel)]="editingConversationTitle"
+                  (blur)="onRenameConversationInputBlur(conversation.id)"
+                  (keydown)="
+                    onRenameConversationInputKeydown($event, conversation.id)
+                  "
                 />
-              </span>
-            <input
-              class="chat-search-input"
-              aria-label="Search chats"
-              i18n-aria-label
-              matInput
-              type="text"
-              [(ngModel)]="conversationSearchQuery"
-            />
-          </mat-form-field>
-
-          <div class="conversation-list mt-3">
-            @for (
-              conversation of filteredConversations;
-              track trackConversationById($index, conversation)
-            ) {
-              <div
-                class="align-items-center conversation-row d-flex mb-2"
-                [attr.data-conversation-id]="conversation.id"
-              >
-                @if (editingConversationId === conversation.id) {
-                  <div class="conversation-title-editor flex-grow-1">
-                    <input
-                      aria-label="Rename chat"
-                      [attr.id]="'conversation-title-edit-' + conversation.id"
-                      class="conversation-title-edit-input"
-                      i18n-aria-label
-                      autocomplete="off"
-                      type="text"
-                      [(ngModel)]="editingConversationTitle"
-                      (keydown)="onRenameConversationInputKeydown($event, conversation.id)"
-                      (blur)="onRenameConversationInputBlur(conversation.id)"
-                      [attr.data-conversation-id]="conversation.id"
-                    />
-                    <button
-                      aria-label="Save chat name"
-                      class="conversation-action"
-                      i18n-matTooltip
-                      matTooltip="Save name"
-                      i18n-aria-label
-                      mat-icon-button
-                      type="button"
-                      (click)="onSaveConversationTitle(conversation.id, $event)"
-                    >
-                      <lucide-icon [img]="icons.check" [size]="16" />
-                    </button>
-                    <button
-                      aria-label="Cancel chat rename"
-                      class="conversation-action"
-                      i18n-matTooltip
-                      matTooltip="Cancel rename"
-                      i18n-aria-label
-                      mat-icon-button
-                      type="button"
-                      (click)="onCancelRenameConversation($event)"
-                    >
-                      <lucide-icon [img]="icons.x" [size]="16" />
-                    </button>
-                  </div>
-                } @else {
-                  <button
-                    class="conversation-select flex-grow-1 text-left"
-                    mat-stroked-button
-                    type="button"
-                    [class.active]="currentConversation?.id === conversation.id"
-                    (click)="onSelectConversation(conversation.id)"
-                  >
-                    <div class="conversation-title-block">
-                      <div class="align-items-center conversation-title d-flex text-truncate">
-                        <lucide-icon
-                          class="conversation-title-icon mr-2"
-                          [img]="icons.messageSquare"
-                          [size]="14"
-                        />
-                        <span class="conversation-title-text text-truncate">
-                          {{ conversation.title }}
-                        </span>
-                      </div>
-                      <div class="conversation-meta">
-                        <span class="conversation-meta-date">
-                          {{ conversation.updatedAt | date: 'MMM d, y' }}
-                        </span>
-                        <span class="conversation-meta-time">
-                          {{ conversation.updatedAt | date: 'shortTime' }}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-
-                    <button
-                      aria-label="Rename conversation"
-                      class="conversation-action conversation-edit"
-                      i18n-aria-label
-                      i18n-matTooltip
-                      mat-icon-button
-                      matTooltip="Rename conversation"
-                      type="button"
-                      (click)="onRenameConversation($event, conversation.id, conversation.title)"
-                    >
-                      <lucide-icon [img]="icons.pencil" [size]="16" />
-                    </button>
-
-                    <button
-                      aria-label="Delete conversation"
-                      class="conversation-action conversation-delete"
-                      i18n-aria-label
-                      i18n-matTooltip
-                      mat-icon-button
-                      matTooltip="Delete conversation"
-                      type="button"
-                      (click)="onDeleteConversation($event, conversation.id)"
-                    >
-                      <lucide-icon [img]="icons.trash2" [size]="16" />
-                    </button>
-                }
+                <button
+                  aria-label="Save chat name"
+                  class="conversation-action"
+                  i18n-aria-label
+                  i18n-matTooltip
+                  mat-icon-button
+                  matTooltip="Save name"
+                  type="button"
+                  (click)="onSaveConversationTitle(conversation.id, $event)"
+                >
+                  <lucide-icon [img]="icons.check" [size]="16" />
+                </button>
+                <button
+                  aria-label="Cancel chat rename"
+                  class="conversation-action"
+                  i18n-aria-label
+                  i18n-matTooltip
+                  mat-icon-button
+                  matTooltip="Cancel rename"
+                  type="button"
+                  (click)="onCancelRenameConversation($event)"
+                >
+                  <lucide-icon [img]="icons.x" [size]="16" />
+                </button>
               </div>
-            }
+            } @else {
+              <button
+                class="conversation-select flex-grow-1 text-center"
+                mat-stroked-button
+                type="button"
+                [class.active]="currentConversation?.id === conversation.id"
+                (click)="onSelectConversation(conversation.id)"
+              >
+                <div class="conversation-title-block">
+                  <div
+                    class="align-items-center conversation-title d-flex text-truncate"
+                  >
+                    <span class="conversation-title-text text-truncate">
+                      {{ conversation.title }}
+                    </span>
+                  </div>
+                </div>
+              </button>
 
-            @if (filteredConversations.length === 0) {
-              <div class="small text-muted" i18n>No chats found</div>
+              <button
+                aria-label="Rename conversation"
+                class="conversation-action conversation-edit"
+                i18n-aria-label
+                i18n-matTooltip
+                mat-icon-button
+                matTooltip="Rename conversation"
+                type="button"
+                (click)="
+                  onRenameConversation(
+                    $event,
+                    conversation.id,
+                    conversation.title
+                  )
+                "
+              >
+                <lucide-icon [img]="icons.pencil" [size]="16" />
+              </button>
+
+              <button
+                aria-label="Delete conversation"
+                class="conversation-action conversation-delete"
+                i18n-aria-label
+                i18n-matTooltip
+                mat-icon-button
+                matTooltip="Delete conversation"
+                type="button"
+                (click)="onDeleteConversation($event, conversation.id)"
+              >
+                <lucide-icon [img]="icons.trash2" [size]="16" />
+              </button>
             }
           </div>
-        </mat-card-content>
-      </mat-card>
-    </div>
+        }
 
-    <div class="col-lg-8">
-      <mat-card appearance="outlined">
-        <mat-card-content>
-          @if (!hasPermissionToReadAiPrompt) {
-            <div class="alert alert-warning mb-0" role="alert" i18n>
-              You need AI prompt permission to use this assistant.
-            </div>
-          } @else {
-            <div class="chat-workspace">
-              <div class="d-flex flex-wrap mb-3 prompt-list">
-                @for (prompt of starterPrompts; track prompt) {
+        @if (filteredConversations.length === 0) {
+          <div class="small text-muted" i18n>No chats found</div>
+        }
+      </div>
+    </div>
+  </aside>
+
+  <section class="chat-main">
+    <header class="chat-main-header">
+      <h1 class="h3 mb-0" i18n>AI Chat</h1>
+    </header>
+
+    @if (!hasPermissionToReadAiPrompt) {
+      <div class="alert alert-warning mb-0" i18n role="alert">
+        You need AI prompt permission to use this assistant.
+      </div>
+    } @else {
+      <div class="chat-workspace">
+        @if (errorMessage) {
+          <div class="alert alert-danger mb-3" role="alert">
+            {{ errorMessage }}
+          </div>
+        }
+
+        <div
+          #chatLogContainer
+          aria-live="polite"
+          aria-relevant="additions text"
+          class="chat-log"
+          role="log"
+          (scroll)="onChatLogScroll()"
+        >
+          @if (showNewMessageButton) {
+            <button
+              class="chat-new-message-button"
+              i18n
+              type="button"
+              (click)="onScrollToBottom()"
+            >
+              New message ↓
+            </button>
+          }
+
+          @for (message of visibleMessages; track message.id) {
+            <div
+              class="chat-message mb-3 p-3 rounded"
+              [class.assistant]="message.role === 'assistant'"
+              [class.user]="message.role === 'user'"
+            >
+              <div class="chat-message-header mb-1 text-muted">
+                <span class="role-label text-uppercase">{{
+                  getRoleLabel(message.role)
+                }}</span>
+                <span class="ml-2 timestamp">{{
+                  message.createdAt | date: 'shortTime'
+                }}</span>
+
+                @if (message.role === 'assistant' && message.response) {
                   <button
-                    class="mr-2 mb-2"
-                    mat-stroked-button
+                    aria-label="Show response details"
+                    class="chat-details-trigger ml-2"
+                    i18n-aria-label
+                    mat-icon-button
                     type="button"
-                    (click)="onSelectStarterPrompt(prompt)"
+                    [matMenuTriggerFor]="responseDetailsMenu"
+                    (click)="onOpenResponseDetails(message.response)"
                   >
-                    {{ prompt }}
+                    <lucide-icon
+                      class="chat-details-icon"
+                      [img]="icons.info"
+                      [size]="14"
+                    />
                   </button>
                 }
               </div>
+              @if (message.role === 'assistant') {
+                @if (getAssistantRenderedMessage(message); as renderedMessage) {
+                  <div class="chat-message-content">
+                    {{ renderedMessage.displayContent }}
+                  </div>
 
-              @if (errorMessage) {
-                <div class="alert alert-danger mb-3" role="alert">
-                  {{ errorMessage }}
+                  <div class="assistant-rendered-block mt-2">
+                    @if (renderedMessage.actions.length) {
+                      <div class="assistant-actions">
+                        <ol>
+                          @for (
+                            action of renderedMessage.actions;
+                            track action
+                          ) {
+                            <li>{{ action }}</li>
+                          }
+                        </ol>
+                      </div>
+                    }
+
+                  </div>
+                }
+              } @else {
+                <div class="chat-message-content">
+                  {{ message.content }}
                 </div>
               }
 
-              <div #chatLogContainer aria-live="polite" aria-relevant="additions text" class="chat-log" role="log">
-                @for (message of visibleMessages; track message.id) {
-                  <div
-                    class="chat-message mb-3 p-3 rounded"
-                    [class.assistant]="message.role === 'assistant'"
-                    [class.user]="message.role === 'user'"
+                @if (message.response) {
+                  <div class="assistant-trust mt-2">
+                    <span
+                      class="assistant-trust-chip"
+                      [class]="
+                        getConfidenceBandClass(message.response.confidence.band)
+                      "
+                    >
+                      <span i18n>Confidence:</span>
+                      {{
+                        message.response.confidence.score * 100
+                          | number: '1.0-0'
+                      }}% ({{ message.response.confidence.band }})
+                    </span>
+                    <span class="assistant-trust-chip" i18n>
+                      Tools:
+                      {{ message.response.toolCalls.length }}
+                    </span>
+                    <span class="assistant-trust-chip" i18n>
+                      Verification:
+                      {{ message.response.verification.length }}
+                    </span>
+                  </div>
+                }
+              @if (message.feedback) {
+                <div class="align-items-center d-flex feedback-controls mt-2">
+                  <span class="feedback-label" i18n>Rate this response:</span>
+                  <mat-form-field
+                    appearance="outline"
+                    class="feedback-comment-field mr-2"
+                    subscriptSizing="dynamic"
                   >
-                  <div class="chat-message-header mb-1 text-muted">
-                    <span class="role-label text-uppercase">{{ getRoleLabel(message.role) }}</span>
-                    <span class="ml-2 timestamp">{{
-                      message.createdAt | date: 'shortTime'
-                    }}</span>
-
-                    @if (message.role === 'assistant' && message.response) {
-                      <button
-                        aria-label="Show response details"
-                        class="chat-details-trigger ml-2"
-                        i18n-aria-label
-                        mat-icon-button
-                        type="button"
-                        [matMenuTriggerFor]="responseDetailsMenu"
-                        (click)="onOpenResponseDetails(message.response)"
-                      >
-                        <lucide-icon class="chat-details-icon" [img]="icons.info" [size]="14" />
-                      </button>
-                    }
-                  </div>
-                  <div class="chat-message-content">{{ message.content }}</div>
-
-                    @if (message.feedback) {
-                      <div class="align-items-center d-flex feedback-controls mt-2">
-                        <span class="feedback-label" i18n>Rate this response:</span>
-                        <mat-form-field class="feedback-comment-field mr-2" appearance="outline" subscriptSizing="dynamic">
-                          <mat-label i18n>Comment</mat-label>
-                          <input
-                            matInput
-                            type="text"
-                            [ngModel]="message.feedback.comment ?? ''"
-                            [disabled]="message.feedback.isSubmitting || !!message.feedback.rating"
-                            (ngModelChange)="onFeedbackCommentChange({ comment: $event, messageId: message.id })"
-                          />
-                        </mat-form-field>
-                        <button
-                          aria-label="Helpful"
-                          class="feedback-icon mr-2"
-                          i18n-aria-label
-                          i18n-matTooltip
-                          mat-icon-button
-                          matTooltip="Helpful"
-                          type="button"
-                          [disabled]="
-                            message.feedback.isSubmitting || !!message.feedback.rating
-                          "
-                          (click)="onRateResponse({ messageId: message.id, rating: 'up' })"
-                        >
-                          <lucide-icon [img]="icons.thumbsUp" [size]="16" />
-                        </button>
-                        <button
-                          aria-label="Needs work"
-                          class="feedback-icon"
-                          i18n-aria-label
-                          i18n-matTooltip
-                          mat-icon-button
-                          matTooltip="Needs work"
-                          type="button"
-                          [disabled]="
-                            message.feedback.isSubmitting || !!message.feedback.rating
-                          "
-                          (click)="onRateResponse({ messageId: message.id, rating: 'down' })"
-                        >
-                          <lucide-icon [img]="icons.thumbsDown" [size]="16" />
-                        </button>
-
-                        @if (message.feedback.isSubmitting) {
-                          <span class="ml-2 text-muted" i18n>Saving feedback...</span>
-                        } @else if (message.feedback.feedbackId) {
-                          <span class="ml-2 text-muted" i18n>Feedback saved</span>
-                        }
-                      </div>
-                    }
-                  </div>
-                }
-
-                @if (isSubmitting) {
-                  <div class="chat-message assistant chat-message-pending mb-3 p-3 rounded">
-                    <div class="chat-message-header mb-1 text-muted">
-                      <span class="role-label text-uppercase">{{ assistantRoleLabel }}</span>
-                      <span class="ml-2 pending-label" i18n>Sending...</span>
-                    </div>
-                    <div class="chat-message-content" i18n>
-                      Working on your request. You can queue the next prompt now.
-                    </div>
-                  </div>
-                }
-              </div>
-
-              <div class="chat-composer mt-3">
-                <mat-form-field class="w-100">
-                  <mat-label i18n>Ask about your portfolio</mat-label>
-                  <textarea
-                    aria-label="Ask about your portfolio"
-                    i18n-aria-label
-                    matInput
-                    rows="3"
-                    [(ngModel)]="query"
-                    (keydown.enter)="onSubmitFromKeyboard($event)"
-                  ></textarea>
-                </mat-form-field>
-
-                <mat-form-field class="chat-preference-field w-100">
-                  <mat-label i18n>Next response preference</mat-label>
-                  <input
-                    aria-label="Next response preference"
-                    i18n-aria-label
-                    matInput
-                    type="text"
-                    [(ngModel)]="nextResponsePreference"
-                    placeholder="Optional: adjust tone, format, or focus for the next response"
-                  />
-                  <mat-hint i18n>Optional for the next response only.</mat-hint>
-                </mat-form-field>
-
-                <div class="align-items-center d-flex composer-controls">
+                    <mat-label i18n>Comment</mat-label>
+                    <input
+                      matInput
+                      type="text"
+                      [disabled]="
+                        message.feedback.isSubmitting ||
+                        !!message.feedback.rating
+                      "
+                      [ngModel]="message.feedback.comment ?? ''"
+                      (ngModelChange)="
+                        onFeedbackCommentChange({
+                          comment: $event,
+                          messageId: message.id
+                        })
+                      "
+                    />
+                  </mat-form-field>
                   <button
-                    aria-label="Send"
-                    class="chat-send-trigger"
-                    color="primary"
+                    aria-label="Helpful"
+                    class="feedback-icon mr-2"
                     i18n-aria-label
                     i18n-matTooltip
                     mat-icon-button
-                    matTooltip="Send"
+                    matTooltip="Helpful"
                     type="button"
-                    [disabled]="!query?.trim()"
-                    (click)="onSubmit()"
+                    [disabled]="
+                      message.feedback.isSubmitting || !!message.feedback.rating
+                    "
+                    (click)="
+                      onRateResponse({ messageId: message.id, rating: 'up' })
+                    "
                   >
-                    <lucide-icon [img]="icons.sendHorizontal" [size]="18" />
+                    <lucide-icon [img]="icons.thumbsUp" [size]="16" />
                   </button>
-
                   <button
-                    aria-label="Select model"
-                    class="chat-model-trigger"
+                    aria-label="Needs work"
+                    class="feedback-icon"
                     i18n-aria-label
+                    i18n-matTooltip
                     mat-icon-button
-                    [matTooltip]="selectedModelLabel"
+                    matTooltip="Needs work"
                     type="button"
-                    [matMenuTriggerFor]="modelMenu"
+                    [disabled]="
+                      message.feedback.isSubmitting || !!message.feedback.rating
+                    "
+                    (click)="
+                      onRateResponse({ messageId: message.id, rating: 'down' })
+                    "
                   >
-                    <lucide-icon [img]="icons.sparkles" [size]="18" />
+                    <lucide-icon [img]="icons.thumbsDown" [size]="16" />
                   </button>
 
-                  @if (isSubmitting) {
-                    <mat-spinner class="ml-2" color="accent" [diameter]="18" />
+                  @if (message.feedback.isSubmitting) {
+                    <span class="ml-2 text-muted" i18n>Saving feedback...</span>
+                  } @else if (message.feedback.feedbackId) {
+                    <span class="ml-2 text-muted" i18n>Feedback saved</span>
                   }
-
-                  <span class="queue-status ml-2 text-muted">
-                    @if (isQueueBusy) {
-                      {{ queueDepth }}
-                      <span i18n>request(s) in progress/queue</span>
-                    } @else {
-                      <span i18n>Ready</span>
-                    }
-                  </span>
                 </div>
+              }
+            </div>
+          }
+
+          @if (isSubmitting) {
+            <div
+              class="chat-message assistant chat-message-pending mb-3 p-3 rounded"
+            >
+              <div class="chat-message-header mb-1 text-muted">
+                <span class="role-label text-uppercase">{{
+                  assistantRoleLabel
+                }}</span>
+                <span class="ml-2 pending-label" i18n>Sending...</span>
+              </div>
+              <div class="chat-message-content" i18n>
+                Working on your request. You can queue the next prompt now.
               </div>
             </div>
+          }
+        </div>
 
-            <mat-menu #responseDetailsMenu="matMenu" class="no-max-width" xPosition="before">
-              <div class="response-details-panel p-3" (click)="$event.stopPropagation()">
-                @if (activeResponseDetails; as details) {
-                  <div class="response-details-section">
-                    <strong i18n>Response</strong>:
-                    <span class="ml-1">{{ details.answer }}</span>
-                  </div>
+        <div class="chat-bottom">
+          <div class="d-flex flex-wrap prompt-list">
+            @for (prompt of starterPrompts; track prompt) {
+              <button
+                class="mr-2 mb-2"
+                mat-stroked-button
+                type="button"
+                (click)="onSelectStarterPrompt(prompt)"
+              >
+                {{ prompt }}
+              </button>
+            }
+          </div>
 
-                  <div class="response-details-section">
-                    <strong i18n>Confidence</strong>:
-                    {{ details.confidence.score * 100 | number: '1.0-0' }}%
-                    ({{ details.confidence.band }})
-                  </div>
+          <div class="chat-composer">
+            <mat-form-field class="w-100">
+              <mat-label i18n>Ask about your portfolio</mat-label>
+              <textarea
+                aria-label="Ask about your portfolio"
+                i18n-aria-label
+                matInput
+                placeholder="Ask about your portfolio"
+                rows="1"
+                [(ngModel)]="query"
+                (keydown)="onSubmitFromKeyboard($event)"
+              ></textarea>
+            </mat-form-field>
 
-                  @if (details.citations.length > 0) {
-                    <div class="response-details-section">
-                      <strong i18n>Citations</strong>
-                      <ul class="mb-0 pl-3 response-details-list">
-                        @for (citation of details.citations; track $index) {
-                          <li>
-                            <span class="font-weight-bold">{{ citation.source }}</span>
-                            -
-                            {{ citation.snippet }}
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  }
+            <div class="align-items-center d-flex composer-controls">
+              <button
+                aria-label="Send"
+                class="chat-send-trigger"
+                color="primary"
+                i18n-aria-label
+                i18n-matTooltip
+                mat-icon-button
+                matTooltip="Send"
+                type="button"
+                [disabled]="!query?.trim()"
+                (click)="onSubmit()"
+              >
+                <lucide-icon [img]="icons.sendHorizontal" [size]="18" />
+              </button>
 
-                  @if (details.llmInvocation) {
-                    <div class="response-details-section">
-                      <strong i18n>LLM</strong>:
-                      <span class="ml-1">{{ details.llmInvocation.provider }}</span>
-                      <span class="ml-1">({{ details.llmInvocation.model }})</span>
-                    </div>
-                  }
+              <button
+                aria-label="Select model"
+                class="chat-model-trigger"
+                i18n-aria-label
+                mat-icon-button
+                type="button"
+                [matMenuTriggerFor]="modelMenu"
+                [matTooltip]="selectedModelLabel"
+              >
+                <lucide-icon [img]="icons.sparkles" [size]="18" />
+              </button>
 
-                  @if (details.toolCalls.length > 0) {
-                    <div class="response-details-section">
-                      <strong i18n>Tools</strong>
-                      <ul class="mb-0 pl-3 response-details-list">
-                        @for (toolCall of details.toolCalls; track $index) {
-                          <li>
-                            <span class="font-weight-bold">{{ toolCall.tool }}</span>
-                            -
-                            {{ toolCall.status }}
-                            <div>
-                              <span class="text-muted" i18n>Input</span>:
-                              {{ toolCall.input | json }}
-                            </div>
-                            <div>
-                              <span class="text-muted" i18n>Output</span>:
-                              {{ toolCall.outputSummary }}
-                            </div>
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  }
+              @if (isSubmitting) {
+                <mat-spinner class="ml-2" color="accent" [diameter]="18" />
+              }
 
-                  @if (details.verification.length > 0) {
-                    <div class="response-details-section">
-                      <strong i18n>Verification</strong>
-                      <ul class="mb-0 pl-3 response-details-list">
-                        @for (check of details.verification; track $index) {
-                          <li>
-                            <span class="text-capitalize">{{ check.status }}</span>
-                            -
-                            {{ check.check }}:
-                            {{ check.details }}
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  }
-
-                  @if (details.observability) {
-                    <div class="response-details-section">
-                      <strong i18n>Observability</strong>:
-                      <span class="ml-1"
-                        >{{ details.observability.latencyInMs }}ms, ~{{
-                          details.observability.tokenEstimate.total
-                        }}
-                        tokens</span
-                      >
-                      @if (details.observability.traceId) {
-                        <div class="response-details-trace">
-                          <strong i18n>Trace ID</strong>:
-                          <span class="ml-1">{{ details.observability.traceId }}</span>
-                        </div>
-                      }
-                    </div>
-                  }
+              <span class="queue-status ml-2 text-muted">
+                @if (isQueueBusy) {
+                  {{ queueDepth }}
+                  <span i18n>request(s) in progress/queue</span>
                 } @else {
-                  <span class="text-muted" i18n>No response details available.</span>
+                  <span i18n>Ready</span>
+                }
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <mat-menu
+        #responseDetailsMenu="matMenu"
+        class="no-max-width"
+        xPosition="before"
+      >
+        <div
+          class="response-details-panel p-3"
+          (click)="$event.stopPropagation()"
+        >
+          @if (activeResponseDetails; as details) {
+            <div class="response-details-section">
+              <strong i18n>Confidence</strong>:
+              {{ details.confidence.score * 100 | number: '1.0-0' }}% ({{
+                details.confidence.band
+              }})
+            </div>
+
+            @if (details.citations.length > 0) {
+              <div class="response-details-section">
+                <strong i18n>Citations</strong>
+                <ul class="mb-0 pl-3 response-details-list">
+                  @for (citation of details.citations; track $index) {
+                    <li>
+                      <span class="font-weight-bold">{{
+                        citation.source
+                      }}</span>
+                      -
+                      {{ citation.snippet }}
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (details.llmInvocation) {
+              <div class="response-details-section">
+                <strong i18n>LLM</strong>:
+                <span class="ml-1">{{ details.llmInvocation.provider }}</span>
+                <span class="ml-1">({{ details.llmInvocation.model }})</span>
+              </div>
+            }
+
+            @if (details.toolCalls.length > 0) {
+              <div class="response-details-section">
+                <strong i18n>Tools</strong>
+                <ul class="mb-0 pl-3 response-details-list">
+                  @for (toolCall of details.toolCalls; track $index) {
+                    <li>
+                      <span class="font-weight-bold">{{ toolCall.tool }}</span>
+                      -
+                      {{ toolCall.status }}
+                      <div>
+                        <span class="text-muted" i18n>Input</span>:
+                        {{ toolCall.input | json }}
+                      </div>
+                      <div>
+                        <span class="text-muted" i18n>Output</span>:
+                        {{ toolCall.outputSummary }}
+                      </div>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (details.verification.length > 0) {
+              <div class="response-details-section">
+                <strong i18n>Verification</strong>
+                <ul class="mb-0 pl-3 response-details-list">
+                  @for (check of details.verification; track $index) {
+                    <li>
+                      <span class="text-capitalize">{{ check.status }}</span>
+                      -
+                      {{ check.check }}:
+                      {{ check.details }}
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (details.observability) {
+              <div class="response-details-section">
+                <strong i18n>Observability</strong>:
+                <span class="ml-1"
+                  >{{ details.observability.latencyInMs }}ms, ~{{
+                    details.observability.tokenEstimate.total
+                  }}
+                  tokens</span
+                >
+                @if (details.observability.traceId) {
+                  <div class="response-details-trace">
+                    <strong i18n>Trace ID</strong>:
+                    <span class="ml-1">{{
+                      details.observability.traceId
+                    }}</span>
+                  </div>
                 }
               </div>
-            </mat-menu>
-
-            <mat-menu #modelMenu="matMenu" xPosition="before">
-              @for (modelOption of modelOptions; track modelOption.id) {
-                <button
-                  mat-menu-item
-                  type="button"
-                  (click)="onSelectModel(modelOption.id)"
-                >
-                  {{ modelOption.label }}
-                </button>
-              }
-            </mat-menu>
+            }
+          } @else {
+            <span class="text-muted" i18n>No response details available.</span>
           }
-        </mat-card-content>
-      </mat-card>
-    </div>
-  </div>
+        </div>
+      </mat-menu>
+
+      <mat-menu #modelMenu="matMenu" xPosition="before">
+        @for (modelOption of modelOptions; track modelOption.id) {
+          <button
+            mat-menu-item
+            type="button"
+            (click)="onSelectModel(modelOption.id)"
+          >
+            {{ modelOption.label }}
+          </button>
+        }
+      </mat-menu>
+    }
+  </section>
 </div>

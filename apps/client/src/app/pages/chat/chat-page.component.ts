@@ -50,10 +50,14 @@ interface ChatModelOption {
 
 interface PendingSubmission {
   conversationId: string;
-  nextResponsePreference?: string;
   query: string;
   requestedModelId: string;
   sessionId?: string;
+}
+
+interface RenderedAssistantMessage {
+  displayContent: string;
+  actions: string[];
 }
 
 @Component({
@@ -82,6 +86,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   public conversations: AiChatConversation[] = [];
   public currentConversation: AiChatConversation | undefined;
   public errorMessage: string;
+  public showNewMessageButton = false;
   public editingConversationId: string | undefined;
   public editingConversationTitle = '';
   public hasPermissionToReadAiPrompt = false;
@@ -92,21 +97,20 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       label: $localize`Auto`
     },
     {
+      id: 'chatgpt',
+      label: 'ChatGPT'
+    },
+    {
       id: 'glm',
       label: 'GLM-5'
     },
     {
       id: 'minimax',
       label: 'MiniMax-M2.5'
-    },
-    {
-      id: 'openai',
-      label: 'OpenAI'
     }
   ];
   public query = '';
-  public nextResponsePreference = '';
-  public selectedModelId = this.modelOptions[0].id;
+  public selectedModelId = 'chatgpt';
   public readonly icons = {
     info: Info,
     messageSquare: MessageSquare,
@@ -122,15 +126,22 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     trash2: Trash2
   };
   public readonly starterPrompts = [
-    $localize`Give me a portfolio risk summary.`,
-    $localize`What are my top concentration risks right now?`,
-    $localize`Show me the latest market prices for my top holdings.`
+    $localize`How is my portfolio performing?`,
+    $localize`Estimate my taxes for this year.`,
+    $localize`Am I on track for FIRE?`,
+    $localize`How can I make an order?`,
+    $localize`Add test data for a quick check.`
   ];
   public readonly userRoleLabel = $localize`You`;
 
   private activeSubmission: PendingSubmission | undefined;
   private pendingSubmissionQueue: PendingSubmission[] = [];
   private unsubscribeSubject = new Subject<void>();
+  private renderedAssistantMessageMap = new WeakMap<
+    AiChatMessage,
+    RenderedAssistantMessage
+  >();
+  private shouldAutoScrollToBottom = true;
 
   public constructor(
     private readonly aiChatConversationsService: AiChatConversationsService,
@@ -161,16 +172,24 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       .subscribe((conversation) => {
         this.currentConversation = conversation;
         this.activeResponseDetails = undefined;
-        this.scrollToBottom();
+        this.shouldAutoScrollToBottom = true;
+        this.showNewMessageButton = false;
+        this.renderedAssistantMessageMap = new WeakMap<
+          AiChatMessage,
+          RenderedAssistantMessage
+        >();
+        this.scrollToBottom(true);
       });
 
-    if (this.aiChatConversationsService.getConversationsSnapshot().length === 0) {
+    if (
+      this.aiChatConversationsService.getConversationsSnapshot().length === 0
+    ) {
       this.aiChatConversationsService.createConversation();
     }
   }
 
   public ngAfterViewInit() {
-    this.scrollToBottom();
+    this.scrollToBottom(true);
   }
 
   public ngOnDestroy() {
@@ -178,22 +197,62 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     this.unsubscribeSubject.complete();
   }
 
-  private scrollToBottom() {
-    if (this.chatLogContainer) {
-      const schedule =
-        typeof requestAnimationFrame === 'function'
-          ? requestAnimationFrame
-          : (callback: FrameRequestCallback) => setTimeout(callback, 0);
+  private scrollToBottom(force = false) {
+    const element = this.chatLogContainer?.nativeElement;
 
-      schedule(() => {
-        const element = this.chatLogContainer.nativeElement;
-        element.scrollTop = element.scrollHeight;
-      });
+    if (!element || (!force && !this.shouldAutoScrollToBottom)) {
+      return;
     }
+
+    const schedule =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (callback: FrameRequestCallback) => setTimeout(callback, 0);
+
+    schedule(() => {
+      element.scrollTop = element.scrollHeight;
+      this.showNewMessageButton = false;
+    });
+
+    this.shouldAutoScrollToBottom = true;
+  }
+
+  public onChatLogScroll() {
+    const element = this.chatLogContainer?.nativeElement;
+
+    if (!element) {
+      return;
+    }
+
+    const nearBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+    this.shouldAutoScrollToBottom = nearBottom;
+    this.showNewMessageButton = !nearBottom;
+  }
+
+  public onScrollToBottom() {
+    this.scrollToBottom(true);
   }
 
   public get visibleMessages() {
     return this.currentConversation?.messages ?? [];
+  }
+
+  public getAssistantRenderedMessage(message: AiChatMessage) {
+    if (message.role !== 'assistant') {
+      return undefined;
+    }
+
+    const cached = this.renderedAssistantMessageMap.get(message);
+
+    if (cached) {
+      return cached;
+    }
+
+    const rendered = this.renderAssistantMessage(message.content);
+    this.renderedAssistantMessageMap.set(message, rendered);
+
+    return rendered;
   }
 
   public get queueDepth() {
@@ -205,9 +264,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public get filteredConversations() {
-    const normalizedQuery = this.conversationSearchQuery
-      .toLowerCase()
-      .trim();
+    const normalizedQuery = this.conversationSearchQuery.toLowerCase().trim();
 
     if (!normalizedQuery) {
       return this.conversations;
@@ -235,7 +292,9 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
     this.aiChatConversationsService.deleteConversation(conversationId);
 
-    if (this.aiChatConversationsService.getConversationsSnapshot().length === 0) {
+    if (
+      this.aiChatConversationsService.getConversationsSnapshot().length === 0
+    ) {
       this.aiChatConversationsService.createConversation();
     }
   }
@@ -328,8 +387,66 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   public onNewChat() {
     this.errorMessage = undefined;
     this.query = '';
-    this.nextResponsePreference = '';
     this.aiChatConversationsService.createConversation();
+  }
+
+  public getConfidenceBandClass(band: string) {
+    return `assistant-confidence-${band}`;
+  }
+
+  private renderAssistantMessage(content: string): RenderedAssistantMessage {
+    const lines = content
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const actions: string[] = [];
+    const contentLines: string[] = [];
+    const hasStructuredHeader = lines.some((line) =>
+      /^(direct answer|key numbers|recommended actions|risks|assumptions|notes|follow-up question|summary)\b/i.test(
+        line.trim()
+      )
+    );
+
+    for (const line of lines) {
+      const lowerLine = line.toLowerCase();
+      const isSectionHeader =
+        /^(direct answer|key numbers|recommended actions|risks|assumptions|notes|follow-up question|summary)\b/i.test(
+          lowerLine
+        );
+      const isActionLine =
+        lowerLine.startsWith('action') ||
+        lowerLine.startsWith('recommend') ||
+        /^\d+[.)]/.test(line) ||
+        lowerLine.startsWith('-');
+
+      if (
+        lowerLine.startsWith('action') ||
+        lowerLine.startsWith('recommend') ||
+        /^\d+[.)]/.test(line) ||
+        lowerLine.startsWith('-')
+      ) {
+        actions.push(line.replace(/^[-\d.)\s]+/, '').trim());
+      }
+
+      if (isSectionHeader || (hasStructuredHeader && isActionLine)) {
+        continue;
+      }
+
+      contentLines.push(line);
+    }
+
+    return {
+      actions,
+      displayContent:
+        contentLines.join('\n') ||
+        lines.find((line) => {
+          return !/^(direct answer|key numbers|recommended actions|risks|assumptions|notes|follow-up question|summary)\b/i.test(
+            line.trim()
+          );
+        }) ||
+        ''
+    };
   }
 
   public onOpenResponseDetails(response?: AiAgentChatResponse) {
@@ -448,7 +565,6 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   public onSelectConversation(conversationId: string) {
     this.errorMessage = undefined;
     this.query = '';
-    this.nextResponsePreference = '';
     this.aiChatConversationsService.selectConversation(conversationId);
   }
 
@@ -470,12 +586,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       this.aiChatConversationsService.createConversation();
 
     const normalizedQuery = this.query?.trim();
-    const nextResponsePreference = this.nextResponsePreference?.trim();
-
-    if (
-      !this.hasPermissionToReadAiPrompt ||
-      !normalizedQuery
-    ) {
+    if (!this.hasPermissionToReadAiPrompt || !normalizedQuery) {
       return;
     }
 
@@ -483,10 +594,10 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       content: normalizedQuery,
       conversationId: conversation.id
     });
+    this.shouldAutoScrollToBottom = true;
 
     this.pendingSubmissionQueue.push({
       conversationId: conversation.id,
-      ...(nextResponsePreference ? { nextResponsePreference } : {}),
       query: normalizedQuery,
       requestedModelId: this.selectedModelId,
       sessionId: conversation.sessionId
@@ -494,7 +605,6 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
     this.errorMessage = undefined;
     this.query = '';
-    this.nextResponsePreference = '';
     this.scrollToBottom();
     this.processSubmissionQueue();
   }
@@ -521,9 +631,6 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
           submission.requestedModelId === 'auto'
             ? undefined
             : submission.requestedModelId,
-        ...(submission.nextResponsePreference
-          ? { nextResponsePreference: submission.nextResponsePreference }
-          : {}),
         sessionId: submission.sessionId
       })
       .pipe(
@@ -564,10 +671,12 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public onSubmitFromKeyboard(event: KeyboardEvent) {
-    if (!event.shiftKey) {
-      this.onSubmit();
-      event.preventDefault();
+    if (event.key !== 'Enter' || event.shiftKey) {
+      return;
     }
+
+    event.preventDefault();
+    this.onSubmit();
   }
 
   public trackConversationById(

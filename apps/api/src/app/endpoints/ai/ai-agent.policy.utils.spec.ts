@@ -53,9 +53,7 @@ describe('AiAgentPolicyUtils', () => {
     expect(decision.blockReason).toBe('no_tool_query');
     expect(
       createPolicyRouteResponse({ policyDecision: decision, query })
-    ).toContain(
-      'Ghostfolio AI'
-    );
+    ).toContain('Ghostfolio AI');
   });
 
   it('routes self-identity query to direct no-tool with privacy-safe response', () => {
@@ -98,7 +96,7 @@ describe('AiAgentPolicyUtils', () => {
   });
 
   it.each(['1/0', '2+*2', '5 % 2'])(
-    'falls back to capability response for unsupported arithmetic expression "%s"',
+    'returns uncertainty response for unsupported arithmetic expression "%s"',
     (query) => {
       const decision = applyToolExecutionPolicy({
         plannedTools: [],
@@ -111,7 +109,7 @@ describe('AiAgentPolicyUtils', () => {
           policyDecision: decision,
           query
         })
-      ).toMatch(/(portfolio|holdings|ask|help)/i);
+      ).toMatch(/(insufficient confidence|reliable answer|concrete request)/i);
     }
   );
 
@@ -136,7 +134,7 @@ describe('AiAgentPolicyUtils', () => {
 
     expect(identityResponse).toContain('portfolio copilot');
     expect(capabilityResponse).toContain('Pages with AI');
-    expect(capabilityResponse).toContain('Show my recent transactions');
+    expect(capabilityResponse).toContain('Portfolio actions');
     expect(identityResponse).not.toBe(capabilityResponse);
   });
 
@@ -149,7 +147,7 @@ describe('AiAgentPolicyUtils', () => {
     expect(decision.route).toBe('clarify');
     expect(decision.blockReason).toBe('unknown');
     expect(createPolicyRouteResponse({ policyDecision: decision })).toContain(
-      'Which one should I run next?'
+      'Insufficient confidence to proceed safely'
     );
   });
 
@@ -210,6 +208,9 @@ describe('AiAgentPolicyUtils', () => {
 
     expect(decision.route).toBe('direct');
     expect(decision.blockReason).toBe('no_tool_query');
+    expect(
+      createPolicyRouteResponse({ policyDecision: decision, query: 'Tell me a joke' })
+    ).toContain('Insufficient confidence to provide a reliable answer');
   });
 
   it('deduplicates planned tools while preserving route decisions', () => {
@@ -242,7 +243,10 @@ describe('AiAgentPolicyUtils', () => {
     route?: 'clarify' | 'direct' | 'tools';
   }>([
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment'] as AiAgentToolName[],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment'
+      ] as AiAgentToolName[],
       plannedTools: [
         'portfolio_analysis',
         'risk_assessment',
@@ -252,7 +256,11 @@ describe('AiAgentPolicyUtils', () => {
       reason: 'read-only intent strips rebalance'
     },
     {
-      expectedTools: ['portfolio_analysis', 'risk_assessment'] as AiAgentToolName[],
+      expectedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan'
+      ] as AiAgentToolName[],
       plannedTools: [
         'portfolio_analysis',
         'risk_assessment',
@@ -265,6 +273,7 @@ describe('AiAgentPolicyUtils', () => {
       expectedTools: [
         'portfolio_analysis',
         'risk_assessment',
+        'rebalance_plan',
         'market_data_lookup'
       ] as AiAgentToolName[],
       plannedTools: [
@@ -274,7 +283,8 @@ describe('AiAgentPolicyUtils', () => {
         'market_data_lookup'
       ] as AiAgentToolName[],
       query: 'invest and rebalance after checking market quote for NVDA',
-      reason: 'action + market intent keeps read tools when rebalance details are missing'
+      reason:
+        'action + market intent keeps read tools when rebalance details are missing'
     },
     {
       expectedTools: ['stress_test'] as AiAgentToolName[],
@@ -364,6 +374,33 @@ describe('AiAgentPolicyUtils', () => {
     ).toContain('please specify the amount');
   });
 
+  it('requires amount details for seed-funds requests', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['seed_funds'],
+      query: 'add seed funds'
+    });
+
+    expect(decision.route).toBe('clarify');
+    expect(decision.blockReason).toBe('needs_seed_funds_details');
+    expect(decision.toolsToExecute).toEqual([]);
+    expect(
+      createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'add seed funds'
+      })
+    ).toContain('To add seed funds');
+  });
+
+  it('runs seed-funds tool when amount is provided', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['seed_funds'],
+      query: 'add 500 USD seed funds'
+    });
+
+    expect(decision.route).toBe('tools');
+    expect(decision.toolsToExecute).toEqual(['seed_funds']);
+  });
+
   it('requires rebalance details even with action wording', () => {
     const decision = applyToolExecutionPolicy({
       plannedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
@@ -380,11 +417,7 @@ describe('AiAgentPolicyUtils', () => {
 
   it('formats policy verification details with planned and executed tools', () => {
     const decision = applyToolExecutionPolicy({
-      plannedTools: [
-        'portfolio_analysis',
-        'risk_assessment',
-        'rebalance_plan'
-      ],
+      plannedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
       query: 'review concentration risk'
     });
     const details = formatPolicyVerificationDetails({
@@ -456,12 +489,11 @@ describe('AiAgentPolicyUtils', () => {
         query: 'what can you do?'
       });
 
-      expect(response).toContain('Account:');
-      expect(response).toContain('Holdings:');
-      expect(response).toContain('Risk:');
-      expect(response).toContain('Advice:');
-      expect(response).toContain('News:');
+      expect(response).toContain('Portfolio:');
+      expect(response).toContain('Taxes:');
       expect(response).toContain('FIRE:');
+      expect(response).toContain('Portfolio actions:');
+      expect(response).toContain('Data:');
     });
 
     it('includes all feature categories in greeting response', () => {
@@ -474,12 +506,13 @@ describe('AiAgentPolicyUtils', () => {
         query: 'hello'
       });
 
-      expect(response).toContain('Portfolio:');
-      expect(response).toContain('Risk:');
-      expect(response).toContain('FIRE:');
-      expect(response).toContain('Market:');
-      expect(response).toContain('Transactions:');
-      expect(response).toContain('Advice:');
+    expect(response).toContain('Portfolio:');
+    expect(response).toContain('Risk:');
+    expect(response).toContain('FIRE:');
+    expect(response).toContain('Market:');
+    expect(response).toContain('Transactions:');
+    expect(response).toContain('Orders:');
+    expect(response).toContain('Data:');
     });
 
     it('includes FIRE examples in greeting response', () => {
@@ -525,12 +558,11 @@ describe('AiAgentPolicyUtils', () => {
         query: 'what can I do?'
       });
 
-      expect(response).toContain('Show my account balances');
-      expect(response).toContain('Analyze my concentration risk');
-      expect(response).toContain('Get latest news for AAPL');
-      expect(response).toContain('Am I on track for early retirement?');
-      expect(response).toContain('Calculate rebalance plan');
-      expect(response).toContain('Simulate trade impact');
+      expect(response).toContain('Portfolio: balances');
+      expect(response).toContain('FIRE');
+      expect(response).toContain('Taxes');
+      expect(response).toContain('order');
+      expect(response).toContain('test data');
     });
   });
 });

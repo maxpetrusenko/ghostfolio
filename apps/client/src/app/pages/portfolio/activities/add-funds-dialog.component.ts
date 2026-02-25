@@ -2,6 +2,7 @@ import { UserService } from '@ghostfolio/client/services/user/user.service';
 import { User } from '@ghostfolio/common/interfaces';
 import { DataService } from '@ghostfolio/ui/services';
 
+import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -16,6 +17,7 @@ import { takeUntil } from 'rxjs/operators';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'd-flex flex-column h-100' },
   imports: [
+    CommonModule,
     FormsModule,
     MatButtonModule,
     MatDialogModule,
@@ -29,7 +31,6 @@ import { takeUntil } from 'rxjs/operators';
 export class GfAddFundsDialogComponent {
   public amount: number;
   public currency: string;
-  public isDemoUser = false;
   public isSubmitting = false;
   public user: User;
 
@@ -47,22 +48,8 @@ export class GfAddFundsDialogComponent {
         if (state?.user) {
           this.user = state.user;
           this.currency = state.user.settings.baseCurrency;
-          this.isDemoUser = state.user.tags?.some((tag) => {
-            return tag.id === 'DEMO' || tag.name === 'Demo';
-          });
         }
       });
-  }
-
-  public ngOnInit() {
-    if (!this.isDemoUser) {
-      this.snackBar.open(
-        $localize`This feature is only available for demo users.`,
-        $localize`Close`,
-        { duration: 3000 }
-      );
-      this.dialogRef.close();
-    }
   }
 
   public setAmount(amount: number) {
@@ -70,22 +57,37 @@ export class GfAddFundsDialogComponent {
   }
 
   public onAddFunds() {
-    if (!this.amount || this.amount <= 0 || this.isSubmitting) {
+    if (
+      !this.amount ||
+      this.amount <= 0 ||
+      this.isSubmitting ||
+      !this.user?.accounts?.length
+    ) {
+      if (!this.user?.accounts?.length) {
+        this.snackBar.open(
+          $localize`No account found to receive the deposit.`,
+          $localize`Close`,
+          { duration: 3000 }
+        );
+      }
+
       return;
     }
 
     this.isSubmitting = true;
 
     const order = {
-      comment: $localize`Demo funds added`,
+      accountId: this.user.accounts[0].id,
+      comment: $localize`Seed funds added`,
       currency: this.currency,
       date: new Date().toISOString(),
       dataSource: 'MANUAL' as const,
       fee: 0,
+      tags: [],
       quantity: 1,
-      symbol: `GF_DEPOSIT_${Date.now()}`,
-      tags: ['DEMO'],
+      symbol: `GF_SEED_${Date.now()}`,
       type: 'INTEREST' as const,
+      updateAccountBalance: true,
       unitPrice: this.amount
     };
 

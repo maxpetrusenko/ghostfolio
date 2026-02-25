@@ -58,7 +58,7 @@ const IDENTITY_AND_USAGE_QUERIES = [
   'What can you help with?'
 ];
 
-const ARITHMETIC_CASES: Array<{ expected: string; query: string }> = [
+const ARITHMETIC_CASES: { expected: string; query: string }[] = [
   { expected: '2+2 = 4', query: '2+2' },
   { expected: '5*3 = 15', query: '5*3' },
   { expected: '10 / 4 = 2.5', query: '10 / 4' },
@@ -136,11 +136,11 @@ const INVESTMENT_QUERIES = [
   'invest next contribution into safer mix',
   'allocate next cash to lower risk positions'
 ];
-const TOOL_EXPANSION_CASES: Array<{
+const TOOL_EXPANSION_CASES: {
   query: string;
   requiredExecutedTools: AiAgentToolName[];
   requiredPlannedTools: AiAgentToolName[];
-}> = [
+}[] = [
   {
     query: 'Show my recent transactions',
     requiredExecutedTools: ['get_recent_transactions'],
@@ -163,6 +163,11 @@ const TOOL_EXPANSION_CASES: Array<{
   },
   {
     query: 'Show financial news for TSLA',
+    requiredExecutedTools: ['get_financial_news'],
+    requiredPlannedTools: ['get_financial_news']
+  },
+  {
+    query: 'apple news this year',
     requiredExecutedTools: ['get_financial_news'],
     requiredPlannedTools: ['get_financial_news']
   },
@@ -210,9 +215,15 @@ const TOOL_EXPANSION_CASES: Array<{
     query: 'Simulate trade impact if I buy 2000 AAPL',
     requiredExecutedTools: ['simulate_trade_impact'],
     requiredPlannedTools: ['simulate_trade_impact']
+  },
+  {
+    query: 'Add seed funds 3000 for testing',
+    requiredExecutedTools: ['seed_funds'],
+    requiredPlannedTools: ['seed_funds']
   }
 ];
-const ACTION_CONFIRMATION_PATTERN = /\b(?:allocat|buy|invest|rebalanc|sell|trim)\b/i;
+const ACTION_CONFIRMATION_PATTERN =
+  /\b(?:allocat|buy|invest|rebalanc|sell|trim)\b/i;
 
 describe('AiAgentSimpleInteractions', () => {
   it('supports 100+ simple user commands with expected routing behavior', () => {
@@ -302,7 +313,11 @@ describe('AiAgentSimpleInteractions', () => {
       evaluatedQueries += 1;
     }
 
-    for (const { query, requiredExecutedTools, requiredPlannedTools } of TOOL_EXPANSION_CASES) {
+    for (const {
+      query,
+      requiredExecutedTools,
+      requiredPlannedTools
+    } of TOOL_EXPANSION_CASES) {
       const plannedTools = determineToolPlan({ query });
       const decision = applyToolExecutionPolicy({ plannedTools, query });
 

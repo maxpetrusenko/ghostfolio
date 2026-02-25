@@ -54,7 +54,6 @@ export class GfActivitiesPageComponent implements OnDestroy, OnInit {
   public hasImpersonationId: boolean;
   public hasPermissionToCreateActivity: boolean;
   public hasPermissionToDeleteActivity: boolean;
-  public isDemoUser = false;
   public pageIndex = 0;
   public pageSize = DEFAULT_PAGE_SIZE;
   public routeQueryParams: Subscription;
@@ -428,9 +427,5 @@ export class GfActivitiesPageComponent implements OnDestroy, OnInit {
     this.hasPermissionToDeleteActivity =
       !this.hasImpersonationId &&
       hasPermission(this.user.permissions, permissions.deleteOrder);
-
-    this.isDemoUser = aUser.tags?.some((tag) => {
-      return tag.id === 'DEMO' || tag.name === 'Demo';
-    });
   }
 }
