@@ -53,6 +53,7 @@ import {
   calculateConfidence,
   determineToolPlan,
   evaluateAnswerQuality,
+  extractSymbolsFromQuery,
   formatTickerClarificationSuggestion,
   getTickerClarificationSuggestion
 } from './ai-agent.utils';
@@ -75,6 +76,8 @@ const PORTFOLIO_CONTEXT_SYMBOL_TOOLS = new Set([
   'simulate_trade_impact',
   'stress_test'
 ]);
+const PORTFOLIO_SYMBOL_CONTEXT_QUERY_PATTERN =
+  /\b(?:my|portfolio|holdings?|allocation|account|risk|concentration|rebalance)\b/i;
 const ORDER_TOOL_TAKE_BY_NAME: Partial<Record<AiAgentToolName, number>> = {
   get_recent_transactions: 5,
   transaction_categorize: 50,
@@ -392,6 +395,19 @@ export class AiService {
       const toolCalls: AiAgentToolCall[] = [];
       const citations: AiAgentChatResponse['citations'] = [];
       const verification: AiAgentChatResponse['verification'] = [];
+      const explicitRequestedSymbols = symbols?.length
+        ? symbols
+        : extractSymbolsFromQuery(normalizedQuery);
+      const hasExplicitSymbolRequest = explicitRequestedSymbols.length > 0;
+      const hasPortfolioSymbolContext = PORTFOLIO_SYMBOL_CONTEXT_QUERY_PATTERN.test(
+        normalizedQuery
+      );
+      const hasExtendedTickerResearchStack =
+        policyDecision.toolsToExecute.includes('get_financial_news');
+      const shouldForceExternalSymbolContext =
+        hasExplicitSymbolRequest &&
+        !hasPortfolioSymbolContext &&
+        hasExtendedTickerResearchStack;
       let portfolioAnalysis: Awaited<ReturnType<typeof runPortfolioAnalysis>>;
       let riskAssessment: ReturnType<typeof runRiskAssessment>;
       let marketData: Awaited<ReturnType<typeof runMarketDataLookup>>;
@@ -417,7 +433,7 @@ export class AiService {
       const shouldUsePortfolioContextForSymbols =
         policyDecision.toolsToExecute.some((toolName) => {
           return PORTFOLIO_CONTEXT_SYMBOL_TOOLS.has(toolName);
-        });
+        }) && !shouldForceExternalSymbolContext;
       const maxOrderTakeForRequest = policyDecision.toolsToExecute.reduce(
         (maxTake, toolName) => {
           const requiredTake = ORDER_TOOL_TAKE_BY_NAME[toolName] ?? 0;
@@ -510,7 +526,9 @@ export class AiService {
           return {} as Record<string, Partial<SymbolProfile>>;
         }
 
-        const analysis = await getPortfolioAnalysis();
+        const analysis = shouldUsePortfolioContextForSymbols
+          ? await getPortfolioAnalysis()
+          : portfolioAnalysis;
         const symbolIdentifiers = this.extractSymbolIdentifiersFromPortfolio({
           portfolioAnalysis: analysis,
           symbols: requestedSymbols
@@ -764,7 +782,9 @@ export class AiService {
                 }
               };
             } else if (toolName === 'get_asset_fundamentals') {
-              const analysis = await getPortfolioAnalysis();
+              const analysis = shouldUsePortfolioContextForSymbols
+                ? await getPortfolioAnalysis()
+                : portfolioAnalysis;
               const requestedSymbols = await getResolvedSymbols();
               const profilesBySymbol = await getAssetProfilesBySymbols(requestedSymbols);
               const profileSymbols = Object.keys(profilesBySymbol);

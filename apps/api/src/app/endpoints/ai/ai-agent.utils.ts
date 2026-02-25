@@ -201,6 +201,34 @@ const REBALANCE_KEYWORDS = [
 ];
 
 const STRESS_TEST_KEYWORDS = ['crash', 'drawdown', 'shock', 'stress'];
+const PORTFOLIO_CONTEXT_KEYWORDS = [
+  'account',
+  'allocation',
+  'balance',
+  'concentration',
+  'diversif',
+  'holding',
+  'my',
+  'portfolio',
+  'position',
+  'rebalanc',
+  'risk'
+];
+const DECISION_ANALYSIS_QUERY_PATTERNS = [
+  /\b(?:should\s+i(?:\s+(?:buy|sell|hold))?|compare|pros\s+and\s+cons|investment\s+thesis|is\s+.*\s+(?:a\s+)?good\s+investment)\b/,
+  /\b(?:where\s+should\s+i\s+invest)\b/
+];
+const RESEARCH_QUERY_PATTERNS = [
+  /\b(?:research|analy[sz]e|analysis|overview|break\s+down|deep\s*dive|tell\s+me\s+about|learn\s+about|more\s+about)\b/
+];
+const HISTORICAL_PERFORMANCE_QUERY_PATTERNS = [
+  /\b(?:historical\s+performance|past\s+performance|price\s+trend|history)\b/,
+  /\b(?:how\s+(?:has|well\s+has).*(?:performed?|doing)|performance\s+over\s+time)\b/
+];
+const FIRE_QUERY_PATTERNS = [
+  /\b(?:fire|financial\s+independence|retire(?:ment|d)?|safe\s+withdrawal|withdrawal\s+rate)\b/,
+  /\b(?:on\s+track\s+for\s+(?:retirement|fire)|when\s+can\s+i\s+retire)\b/
+];
 const PORTFOLIO_VALUE_CONTEXT_PATTERN =
   /\b(?:i|my|me|portfolio|account|accounts|holdings|invested|investment|total)\b/;
 const PORTFOLIO_VALUE_QUESTION_PATTERN =
@@ -271,7 +299,7 @@ const TAX_ESTIMATE_QUERY_PATTERNS = [
   /\b(?:estimate|calculat(?:e|ion))\b.*\b(?:tax|liability)\b/
 ];
 const COMPANY_ALIAS_CONTEXT_PATTERNS = [
-  /\b(?:asset|company|earnings?|fundamental|fundamentals|market|news|price|quote|stock|ticker|valuation|portfolio|holding|investment|invest|buy|sell|trade|dividend|rebalance|compare)\b/
+  /\b(?:about|asset|analy[sz]e|analysis|company|deep\s*dive|earnings?|fundamental|fundamentals|learn|market|news|overview|price|quote|research|stock|ticker|thesis|valuation|portfolio|holding|investment|invest|buy|sell|trade|dividend|rebalance|compare)\b/
 ];
 const COMPLIANCE_CHECK_QUERY_PATTERNS = [
   /\b(?:compliance|regulat(?:ion|ory)|policy)\b.*\b(?:check|review|scan)\b/,
@@ -730,7 +758,7 @@ export function extractSymbolsFromQuery(query: string) {
     })
     .map(({ symbol }) => symbol);
 
-  return Array.from(
+  const deduplicatedSymbols = Array.from(
     new Set(
       [
         ...matches
@@ -740,6 +768,16 @@ export function extractSymbolsFromQuery(query: string) {
       ]
     )
   );
+
+  if (aliasSymbols.length === 0) {
+    return deduplicatedSymbols;
+  }
+
+  return deduplicatedSymbols.filter((symbol) => {
+    const looksLikeCompanyWord = /^[A-Z]{5,}$/.test(symbol);
+
+    return !looksLikeCompanyWord || KNOWN_TICKER_SYMBOLS.has(symbol);
+  });
 }
 
 export function determineToolPlan({
@@ -762,6 +800,26 @@ export function determineToolPlan({
   });
   const hasStressTestIntent = STRESS_TEST_KEYWORDS.some((keyword) => {
     return normalizedQuery.includes(keyword);
+  });
+  const hasPortfolioContextIntent = PORTFOLIO_CONTEXT_KEYWORDS.some(
+    (keyword) => {
+      return normalizedQuery.includes(keyword);
+    }
+  );
+  const hasDecisionAnalysisIntent = DECISION_ANALYSIS_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasResearchIntent = RESEARCH_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasHistoricalPerformanceIntent =
+    HISTORICAL_PERFORMANCE_QUERY_PATTERNS.some((pattern) => {
+      return pattern.test(normalizedQuery);
+    });
+  const hasFireIntent = FIRE_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
   });
   const hasBroadPortfolioValueIntent =
     PORTFOLIO_VALUE_QUESTION_PATTERN.test(normalizedQuery) &&
@@ -833,6 +891,9 @@ export function determineToolPlan({
       return pattern.test(normalizedQuery);
     }
   );
+  const hasTickerDecisionIntent =
+    extractedSymbols.length > 0 &&
+    (hasDecisionAnalysisIntent || hasResearchIntent);
 
   if (
     normalizedQuery.includes('portfolio') ||
@@ -869,7 +930,17 @@ export function determineToolPlan({
     selectedTools.add('get_portfolio_risk_metrics');
   }
 
-  if (hasInvestmentIntent || hasRebalanceIntent) {
+  if (hasFireIntent) {
+    selectedTools.add('portfolio_analysis');
+    selectedTools.add('get_portfolio_summary');
+    selectedTools.add('risk_assessment');
+    selectedTools.add('stress_test');
+  }
+
+  if (
+    hasRebalanceIntent ||
+    (hasInvestmentIntent && (!hasTickerDecisionIntent || hasPortfolioContextIntent))
+  ) {
     selectedTools.add('portfolio_analysis');
     selectedTools.add('risk_assessment');
     selectedTools.add('rebalance_plan');
@@ -883,6 +954,17 @@ export function determineToolPlan({
     selectedTools.add('portfolio_analysis');
     selectedTools.add('risk_assessment');
     selectedTools.add('stress_test');
+  }
+
+  if (hasTickerDecisionIntent) {
+    selectedTools.add('market_data_lookup');
+    selectedTools.add('get_asset_fundamentals');
+    selectedTools.add('get_financial_news');
+  }
+
+  if (hasHistoricalPerformanceIntent && extractedSymbols.length > 0) {
+    selectedTools.add('market_data_lookup');
+    selectedTools.add('get_financial_news');
   }
 
   if (

@@ -1,6 +1,7 @@
 import { AiAgentToolName } from './ai-agent.interfaces';
 
 const FINANCE_READ_INTENT_KEYWORDS = [
+  'account',
   'asset',
   'allocation',
   'balance',

@@ -1160,6 +1160,61 @@ describe('AiService', () => {
     expect(tradeImpactResult.answer).toContain('Trade impact simulation');
   });
 
+  it('routes ticker investment queries to market research tools without portfolio risk defaults', async () => {
+    dataProviderService.getQuotes.mockResolvedValue({
+      NVDA: {
+        currency: 'USD',
+        marketPrice: 192.85,
+        marketState: 'REGULAR'
+      }
+    });
+    dataProviderService.getAssetProfiles.mockResolvedValue({
+      NVDA: {
+        assetClass: 'EQUITY',
+        countries: [{ code: 'US', weight: 1 }],
+        name: 'NVIDIA Corporation',
+        sectors: [{ name: 'Technology', weight: 1 }]
+      }
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        '<rss><channel><item><title>NVIDIA expands AI data-center partnerships</title><link>https://example.com/nvda-news</link></item></channel></rss>'
+    } as never);
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Should I invest in NVIDIA right now?',
+      sessionId: 'session-nvda-invest',
+      userCurrency: 'USD',
+      userId: 'user-nvda-invest'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'market_data_lookup' }),
+        expect.objectContaining({ tool: 'get_asset_fundamentals' }),
+        expect.objectContaining({ tool: 'get_financial_news' })
+      ])
+    );
+    expect(result.toolCalls).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ tool: 'portfolio_analysis' }),
+        expect.objectContaining({ tool: 'risk_assessment' }),
+        expect.objectContaining({ tool: 'rebalance_plan' })
+      ])
+    );
+    expect(result.answer).toContain('Market snapshot: NVDA:');
+    expect(result.answer).toContain('Fundamental analysis:');
+    expect(result.answer).toContain('News catalysts (latest):');
+    expect(result.answer).not.toContain('Risk concentration is');
+    expect(result.answer).not.toContain('Total portfolio value:');
+
+    global.fetch = originalFetch;
+  });
+
   it('executes transaction categorization, tax estimate, and compliance check tools', async () => {
     orderService.getOrders.mockResolvedValue({
       activities: [

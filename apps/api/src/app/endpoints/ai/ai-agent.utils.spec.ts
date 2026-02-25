@@ -218,6 +218,54 @@ describe('AiAgentUtils', () => {
     ).toEqual(['portfolio_analysis', 'risk_assessment', 'rebalance_plan']);
   });
 
+  it('selects market research tools for ticker-specific investment decisions', () => {
+    expect(
+      determineToolPlan({
+        query: 'Should I invest in NVIDIA right now?'
+      })
+    ).toEqual([
+      'market_data_lookup',
+      'get_asset_fundamentals',
+      'get_financial_news'
+    ]);
+  });
+
+  it('combines portfolio and market tools when ticker decision includes portfolio context', () => {
+    expect(
+      determineToolPlan({
+        query: 'Should I invest in NVDA for my portfolio?'
+      })
+    ).toEqual([
+      'portfolio_analysis',
+      'risk_assessment',
+      'rebalance_plan',
+      'market_data_lookup',
+      'get_asset_fundamentals',
+      'get_financial_news'
+    ]);
+  });
+
+  it('selects market context tools for ticker performance-over-time queries', () => {
+    expect(
+      determineToolPlan({
+        query: 'How has NVIDIA performed over time?'
+      })
+    ).toEqual(['market_data_lookup', 'get_financial_news']);
+  });
+
+  it('selects FIRE analysis tools for retirement-path queries', () => {
+    expect(
+      determineToolPlan({
+        query: 'Am I on track for early retirement?'
+      })
+    ).toEqual([
+      'portfolio_analysis',
+      'get_portfolio_summary',
+      'risk_assessment',
+      'stress_test'
+    ]);
+  });
+
   it('selects recommendation tools for ambiguous action phrasing', () => {
     expect(
       determineToolPlan({
@@ -540,6 +588,10 @@ describe('AiAgentUtils', () => {
     {
       expected: ['AMD', 'NVDA'],
       query: 'Show AMD then $nvda'
+    },
+    {
+      expected: ['NVDA'],
+      query: 'tell me about nvidia'
     },
     {
       expected: ['BTCUSD'],
