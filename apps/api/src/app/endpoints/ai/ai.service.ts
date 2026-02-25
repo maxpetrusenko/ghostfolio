@@ -17,6 +17,7 @@ import { RunnableLambda } from '@langchain/core/runnables';
 import { generateText } from 'ai';
 import { randomUUID } from 'node:crypto';
 import {
+  AiAgentChatMessage,
   AiAgentChatResponse,
   AiAgentToolName,
   AiAgentToolCall
@@ -91,12 +92,14 @@ export class AiService {
     private readonly aiObservabilityService: AiObservabilityService
   ) {}
   public async generateText({
+    messages,
     prompt,
     signal,
     model,
     traceContext
   }: {
-    prompt: string;
+    messages?: AiAgentChatMessage[];
+    prompt?: string;
     signal?: AbortSignal;
     model?: string;
     traceContext?: {
@@ -105,6 +108,23 @@ export class AiService {
       userId?: string;
     };
   }) {
+    const filteredMessages = messages?.filter(({ content }) => {
+      return typeof content === 'string' && content.trim().length > 0;
+    });
+    const promptFromMessages =
+      filteredMessages && filteredMessages.length > 0
+        ? filteredMessages
+            .map(({ content, role }) => {
+              return `${role}: ${content}`;
+            })
+            .join('\n\n')
+        : '';
+    const resolvedPrompt = prompt?.trim() || promptFromMessages;
+
+    if (!resolvedPrompt) {
+      throw new Error('prompt or messages are required for LLM generation');
+    }
+
     const zAiGlmApiKey =
       process.env.z_ai_glm_api_key ?? process.env.Z_AI_GLM_API_KEY;
     const zAiGlmModel = process.env.z_ai_glm_model ?? process.env.Z_AI_GLM_MODEL;
@@ -145,6 +165,7 @@ export class AiService {
           query?: string;
           sessionId?: string;
           userId?: string;
+          messages?: AiAgentChatMessage[];
         }) => {
           const startedAt = Date.now();
           let invocationError: unknown;
@@ -177,11 +198,12 @@ export class AiService {
       return invocationRunnable.invoke(
         {
           model,
-          prompt,
+          prompt: resolvedPrompt,
           provider,
           query: traceContext?.query,
           sessionId: traceContext?.sessionId,
-          userId: traceContext?.userId
+          userId: traceContext?.userId,
+          messages: filteredMessages
         },
         {
           metadata: {
@@ -211,7 +233,8 @@ export class AiService {
               generateTextWithZAiGlm({
                 apiKey: zAiGlmApiKey,
                 model: zAiGlmModel,
-                prompt,
+                messages: filteredMessages,
+                prompt: resolvedPrompt,
                 signal
               })
           });
@@ -237,7 +260,8 @@ export class AiService {
               generateTextWithMinimax({
                 apiKey: minimaxApiKey,
                 model: minimaxModel,
-                prompt,
+                messages: filteredMessages,
+                prompt: resolvedPrompt,
                 signal
               })
           });
@@ -269,12 +293,23 @@ export class AiService {
     return invokeProviderWithTracing({
       model: openRouterModel,
       provider: 'openrouter',
-      run: () =>
-        generateText({
-          prompt,
+      run: async () => {
+        if (filteredMessages && filteredMessages.length > 0) {
+          return generateText({
+            abortSignal: signal,
+            messages: filteredMessages.map(({ content, role }) => {
+              return { content, role };
+            }),
+            model: openRouterService.chat(openRouterModel)
+          });
+        }
+
+        return generateText({
           abortSignal: signal,
-          model: openRouterService.chat(openRouterModel)
-        })
+          model: openRouterService.chat(openRouterModel),
+          prompt: resolvedPrompt
+        });
+      }
     });
   }
 

@@ -472,3 +472,17 @@ Last updated: 2026-02-24
 - `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts --runInBand` (90/90 tests passed)
 - `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (24/24 tests passed)
 - `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.simple-interactions.spec.ts --runInBand` (1/1 tests passed)
+
+## Session Plan (2026-02-24, Full Chat History to LLM)
+
+- [x] Confirm current LLM payload path and identify where per-turn history is dropped.
+- [x] Add full conversation message construction from session memory and current query.
+- [x] Pass structured message arrays through provider stack (GLM/Minimax/OpenRouter) with backward-compatible prompt fallback.
+- [x] Add deterministic tests for message-payload propagation and chat history continuity.
+- [x] Run focused AI backend tests and capture results.
+
+### Verification (2026-02-24, Full Chat History to LLM)
+
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.chat.helpers.spec.ts --runInBand` (45/45 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts --runInBand` (90/90 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (26/26 tests passed)

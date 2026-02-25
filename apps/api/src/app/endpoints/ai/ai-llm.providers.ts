@@ -1,3 +1,5 @@
+import { AiAgentChatMessage } from './ai-agent.interfaces';
+
 const DEFAULT_GLM_MODEL = 'glm-5';
 const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.5';
 const DEFAULT_REQUEST_TIMEOUT_IN_MS = 15_000;
@@ -41,12 +43,14 @@ function extractTextFromResponsePayload(payload: unknown) {
 
 async function callChatCompletions({
   apiKey,
+  messages,
   model,
   prompt,
   signal,
   url
 }: {
   apiKey: string;
+  messages?: AiAgentChatMessage[];
   model: string;
   prompt: string;
   signal?: AbortSignal;
@@ -57,18 +61,23 @@ async function callChatCompletions({
     ? AbortSignal.any([providerTimeoutSignal, signal])
     : providerTimeoutSignal;
 
+  const payloadMessages =
+    messages && messages.length > 0
+      ? messages
+      : [
+          {
+            content: 'You are a neutral financial assistant.',
+            role: 'system' as const
+          },
+          {
+            content: prompt,
+            role: 'user' as const
+          }
+        ];
+
   const response = await fetch(url, {
     body: JSON.stringify({
-      messages: [
-        {
-          content: 'You are a neutral financial assistant.',
-          role: 'system'
-        },
-        {
-          content: prompt,
-          role: 'user'
-        }
-      ],
+      messages: payloadMessages,
       model
     }),
     headers: {
@@ -97,17 +106,20 @@ async function callChatCompletions({
 
 export async function generateTextWithZAiGlm({
   apiKey,
+  messages,
   model,
   prompt,
   signal
 }: {
   apiKey: string;
+  messages?: AiAgentChatMessage[];
   model?: string;
   prompt: string;
   signal?: AbortSignal;
 }) {
   return callChatCompletions({
     apiKey,
+    messages,
     model: model ?? DEFAULT_GLM_MODEL,
     prompt,
     signal,
@@ -117,17 +129,20 @@ export async function generateTextWithZAiGlm({
 
 export async function generateTextWithMinimax({
   apiKey,
+  messages,
   model,
   prompt,
   signal
 }: {
   apiKey: string;
+  messages?: AiAgentChatMessage[];
   model?: string;
   prompt: string;
   signal?: AbortSignal;
 }) {
   return callChatCompletions({
     apiKey,
+    messages,
     model: model ?? DEFAULT_MINIMAX_MODEL,
     prompt,
     signal,

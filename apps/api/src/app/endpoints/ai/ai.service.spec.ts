@@ -519,6 +519,82 @@ describe('AiService', () => {
     expect(result.answer).toContain('I can explain the previous result');
   });
 
+  it('passes full chat history to LLM message payload on tool-routed turns', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        AAPL: {
+          allocationInPercentage: 0.7,
+          dataSource: DataSource.YAHOO,
+          symbol: 'AAPL',
+          valueInBaseCurrency: 7000
+        },
+        MSFT: {
+          allocationInPercentage: 0.3,
+          dataSource: DataSource.YAHOO,
+          symbol: 'MSFT',
+          valueInBaseCurrency: 3000
+        }
+      }
+    });
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-history-session-history') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer: 'Concentration is high with AAPL at 70.0%.',
+              query: 'Show my concentration risk',
+              timestamp: '2026-02-24T18:40:00.000Z',
+              toolCalls: [{ status: 'success', tool: 'risk_assessment' }]
+            },
+            {
+              answer: 'Top holdings are AAPL and MSFT.',
+              query: 'Show my holdings',
+              timestamp: '2026-02-24T18:41:00.000Z',
+              toolCalls: [{ status: 'success', tool: 'portfolio_analysis' }]
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    const generateTextSpy = jest.spyOn(subject, 'generateText').mockResolvedValue({
+      text:
+        'Snapshot: concentration remains elevated due to AAPL. Actionable next steps: trim gradually and add to underweight exposures.'
+    } as never);
+
+    await subject.chat({
+      languageCode: 'en',
+      query: 'Why is my concentration high?',
+      sessionId: 'session-history',
+      userCurrency: 'USD',
+      userId: 'user-history'
+    });
+
+    expect(generateTextSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            content: 'Show my concentration risk',
+            role: 'user'
+          }),
+          expect.objectContaining({
+            content: 'Concentration is high with AAPL at 70.0%.',
+            role: 'assistant'
+          }),
+          expect.objectContaining({
+            content: 'Show my holdings',
+            role: 'user'
+          }),
+          expect.objectContaining({
+            content: 'Top holdings are AAPL and MSFT.',
+            role: 'assistant'
+          })
+        ])
+      })
+    );
+  });
+
   it('persists and recalls cross-session user preferences for the same user', async () => {
     const redisStore = new Map<string, string>();
     redisCacheService.get.mockImplementation(async (key: string) => {
@@ -1092,6 +1168,67 @@ describe('AiService', () => {
       })
     );
     expect(propertyService.getByKey).not.toHaveBeenCalled();
+  });
+
+  it('sends structured message history payload when messages are provided', async () => {
+    process.env.z_ai_glm_api_key = 'zai-key';
+    process.env.z_ai_glm_model = 'glm-5';
+
+    const fetchMock = jest.fn().mockResolvedValue({
+      json: jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'history-response' } }]
+      }),
+      ok: true
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await subject.generateText({
+      messages: [
+        {
+          content: 'You are a neutral financial assistant.',
+          role: 'system'
+        },
+        {
+          content: 'Show my recent transactions',
+          role: 'user'
+        },
+        {
+          content: 'Recent transactions are unavailable.',
+          role: 'assistant'
+        },
+        {
+          content: 'why?',
+          role: 'user'
+        }
+      ]
+    });
+
+    const requestBody = JSON.parse(
+      (fetchMock.mock.calls[0][1] as { body: string }).body
+    ) as {
+      messages: { content: string; role: string }[];
+      model: string;
+    };
+
+    expect(requestBody.model).toBe('glm-5');
+    expect(requestBody.messages).toEqual([
+      {
+        content: 'You are a neutral financial assistant.',
+        role: 'system'
+      },
+      {
+        content: 'Show my recent transactions',
+        role: 'user'
+      },
+      {
+        content: 'Recent transactions are unavailable.',
+        role: 'assistant'
+      },
+      {
+        content: 'why?',
+        role: 'user'
+      }
+    ]);
   });
 
   it('falls back to minimax when z.ai request fails', async () => {

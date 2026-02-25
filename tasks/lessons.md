@@ -75,3 +75,7 @@ Updated: 2026-02-24
 18. Context: Short follow-up prompts after tool-backed answers (`why?`, `explain that`)
    Mistake: Planner emitted no tools, so policy route fell back to generic capability replies and broke conversational continuity.
    Rule: Detect short contextual follow-ups and reuse previous successful tool context when planner output is empty, with regression tests for both with-context and no-context paths.
+
+19. Context: Multi-turn finance analysis quality in stateless LLM providers
+   Mistake: Prompt path carried only compressed recent context, which reduced follow-up coherence for deeper analysis requests.
+   Rule: Pass full session turn history as structured messages on each model call, and keep deterministic tests that assert prior user and assistant turns are included.

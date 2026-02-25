@@ -43,6 +43,11 @@ export interface AiAgentToolCall {
   tool: AiAgentToolName;
 }
 
+export interface AiAgentChatMessage {
+  content: string;
+  role: 'assistant' | 'system' | 'user';
+}
+
 export interface AiAgentMemorySnapshot {
   sessionId: string;
   turns: number;

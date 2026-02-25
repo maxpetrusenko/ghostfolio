@@ -14,6 +14,7 @@ import {
   RiskAssessmentResult,
   StressTestResult
 } from './ai-agent.chat.interfaces';
+import { AiAgentChatMessage } from './ai-agent.interfaces';
 import {
   extractSymbolsFromQuery,
   isGeneratedAnswerReliable
@@ -105,24 +106,18 @@ function getResponseInstruction({
   return `Write a concise response with actionable insight and avoid speculation.`;
 }
 
-function summarizeTurnText(value: string, maxLength: number) {
+function normalizeTurnText(value: string) {
   const normalized = value.replace(/\s+/g, ' ').trim();
 
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength).trimEnd()}...`;
+  return normalized.length > 0 ? normalized : 'none';
 }
 
 function formatRecentMemoryTurns(memory: AiAgentMemoryState) {
-  const recentTurns = memory.turns.slice(-3);
-
-  if (recentTurns.length === 0) {
+  if (memory.turns.length === 0) {
     return 'none';
   }
 
-  return recentTurns
+  return memory.turns
     .map((turn, index) => {
       const successfulTools = turn.toolCalls
         .filter(({ status }) => {
@@ -131,12 +126,45 @@ function formatRecentMemoryTurns(memory: AiAgentMemoryState) {
         .map(({ tool }) => tool);
 
       return [
-        `Turn ${index + 1} query: ${summarizeTurnText(turn.query, 160)}`,
+        `Turn ${index + 1} query: ${normalizeTurnText(turn.query)}`,
         `Turn ${index + 1} tools: ${successfulTools.join(', ') || 'none'}`,
-        `Turn ${index + 1} answer: ${summarizeTurnText(turn.answer, 220)}`
+        `Turn ${index + 1} answer: ${normalizeTurnText(turn.answer)}`
       ].join('\n');
     })
     .join('\n');
+}
+
+function buildConversationMessages({
+  memory,
+  prompt
+}: {
+  memory: AiAgentMemoryState;
+  prompt: string;
+}): AiAgentChatMessage[] {
+  const historyMessages = memory.turns.flatMap((turn) => {
+    return [
+      {
+        content: normalizeTurnText(turn.query),
+        role: 'user' as const
+      },
+      {
+        content: normalizeTurnText(turn.answer),
+        role: 'assistant' as const
+      }
+    ];
+  });
+
+  return [
+    {
+      content: 'You are a neutral financial assistant.',
+      role: 'system'
+    },
+    ...historyMessages,
+    {
+      content: prompt,
+      role: 'user'
+    }
+  ];
 }
 
 export function isRecommendationIntentQuery(query: string) {
@@ -405,10 +433,12 @@ export async function buildAnswer({
   complianceCheckSummary?: string;
   financialNewsSummary?: string;
   generateText: ({
+    messages,
     prompt,
     signal,
     model
   }: {
+    messages?: AiAgentChatMessage[];
     prompt: string;
     signal?: AbortSignal;
     model?: string;
@@ -644,6 +674,10 @@ export async function buildAnswer({
         fallbackAnswer,
         getResponseInstruction({ userPreferences })
       ].join('\n');
+  const conversationMessages = buildConversationMessages({
+    memory,
+    prompt: llmPrompt
+  });
   const llmTimeoutInMs = getLlmTimeoutInMs();
   const abortController = new AbortController();
   let timeoutId: NodeJS.Timeout | undefined;
@@ -651,6 +685,7 @@ export async function buildAnswer({
   try {
     const generated = await Promise.race([
       generateText({
+        messages: conversationMessages,
         prompt: llmPrompt,
         signal: abortController.signal
       }),

@@ -198,6 +198,84 @@ describe('AiAgentChatHelpers', () => {
     );
   });
 
+  it('passes full memory history as structured messages to the model call', async () => {
+    const generateText = jest.fn().mockResolvedValue({
+      text:
+        'Risk remains elevated with top concentration at 70.0%. Option: trim 5% and reallocate in stages.'
+    });
+
+    await buildAnswer({
+      generateText,
+      languageCode: 'en',
+      memory: {
+        turns: [
+          {
+            answer: 'Your concentration is high at 70.0% in AAPL.',
+            query: 'Show my concentration risk',
+            timestamp: '2026-02-24T18:00:00.000Z',
+            toolCalls: [{ status: 'success', tool: 'risk_assessment' }]
+          },
+          {
+            answer: 'Top holdings are AAPL and MSFT.',
+            query: 'Show my holdings',
+            timestamp: '2026-02-24T18:01:00.000Z',
+            toolCalls: [{ status: 'success', tool: 'portfolio_analysis' }]
+          }
+        ]
+      },
+      portfolioAnalysis: {
+        allocationSum: 1,
+        holdings: [
+          {
+            allocationInPercentage: 0.7,
+            dataSource: DataSource.YAHOO,
+            symbol: 'AAPL',
+            valueInBaseCurrency: 7000
+          },
+          {
+            allocationInPercentage: 0.3,
+            dataSource: DataSource.YAHOO,
+            symbol: 'MSFT',
+            valueInBaseCurrency: 3000
+          }
+        ],
+        holdingsCount: 2,
+        totalValueInBaseCurrency: 10000
+      },
+      query: 'Why is it high?',
+      userCurrency: 'USD'
+    });
+
+    const call = generateText.mock.calls[0][0];
+    expect(call.messages).toHaveLength(6);
+    expect(call.messages[0]).toEqual({
+      content: 'You are a neutral financial assistant.',
+      role: 'system'
+    });
+    expect(call.messages[1]).toEqual({
+      content: 'Show my concentration risk',
+      role: 'user'
+    });
+    expect(call.messages[2]).toEqual({
+      content: 'Your concentration is high at 70.0% in AAPL.',
+      role: 'assistant'
+    });
+    expect(call.messages[3]).toEqual({
+      content: 'Show my holdings',
+      role: 'user'
+    });
+    expect(call.messages[4]).toEqual({
+      content: 'Top holdings are AAPL and MSFT.',
+      role: 'assistant'
+    });
+    expect(call.messages[5]).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining('Query: Why is it high?'),
+        role: 'user'
+      })
+    );
+  });
+
   it('uses detailed analysis prompt structure for fundamentals queries', async () => {
     const generateText = jest.fn().mockResolvedValue({
       text:
