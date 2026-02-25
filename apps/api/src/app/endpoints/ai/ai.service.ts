@@ -306,7 +306,7 @@ export class AiService implements AgentKernel {
           runName: `ghostfolio_ai_llm_${provider}`,
           tags: ['ghostfolio-ai', 'llm-invocation', provider]
         }
-      });
+      );
     };
 
     if (shouldTryGlm) {
