@@ -29,9 +29,13 @@ const FINANCE_READ_INTENT_KEYWORDS = [
   'worth'
 ];
 const REBALANCE_CONFIRMATION_KEYWORDS = [
-  'allocat',
   'buy',
+  'create',
   'invest',
+  'make',
+  'open',
+  'order',
+  'place',
   'rebalanc',
   'sell',
   'trim'
@@ -52,22 +56,38 @@ const DIRECT_USAGE_QUERY_PATTERN =
   /\b(?:how do you work|how (?:can|do) i use (?:you|this)|how should i ask)\b/i;
 const DIRECT_CAPABILITY_QUERY_PATTERN =
   /\b(?:what can (?:you|i) do|help|assist(?: me)?|what can you help with)\b/i;
+const VAGUE_ORDER_QUERY_PATTERN =
+  /\b(?:make an order|order|buy|purchase|invest in)\s+(?:for|of|)?\s*(?:\$?\s*[A-Z]{1,6}|tesla|apple|amazon|google|microsoft|nvidia|meta|tesla)\b/i;
+const DETAILED_ORDER_QUERY_PATTERN =
+  /\b(?:buy|purchase|invest|order|create|place|submit)\b.*\b(?:\$?\s*\d+[,\d]*\s*(?:usd|eur|gbp|cad|chf|jpy|aud)|\d+\s+shares?|100\s+shares|\d+\s+units?)\b/i;
+const REBALANCE_TARGET_DETAIL_PATTERN =
+  /\b(?:\d{1,2}(?:\.\d{1,2})?\s*%|target\s+allocation|max(?:imum)?\s+position|80\s*\/\s*20|70\s*\/\s*30|60\s*\/\s*40)\b/i;
+const REBALANCE_FUNDING_DETAIL_PATTERN =
+  /\b(?:new\s+cash|cash|contribution|sell|trim|without\s+selling|with\s+selling)\b/i;
+const REBALANCE_TAX_DETAIL_PATTERN =
+  /\b(?:taxable|retirement|ira|401k|rrsp|tfsa|tax\s+sensit(?:ive|ivity)|tax\s+impact)\b/i;
 const FOLLOW_UP_TOKEN_LIMIT = 6;
 const FOLLOW_UP_STANDALONE_QUERY_PATTERNS = [
-  /^\s*(?:why|how|how so|how come|and|then|so)\s*[!.?]*\s*$/i
+  /^\s*(?:why|how|how so|how come|and|then|so)(?:\s+(?:now|today|latest|current|updated|update))?\s*[!.?]*\s*$/i
 ];
 const FOLLOW_UP_CONTEXTUAL_QUERY_PATTERNS = [
-  /^\s*(?:what about(?:\s+(?:that|this|it))?|why(?:\s+(?:that|this|it))?|how(?:\s+(?:that|this|it|about\s+that))?|can you explain(?:\s+(?:that|this|it))?|explain(?:\s+(?:that|this|it))?)\s*[!.?]*\s*$/i
+  /^\s*(?:what about(?:\s+(?:that|this|it))?|why(?:\s+(?:that|this|it))?|how(?:\s+(?:that|this|it|about\s+that))?|can you explain(?:\s+(?:that|this|it))?|explain(?:\s+(?:that|this|it))?)(?:\s+(?:now|today|latest|current|updated|update))?\s*[!.?]*\s*$/i
 ];
 const READ_ONLY_TOOLS = new Set<AiAgentToolName>([
+  'account_overview',
+  'activity_history',
+  'demo_data',
+  'exchange_rate',
   'get_asset_fundamentals',
-  'get_article_content',
   'get_current_holdings',
   'get_financial_news',
   'get_live_quote',
   'get_portfolio_risk_metrics',
   'get_portfolio_summary',
   'get_recent_transactions',
+  'market_benchmarks',
+  'price_history',
+  'symbol_lookup',
   'calculate_rebalance_plan',
   'simulate_trade_impact',
   'transaction_categorize',
@@ -85,6 +105,8 @@ export type AiAgentPolicyBlockReason =
   | 'no_tool_query'
   | 'read_only'
   | 'needs_confirmation'
+  | 'needs_rebalance_details'
+  | 'needs_order_details'
   | 'unauthorized_access'
   | 'unknown';
 
@@ -380,12 +402,21 @@ function createNoToolDirectResponse(query?: string) {
   if (GREETING_ONLY_PATTERN.test(normalizedQuery)) {
     return [
       'Hello! I am Ghostfolio AI. How can I help with your finances today?',
-      'I can check your portfolio value, holdings, risk, quotes, fundamentals, news, and recent transactions.',
+      '',
+      'I can assist with:',
+      '- Portfolio: total value, holdings, allocation, analysis',
+      '- Risk: concentration assessment, stress testing, diversification',
+      '- FIRE: retirement planning, safe withdrawal rates, savings scenarios',
+      '- Market: live quotes, fundamentals, news for any symbol',
+      '- Transactions: recent activity, categorization, tax estimates',
+      '- Advice: rebalancing options, trade impact simulations',
+      '',
       'Try one of these:',
       '- "How much money do I have?"',
       '- "Show my top holdings"',
       '- "What is my concentration risk?"',
-      '- "Get fundamentals and news for MSFT"'
+      '- "Get fundamentals and news for MSFT"',
+      '- "Am I on track for retirement?"'
     ].join('\n');
   }
 
@@ -413,12 +444,26 @@ function createNoToolDirectResponse(query?: string) {
 
   if (DIRECT_CAPABILITY_QUERY_PATTERN.test(normalizedQuery)) {
     return [
-      'I am Ghostfolio AI. You can use me in four modes: diagnose, explain, plan, and verify.',
-      'Diagnose: portfolio summary, current holdings, risk metrics, and recent transactions.',
-      'Explain: live quotes, fundamentals, and news headlines for symbols.',
-      'Plan: rebalance calculations and what-if trade-impact simulations.',
-      'Verify: citation-backed answers, confidence gating, and strict own-account data access.',
-      'Try next:',
+      'I am Ghostfolio AI. You can use me across several pages in Ghostfolio for different purposes:',
+      '',
+      'Pages with AI:',
+      '- Portfolio Analysis (/portfolio/analysis): portfolio insights, risk assessment, allocation analysis',
+      '- FIRE Calculator (/portfolio/fire): retirement planning, safe withdrawal rates, FIRE scenarios',
+      '- Chat (/chat): dedicated AI chat interface for any financial questions',
+      '',
+      'What you can ask me:',
+      '- Account: "Show my account balances and total value"',
+      '- Holdings: "What are my top holdings?" or "Show my portfolio allocation"',
+      '- Risk: "Analyze my concentration risk" or "What is my portfolio risk level?"',
+      '- Advice: "Help me diversify" or "How should I rebalance?"',
+      '- News: "Get latest news for AAPL" or "Show news for my holdings"',
+      '- FIRE: "Am I on track for early retirement?" or "What if I increase savings by 5%?"',
+      '- Quotes: "Get live price for TSLA" or "Show fundamentals for NVDA"',
+      '- Transactions: "Show my recent transactions"',
+      '- Stress Testing: "Simulate a 20% market drop impact"',
+      '- Trade Impact: "What happens if I invest 2000 USD in VTI?"',
+      '',
+      'Try these examples:',
       '- "Analyze my concentration risk"',
       '- "Show my recent transactions and current holdings"',
       '- "Get live quote, fundamentals, and news for AAPL"',
@@ -428,13 +473,20 @@ function createNoToolDirectResponse(query?: string) {
   }
 
   return [
-    'I am Ghostfolio AI. I can help with portfolio analysis, concentration risk, market prices, fundamentals, news, transaction history, and rebalance simulations.',
-    'Try one of these:',
-    '- "Show my top holdings"',
-    '- "What is my concentration risk?"',
-    '- "Show my recent transactions"',
-    '- "Get fundamentals for MSFT"',
-    '- "Help me diversify with actionable options"'
+    'I am Ghostfolio AI. I can help with portfolio analysis, retirement planning (FIRE), risk assessment, market data, and more.',
+    '',
+    'Quick things to try:',
+    '- Account: "How much money do I have?"',
+    '- Holdings: "Show my top holdings"',
+    '- Risk: "What is my concentration risk?"',
+    '- Advice: "Help me diversify my portfolio"',
+    '- News: "Get latest news for AAPL or my holdings"',
+    '- FIRE: "When can I retire?" (use FIRE page)',
+    '- Quotes: "Get price for TSLA"',
+    '- Rebalancing: "Calculate a rebalance plan"',
+    '- Stress Test: "Simulate a market crash impact"',
+    '',
+    'Visit /portfolio/analysis or /portfolio/fire for AI-powered insights tailored to each page.'
   ].join('\n');
 }
 
@@ -480,7 +532,6 @@ export function applyToolExecutionPolicy({
 
   if (deduplicatedPlannedTools.length === 0) {
     const hasFollowUpIntent = isFollowUpQuery(query);
-
     return {
       blockedByPolicy: false,
       blockReason:
@@ -507,6 +558,35 @@ export function applyToolExecutionPolicy({
     });
     blockedByPolicy = true;
     blockReason = 'needs_confirmation';
+  } else if (toolsToExecute.includes('rebalance_plan')) {
+    const hasRebalanceTargetDetails = REBALANCE_TARGET_DETAIL_PATTERN.test(query);
+    const hasRebalanceFundingDetails = REBALANCE_FUNDING_DETAIL_PATTERN.test(query);
+    const hasRebalanceTaxDetails = REBALANCE_TAX_DETAIL_PATTERN.test(query);
+
+    if (
+      !hasRebalanceTargetDetails ||
+      !hasRebalanceFundingDetails ||
+      !hasRebalanceTaxDetails
+    ) {
+      toolsToExecute = toolsToExecute.filter((tool) => {
+        return tool !== 'rebalance_plan';
+      });
+      blockedByPolicy = true;
+      blockReason = 'needs_rebalance_details';
+    }
+  }
+
+  if (toolsToExecute.includes('create_order')) {
+    const isVagueOrder = VAGUE_ORDER_QUERY_PATTERN.test(query);
+    const hasDetails = DETAILED_ORDER_QUERY_PATTERN.test(query);
+
+    if (isVagueOrder && !hasDetails) {
+      toolsToExecute = toolsToExecute.filter((tool) => {
+        return tool !== 'create_order';
+      });
+      blockedByPolicy = true;
+      blockReason = 'needs_order_details';
+    }
   }
 
   if (!hasActionIntent) {
@@ -522,9 +602,12 @@ export function applyToolExecutionPolicy({
   }
 
   if (toolsToExecute.length === 0) {
-    const route: AiAgentPolicyRoute = hasReadIntent || hasActionIntent
-      ? 'clarify'
-      : 'direct';
+    const route: AiAgentPolicyRoute =
+      blockedByPolicy || deduplicatedPlannedTools.length > 0
+        ? 'clarify'
+        : hasReadIntent || hasActionIntent
+          ? 'clarify'
+          : 'direct';
 
     return {
       blockedByPolicy: blockedByPolicy || deduplicatedPlannedTools.length > 0,
@@ -533,7 +616,7 @@ export function applyToolExecutionPolicy({
           ? 'unknown'
           : 'no_tool_query'
         : blockReason,
-      forcedDirect: route === 'direct',
+      forcedDirect: false,
       plannedTools: deduplicatedPlannedTools,
       route,
       toolsToExecute: []
@@ -562,11 +645,29 @@ export function createPolicyRouteResponse({
       return `Please confirm your action goal so I can produce a concrete plan. Example: "Rebalance to keep each holding below 35%" or "Allocate 2000 USD across underweight positions."`;
     }
 
+    if (policyDecision.blockReason === 'needs_order_details') {
+      return `To create an order, please specify the amount. For example:
+- "Buy 1000 USD of TSLA"
+- "Purchase 50 shares of AAPL"
+- "Invest 2000 EUR in MSFT"
+
+Or review your portfolio first: "Show my holdings and cash balance"`;
+    }
+
+    if (policyDecision.blockReason === 'needs_rebalance_details') {
+      return `To create a rebalance plan, please include:
+- target allocation or max position constraint
+- funding method (new cash vs sell/trim)
+- basic tax context (taxable vs retirement)
+
+Example: "Rebalance to max 35% position, use new cash first, taxable account."`;
+    }
+
     if (query && isFollowUpQuery(query)) {
       return `I can explain the previous result, but I need the target context. Ask a direct follow-up like "Why is my concentration high?" or "Explain that risk summary in detail."`;
     }
 
-    return `I can help with allocation review, concentration risk, market prices, and stress scenarios. Which one should I run next? Example: "Show concentration risk" or "Price for NVDA".`;
+    return `I can help with allocation review, concentration risk, market prices, stress scenarios, and tax planning. Which one should I run next? Example: "Show concentration risk" or "Tax checklist for this year".`;
   }
 
   if (

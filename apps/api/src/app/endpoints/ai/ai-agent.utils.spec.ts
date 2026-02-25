@@ -3,8 +3,6 @@ import {
   determineToolPlan,
   evaluateAnswerQuality,
   extractSymbolsFromQuery,
-  formatTickerClarificationSuggestion,
-  getTickerClarificationSuggestion,
   isGeneratedAnswerReliable
 } from './ai-agent.utils';
 import {
@@ -57,35 +55,6 @@ describe('AiAgentUtils', () => {
     const symbols = extractSymbolsFromQuery('compare spy qqq and schd');
 
     expect(symbols).toEqual(expect.arrayContaining(['SPY', 'QQQ', 'SCHD']));
-  });
-
-  it('suggests ticker clarification for close symbol typos', () => {
-    const suggestion = getTickerClarificationSuggestion({
-      query: 'price for tsle'
-    });
-
-    expect(suggestion).toEqual(
-      expect.objectContaining({
-        companyName: 'Tesla',
-        symbol: 'TSLA'
-      })
-    );
-    expect(formatTickerClarificationSuggestion(suggestion!)).toContain(
-      'Did you mean Tesla (TSLA)?'
-    );
-  });
-
-  it('suggests ticker clarification for close company-name typos', () => {
-    const suggestion = getTickerClarificationSuggestion({
-      query: 'fundamentals on tesal stock'
-    });
-
-    expect(suggestion).toEqual(
-      expect.objectContaining({
-        companyName: 'Tesla',
-        symbol: 'TSLA'
-      })
-    );
   });
 
   it('selects portfolio and risk tools for risk query', () => {
@@ -218,15 +187,15 @@ describe('AiAgentUtils', () => {
     ).toEqual(['portfolio_analysis', 'risk_assessment', 'rebalance_plan']);
   });
 
-  it('selects market research tools for ticker-specific investment decisions', () => {
+  it('selects market research stack for ticker-specific investment decisions', () => {
     expect(
       determineToolPlan({
         query: 'Should I invest in NVIDIA right now?'
       })
     ).toEqual([
-      'market_data_lookup',
       'get_asset_fundamentals',
-      'get_financial_news'
+      'get_financial_news',
+      'price_history'
     ]);
   });
 
@@ -239,18 +208,18 @@ describe('AiAgentUtils', () => {
       'portfolio_analysis',
       'risk_assessment',
       'rebalance_plan',
-      'market_data_lookup',
       'get_asset_fundamentals',
-      'get_financial_news'
+      'get_financial_news',
+      'price_history'
     ]);
   });
 
-  it('selects market context tools for ticker performance-over-time queries', () => {
+  it('selects historical-price tools for ticker performance queries', () => {
     expect(
       determineToolPlan({
         query: 'How has NVIDIA performed over time?'
       })
-    ).toEqual(['market_data_lookup', 'get_financial_news']);
+    ).toEqual(['price_history']);
   });
 
   it('selects FIRE analysis tools for retirement-path queries', () => {
@@ -311,7 +280,7 @@ describe('AiAgentUtils', () => {
       determineToolPlan({
         query: 'Get fundamentals for AAPL'
       })
-    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+    ).toEqual(['get_asset_fundamentals']);
   });
 
   it('selects fundamentals tools for natural-language company fundamentals prompts', () => {
@@ -319,7 +288,7 @@ describe('AiAgentUtils', () => {
       determineToolPlan({
         query: 'fundamentals on tesla stock?'
       })
-    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+    ).toEqual(['get_asset_fundamentals']);
   });
 
   it('selects fundamentals tools for typo-prefixed fundamentals prompts', () => {
@@ -327,7 +296,7 @@ describe('AiAgentUtils', () => {
       determineToolPlan({
         query: 'wfundamentals on tesla stock?'
       })
-    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+    ).toEqual(['get_asset_fundamentals']);
   });
 
   it('selects fundamentals tools for natural-language bank stock prompts', () => {
@@ -335,7 +304,7 @@ describe('AiAgentUtils', () => {
       determineToolPlan({
         query: 'fundamentals on jpmorgan stock'
       })
-    ).toEqual(['market_data_lookup', 'get_asset_fundamentals']);
+    ).toEqual(['get_asset_fundamentals']);
   });
 
   it('selects financial news tool for headline prompts', () => {
@@ -343,15 +312,7 @@ describe('AiAgentUtils', () => {
       determineToolPlan({
         query: 'Show financial news for TSLA'
       })
-    ).toEqual(['market_data_lookup', 'get_financial_news']);
-  });
-
-  it('selects article-content tool for news expansion follow-up prompts', () => {
-    expect(
-      determineToolPlan({
-        query: 'more about first headline'
-      })
-    ).toEqual(['get_article_content']);
+    ).toEqual(['get_financial_news']);
   });
 
   it('selects transaction categorization tool for transaction pattern prompts', () => {
@@ -370,12 +331,100 @@ describe('AiAgentUtils', () => {
     ).toEqual(['tax_estimate']);
   });
 
+  it('selects tax estimate tool for broad tax planning prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'what do i need to know this year about taxes'
+      })
+    ).toEqual(['tax_estimate']);
+  });
+
   it('selects compliance check tool for compliance review prompts', () => {
     expect(
       determineToolPlan({
         query: 'Run compliance check on my recent transactions'
       })
     ).toEqual(['get_recent_transactions', 'compliance_check']);
+  });
+
+  it('selects account overview tool for account summary prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Show account overview and balances'
+      })
+    ).toEqual(['account_overview']);
+  });
+
+  it('selects exchange rate tool for currency conversion prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Convert usd to eur exchange rate'
+      })
+    ).toEqual(['exchange_rate']);
+  });
+
+  it('selects price history tool for historical trend prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Show price history for NVDA'
+      })
+    ).toEqual(['price_history']);
+  });
+
+  it('selects symbol lookup tool for ticker lookup prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'What is the ticker for Apple?'
+      })
+    ).toEqual(['symbol_lookup']);
+  });
+
+  it('selects market benchmarks tool for benchmark prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Show benchmark indices'
+      })
+    ).toEqual(['market_benchmarks']);
+  });
+
+  it('selects activity history tool for activity-history prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Give me activity history for my account'
+      })
+    ).toEqual(['activity_history']);
+  });
+
+  it('selects demo data tool for demo-data prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Load demo data'
+      })
+    ).toEqual(['demo_data']);
+  });
+
+  it('selects create account tool for account creation prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'Create account named Trading'
+      })
+    ).toEqual(['create_account']);
+  });
+
+  it('selects create order tool for order creation prompts', () => {
+    const plan = determineToolPlan({
+      query: 'Place order for 2 shares of AAPL at 100'
+    });
+
+    expect(plan).toEqual(expect.arrayContaining(['create_order']));
+  });
+
+  it('selects create order tool for natural order phrasing', () => {
+    const plan = determineToolPlan({
+      query: 'make an order for tesla'
+    });
+
+    expect(plan).toEqual(expect.arrayContaining(['create_order']));
   });
 
   it('selects trade impact simulation for explicit what-if trade prompts', () => {
@@ -647,7 +696,7 @@ describe('AiAgentUtils', () => {
       query: 'ticker quote for AAPL'
     },
     {
-      expectedTools: ['market_data_lookup'],
+      expectedTools: [],
       query: 'market context'
     },
     {

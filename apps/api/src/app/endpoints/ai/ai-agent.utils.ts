@@ -153,29 +153,6 @@ const COMPANY_ALIAS_PATTERNS = Object.entries(COMPANY_NAME_SYMBOL_ALIASES).map(
     };
   }
 );
-const SYMBOL_TO_COMPANY_ALIASES = Object.entries(COMPANY_NAME_SYMBOL_ALIASES).reduce(
-  (result, [alias, symbol]) => {
-    if (!result[symbol]) {
-      result[symbol] = [];
-    }
-
-    result[symbol].push(alias);
-
-    return result;
-  },
-  {} as Record<string, string[]>
-);
-const KNOWN_TICKER_SYMBOLS = new Set(
-  Object.values(COMPANY_NAME_SYMBOL_ALIASES).map((symbol) => {
-    return symbol.toUpperCase();
-  })
-);
-const KNOWN_SINGLE_WORD_COMPANY_ALIASES = Object.keys(
-  COMPANY_NAME_SYMBOL_ALIASES
-).filter((alias) => {
-  return /^[a-z][a-z0-9.-]{2,}$/.test(alias) && !alias.includes(' ');
-});
-const TOKEN_QUERY_PATTERN = /[A-Za-z0-9.]{2,12}/g;
 
 const INVESTMENT_INTENT_KEYWORDS = [
   'add',
@@ -222,7 +199,7 @@ const RESEARCH_QUERY_PATTERNS = [
   /\b(?:research|analy[sz]e|analysis|overview|break\s+down|deep\s*dive|tell\s+me\s+about|learn\s+about|more\s+about)\b/
 ];
 const HISTORICAL_PERFORMANCE_QUERY_PATTERNS = [
-  /\b(?:historical\s+performance|past\s+performance|price\s+trend|history)\b/,
+  /\b(?:historical\s+performance|past\s+performance|price\s+trend)\b/,
   /\b(?:how\s+(?:has|well\s+has).*(?:performed?|doing)|performance\s+over\s+time)\b/
 ];
 const FIRE_QUERY_PATTERNS = [
@@ -277,11 +254,6 @@ const FINANCIAL_NEWS_QUERY_PATTERNS = [
   /\b(?:financial\s+news|market\s+news|news\s+headlines?)\b/,
   /\b(?:why\s+did|what\s+happened\s+to)\b/
 ];
-const NEWS_EXPANSION_QUERY_PATTERNS = [
-  /\b(?:more\s+about|tell\s+me\s+more\s+about|expand\s+on|details?\s+on|read\s+more\s+about)\b/,
-  /\b(?:this|that|first|second|third)\s+(?:headline|article|story)\b/,
-  /\bheadline\s*(?:#|number\s*)?\d+\b/
-];
 const REBALANCE_CALCULATOR_QUERY_PATTERNS = [
   /\b(?:calculate\s+rebalance|rebalance\s+plan|target\s+allocation)\b/,
   /\b(?:80\s*20|70\s*30|60\s*40)\b.*\b(?:allocation|portfolio)\b/
@@ -298,12 +270,52 @@ const TAX_ESTIMATE_QUERY_PATTERNS = [
   /\b(?:tax|taxes|liability|owed|owe)\b.*\b(?:estimate|estimat(?:e|ion)|calculate|calc)\b/,
   /\b(?:estimate|calculat(?:e|ion))\b.*\b(?:tax|liability)\b/
 ];
+const TAX_GENERAL_QUERY_PATTERNS = [
+  /\b(?:tax|taxes|taxation|irs)\b.*\b(?:need|know|checklist|info|information|guide|help|this year|year[-\s]?end|what do i|tell me about)\b/i,
+  /\b(?:need|know|checklist|info|information|guide|help|this year|year[-\s]?end|what do i|tell me about)\b.*\b(?:tax|taxes)\b/i,
+  /\b(?:what do i need|tell me|help me|guide to|explain)\b.*\b(?:tax|taxes|taxation)\b/i
+];
 const COMPANY_ALIAS_CONTEXT_PATTERNS = [
   /\b(?:about|asset|analy[sz]e|analysis|company|deep\s*dive|earnings?|fundamental|fundamentals|learn|market|news|overview|price|quote|research|stock|ticker|thesis|valuation|portfolio|holding|investment|invest|buy|sell|trade|dividend|rebalance|compare)\b/
 ];
 const COMPLIANCE_CHECK_QUERY_PATTERNS = [
   /\b(?:compliance|regulat(?:ion|ory)|policy)\b.*\b(?:check|review|scan)\b/,
   /\b(?:violations?|warnings?|restricted|rule\s+check)\b/
+];
+const ACCOUNT_OVERVIEW_QUERY_PATTERNS = [
+  /\b(?:account\s+overview|account\s+summary|show\s+accounts?)\b/,
+  /\b(?:cash\s+balance|account\s+balances?)\b/
+];
+const EXCHANGE_RATE_QUERY_PATTERNS = [
+  /\b(?:exchange\s+rate|fx\s+rate|currency\s+conversion)\b/,
+  /\b(?:convert|conversion)\b.*\b(?:usd|eur|gbp|cad|chf|jpy|aud)\b/,
+  /\b[a-z]{3}\s+to\s+[a-z]{3}\b/
+];
+const PRICE_HISTORY_QUERY_PATTERNS = [
+  /\b(?:price\s+history|historical\s+price|price\s+trend)\b/,
+  /\b(?:chart|performance)\b.*\b(?:30d|90d|1y|historical)\b/
+];
+const SYMBOL_LOOKUP_QUERY_PATTERNS = [
+  /\b(?:symbol\s+lookup|lookup\s+symbol|find\s+ticker|ticker\s+lookup)\b/,
+  /\bwhat\s+is\s+the\s+ticker\s+for\b/
+];
+const MARKET_BENCHMARKS_QUERY_PATTERNS = [
+  /\b(?:benchmark|benchmarks|market\s+benchmark|index\s+benchmark)\b/,
+  /\b(?:compare)\b.*\b(?:benchmark|index)\b/
+];
+const ACTIVITY_HISTORY_QUERY_PATTERNS = [
+  /\b(?:activity\s+history|trading\s+activity|order\s+activity)\b/,
+  /\b(?:activity)\b.*\b(?:history|summary)\b/
+];
+const DEMO_DATA_QUERY_PATTERNS = [
+  /\b(?:demo\s+data|sample\s+data|mock\s+data)\b/
+];
+const CREATE_ACCOUNT_QUERY_PATTERNS = [
+  /\b(?:create|open|add)\b.*\baccount\b/
+];
+const CREATE_ORDER_QUERY_PATTERNS = [
+  /\b(?:create|place|submit|make|execute|put)\b.*\border\b/i,
+  /\b(?:buy|purchase|trade|sell)\b.*\b\d+\s*(?:usd|eur|gbp|cad|chf|jpy|aud|shares?|units?|\$)/i
 ];
 const ANSWER_NUMERIC_INTENT_KEYWORDS = [
   'allocat',
@@ -358,238 +370,6 @@ function normalizeIntentQuery(query: string) {
     .replace(/[^a-z0-9\s]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function levenshteinDistance(a: string, b: string) {
-  if (a === b) {
-    return 0;
-  }
-
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  const matrix: number[][] = Array.from({ length: rows }, () => {
-    return Array(cols).fill(0);
-  });
-
-  for (let row = 0; row < rows; row++) {
-    matrix[row][0] = row;
-  }
-
-  for (let col = 0; col < cols; col++) {
-    matrix[0][col] = col;
-  }
-
-  for (let row = 1; row < rows; row++) {
-    for (let col = 1; col < cols; col++) {
-      const substitutionCost = a[row - 1] === b[col - 1] ? 0 : 1;
-      matrix[row][col] = Math.min(
-        matrix[row - 1][col] + 1,
-        matrix[row][col - 1] + 1,
-        matrix[row - 1][col - 1] + substitutionCost
-      );
-    }
-  }
-
-  return matrix[rows - 1][cols - 1];
-}
-
-function normalizeSymbolForDistance(value: string) {
-  return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-function toTitleCase(value: string) {
-  return value
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => {
-      return `${part[0].toUpperCase()}${part.slice(1)}`;
-    })
-    .join(' ');
-}
-
-function getPrimaryCompanyNameForSymbol(symbol: string) {
-  const aliases = SYMBOL_TO_COMPANY_ALIASES[symbol] ?? [];
-  const preferredAlias = aliases.find((alias) => {
-    return /^[a-z][a-z]+(?:\s+[a-z][a-z]+)*$/.test(alias);
-  });
-
-  if (preferredAlias) {
-    return toTitleCase(preferredAlias);
-  }
-
-  return symbol;
-}
-
-export interface TickerClarificationSuggestion {
-  companyName: string;
-  input: string;
-  symbol: string;
-}
-
-function findClosestSymbolCandidate(input: string) {
-  const normalizedInput = normalizeSymbolForDistance(input);
-
-  if (!normalizedInput || KNOWN_TICKER_SYMBOLS.has(input.toUpperCase())) {
-    return undefined;
-  }
-
-  let bestMatch: { distance: number; symbol: string } | undefined;
-
-  for (const candidateSymbol of KNOWN_TICKER_SYMBOLS) {
-    const normalizedCandidate = normalizeSymbolForDistance(candidateSymbol);
-
-    if (!normalizedCandidate) {
-      continue;
-    }
-
-    const distance = levenshteinDistance(normalizedInput, normalizedCandidate);
-
-    if (
-      !bestMatch ||
-      distance < bestMatch.distance ||
-      (distance === bestMatch.distance && candidateSymbol < bestMatch.symbol)
-    ) {
-      bestMatch = {
-        distance,
-        symbol: candidateSymbol
-      };
-    }
-  }
-
-  if (!bestMatch) {
-    return undefined;
-  }
-
-  const maxDistance = normalizedInput.length <= 4 ? 1 : 2;
-
-  return bestMatch.distance <= maxDistance ? bestMatch.symbol : undefined;
-}
-
-function findClosestCompanyAliasCandidate(input: string) {
-  const normalizedInput = input.toLowerCase();
-
-  if (
-    normalizedInput.length < 4 ||
-    COMPANY_NAME_SYMBOL_ALIASES[normalizedInput] !== undefined
-  ) {
-    return undefined;
-  }
-
-  let bestMatch: { alias: string; distance: number } | undefined;
-
-  for (const alias of KNOWN_SINGLE_WORD_COMPANY_ALIASES) {
-    if (alias[0] !== normalizedInput[0]) {
-      continue;
-    }
-
-    if (Math.abs(alias.length - normalizedInput.length) > 2) {
-      continue;
-    }
-
-    const distance = levenshteinDistance(normalizedInput, alias);
-
-    if (
-      !bestMatch ||
-      distance < bestMatch.distance ||
-      (distance === bestMatch.distance && alias < bestMatch.alias)
-    ) {
-      bestMatch = {
-        alias,
-        distance
-      };
-    }
-  }
-
-  if (!bestMatch) {
-    return undefined;
-  }
-
-  const maxDistance = 2;
-
-  return bestMatch.distance <= maxDistance
-    ? COMPANY_NAME_SYMBOL_ALIASES[bestMatch.alias]
-    : undefined;
-}
-
-export function getTickerClarificationSuggestion({
-  query,
-  unresolvedSymbols = []
-}: {
-  query: string;
-  unresolvedSymbols?: string[];
-}): TickerClarificationSuggestion | undefined {
-  const hasTickerIntent =
-    /\b(?:asset|company|equity|fundamental|news|price|quote|shares?|stock|symbol|ticker|valuation)\b/i.test(
-      query
-    );
-
-  if (unresolvedSymbols.length === 0 && !hasTickerIntent) {
-    return undefined;
-  }
-
-  const normalizedQuery = normalizeIntentQuery(query);
-  const rawTokens = query.match(TOKEN_QUERY_PATTERN) ?? [];
-  const queryTokens = (normalizedQuery.match(TOKEN_QUERY_PATTERN) ?? []).filter(
-    (token) => {
-      return !SYMBOL_STOP_WORDS.has(token.toUpperCase());
-    }
-  );
-  const hasExactKnownSymbolToken = queryTokens.some((token) => {
-    return KNOWN_TICKER_SYMBOLS.has(token.toUpperCase());
-  });
-  const hasExactKnownCompanyAlias = queryTokens.some((token) => {
-    return COMPANY_NAME_SYMBOL_ALIASES[token.toLowerCase()] !== undefined;
-  });
-
-  if (
-    unresolvedSymbols.length === 0 &&
-    (hasExactKnownSymbolToken || hasExactKnownCompanyAlias)
-  ) {
-    return undefined;
-  }
-
-  const explicitTickerCandidates = rawTokens
-    .map((token) => token.replace(/^\$/, ''))
-    .filter((token) => {
-      return /^[A-Z0-9.]{2,12}$/.test(token);
-    })
-    .map((token) => token.toUpperCase());
-  const symbolCandidates = [
-    ...unresolvedSymbols.map((symbol) => symbol.toUpperCase()),
-    ...explicitTickerCandidates
-  ];
-
-  for (const candidate of symbolCandidates) {
-    const suggestedSymbol = findClosestSymbolCandidate(candidate);
-
-    if (suggestedSymbol) {
-      return {
-        companyName: getPrimaryCompanyNameForSymbol(suggestedSymbol),
-        input: candidate,
-        symbol: suggestedSymbol
-      };
-    }
-  }
-
-  for (const token of queryTokens) {
-    const suggestedSymbol = findClosestCompanyAliasCandidate(token);
-
-    if (suggestedSymbol) {
-      return {
-        companyName: getPrimaryCompanyNameForSymbol(suggestedSymbol),
-        input: token,
-        symbol: suggestedSymbol
-      };
-    }
-  }
-
-  return undefined;
-}
-
-export function formatTickerClarificationSuggestion(
-  suggestion: TickerClarificationSuggestion
-) {
-  return `I could not confidently resolve "${suggestion.input}". Did you mean ${suggestion.companyName} (${suggestion.symbol})?`;
 }
 
 function getAnswerQualitySignals({
@@ -758,7 +538,7 @@ export function extractSymbolsFromQuery(query: string) {
     })
     .map(({ symbol }) => symbol);
 
-  const deduplicatedSymbols = Array.from(
+  return Array.from(
     new Set(
       [
         ...matches
@@ -768,16 +548,6 @@ export function extractSymbolsFromQuery(query: string) {
       ]
     )
   );
-
-  if (aliasSymbols.length === 0) {
-    return deduplicatedSymbols;
-  }
-
-  return deduplicatedSymbols.filter((symbol) => {
-    const looksLikeCompanyWord = /^[A-Z]{5,}$/.test(symbol);
-
-    return !looksLikeCompanyWord || KNOWN_TICKER_SYMBOLS.has(symbol);
-  });
 }
 
 export function determineToolPlan({
@@ -866,11 +636,6 @@ export function determineToolPlan({
       return pattern.test(normalizedQuery);
     }
   );
-  const hasNewsExpansionIntent = NEWS_EXPANSION_QUERY_PATTERNS.some(
-    (pattern) => {
-      return pattern.test(normalizedQuery);
-    }
-  );
   const hasRebalanceCalculatorIntent = REBALANCE_CALCULATOR_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
@@ -886,14 +651,58 @@ export function determineToolPlan({
   const hasTaxEstimateIntent = TAX_ESTIMATE_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
+  const hasGeneralTaxIntent = TAX_GENERAL_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
   const hasComplianceCheckIntent = COMPLIANCE_CHECK_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
     }
   );
+  const hasAccountOverviewIntent = ACCOUNT_OVERVIEW_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasExchangeRateIntent = EXCHANGE_RATE_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasPriceHistoryIntent = PRICE_HISTORY_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasSymbolLookupIntent = SYMBOL_LOOKUP_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasMarketBenchmarksIntent = MARKET_BENCHMARKS_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasActivityHistoryIntent = ACTIVITY_HISTORY_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+  const hasDemoDataIntent = DEMO_DATA_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasCreateAccountIntent = CREATE_ACCOUNT_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasCreateOrderIntent = CREATE_ORDER_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  const hasExplicitSymbol = extractedSymbols.length > 0;
   const hasTickerDecisionIntent =
-    extractedSymbols.length > 0 &&
+    hasExplicitSymbol &&
     (hasDecisionAnalysisIntent || hasResearchIntent);
+  const hasDecisionValuationIntent =
+    hasAssetFundamentalsIntent ||
+    /\b(?:valuation|metrics?|market\s*cap|p\s*e|earnings|dividend)\b/.test(
+      normalizedQuery
+    );
+  const hasDecisionCatalystIntent =
+    hasFinancialNewsIntent || /\b(?:catalyst|catalysts|news)\b/.test(normalizedQuery);
 
   if (
     normalizedQuery.includes('portfolio') ||
@@ -957,40 +766,47 @@ export function determineToolPlan({
   }
 
   if (hasTickerDecisionIntent) {
-    selectedTools.add('market_data_lookup');
     selectedTools.add('get_asset_fundamentals');
     selectedTools.add('get_financial_news');
+    selectedTools.add('price_history');
+
+    if (hasDecisionValuationIntent && hasDecisionCatalystIntent) {
+      selectedTools.add('market_data_lookup');
+    }
   }
 
-  if (hasHistoricalPerformanceIntent && extractedSymbols.length > 0) {
-    selectedTools.add('market_data_lookup');
-    selectedTools.add('get_financial_news');
+  if (hasHistoricalPerformanceIntent && hasExplicitSymbol) {
+    selectedTools.add('price_history');
   }
 
-  if (
+  const hasGenericMarketLookupIntent =
     normalizedQuery.includes('quote') ||
     normalizedQuery.includes('price') ||
-    normalizedQuery.includes('market') ||
     normalizedQuery.includes('ticker') ||
-    extractedSymbols.length > 0
-  ) {
-    selectedTools.add('market_data_lookup');
-  }
+    (!hasSymbolLookupIntent && hasExplicitSymbol && !hasTickerDecisionIntent);
+  const hasMarketTierCandidate =
+    hasSymbolLookupIntent ||
+    hasPriceHistoryIntent ||
+    hasHistoricalPerformanceIntent ||
+    hasAssetFundamentalsIntent ||
+    hasFinancialNewsIntent ||
+    hasLiveQuoteIntent ||
+    hasGenericMarketLookupIntent;
 
-  if (hasLiveQuoteIntent) {
-    selectedTools.add('get_live_quote');
-  }
-
-  if (hasAssetFundamentalsIntent) {
-    selectedTools.add('get_asset_fundamentals');
-  }
-
-  if (hasFinancialNewsIntent) {
-    selectedTools.add('get_financial_news');
-  }
-
-  if (hasNewsExpansionIntent) {
-    selectedTools.add('get_article_content');
+  if (hasMarketTierCandidate) {
+    if (hasSymbolLookupIntent) {
+      selectedTools.add('symbol_lookup');
+    } else if (hasPriceHistoryIntent || hasHistoricalPerformanceIntent) {
+      selectedTools.add('price_history');
+    } else if (hasAssetFundamentalsIntent) {
+      selectedTools.add('get_asset_fundamentals');
+    } else if (hasFinancialNewsIntent) {
+      selectedTools.add('get_financial_news');
+    } else if (hasLiveQuoteIntent) {
+      selectedTools.add('get_live_quote');
+    } else if (hasGenericMarketLookupIntent) {
+      selectedTools.add('market_data_lookup');
+    }
   }
 
   if (hasRebalanceCalculatorIntent) {
@@ -998,6 +814,9 @@ export function determineToolPlan({
   }
 
   if (hasTradeImpactIntent) {
+    selectedTools.add('portfolio_analysis');
+    selectedTools.add('risk_assessment');
+    selectedTools.add('rebalance_plan');
     selectedTools.add('simulate_trade_impact');
   }
 
@@ -1005,12 +824,40 @@ export function determineToolPlan({
     selectedTools.add('transaction_categorize');
   }
 
-  if (hasTaxEstimateIntent) {
+  if (hasTaxEstimateIntent || hasGeneralTaxIntent) {
     selectedTools.add('tax_estimate');
   }
 
   if (hasComplianceCheckIntent) {
     selectedTools.add('compliance_check');
+  }
+
+  if (hasAccountOverviewIntent) {
+    selectedTools.add('account_overview');
+  }
+
+  if (hasExchangeRateIntent) {
+    selectedTools.add('exchange_rate');
+  }
+
+  if (hasMarketBenchmarksIntent) {
+    selectedTools.add('market_benchmarks');
+  }
+
+  if (hasActivityHistoryIntent) {
+    selectedTools.add('activity_history');
+  }
+
+  if (hasDemoDataIntent) {
+    selectedTools.add('demo_data');
+  }
+
+  if (hasCreateAccountIntent) {
+    selectedTools.add('create_account');
+  }
+
+  if (hasCreateOrderIntent) {
+    selectedTools.add('create_order');
   }
 
   return Array.from(selectedTools);

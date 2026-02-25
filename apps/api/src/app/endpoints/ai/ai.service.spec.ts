@@ -3,10 +3,18 @@ import { DataSource } from '@prisma/client';
 import { AiService } from './ai.service';
 
 describe('AiService', () => {
-  let dataProviderService: { getAssetProfiles: jest.Mock; getQuotes: jest.Mock };
-  let orderService: { getOrders: jest.Mock };
+  let accountService: { createAccount: jest.Mock; getAccounts: jest.Mock };
+  let benchmarkService: { getBenchmarks: jest.Mock };
+  let dataProviderService: {
+    getAssetProfiles: jest.Mock;
+    getHistorical: jest.Mock;
+    getQuotes: jest.Mock;
+  };
+  let exchangeRateDataService: { toCurrency: jest.Mock };
+  let orderService: { createOrder: jest.Mock; getOrders: jest.Mock };
   let portfolioService: { getDetails: jest.Mock };
   let propertyService: { getByKey: jest.Mock };
+  let aiAgentWebSearchService: { searchStockNews: jest.Mock };
   let redisCacheService: { get: jest.Mock; set: jest.Mock };
   let aiObservabilityService: {
     captureChatFailure: jest.Mock;
@@ -18,15 +26,31 @@ describe('AiService', () => {
   const originalFetch = global.fetch;
   const originalMinimaxApiKey = process.env.minimax_api_key;
   const originalMinimaxModel = process.env.minimax_model;
+  const originalOpenAiApiKey = process.env.openai_api_key;
+  const originalOpenAiModel = process.env.openai_model;
+  const originalOpenAiApiKeyUpper = process.env.OPENAI_API_KEY;
+  const originalOpenAiModelUpper = process.env.OPENAI_MODEL;
   const originalZAiGlmApiKey = process.env.z_ai_glm_api_key;
   const originalZAiGlmModel = process.env.z_ai_glm_model;
 
   beforeEach(() => {
+    accountService = {
+      createAccount: jest.fn(),
+      getAccounts: jest.fn()
+    };
+    benchmarkService = {
+      getBenchmarks: jest.fn()
+    };
     dataProviderService = {
       getAssetProfiles: jest.fn(),
+      getHistorical: jest.fn(),
       getQuotes: jest.fn()
     };
+    exchangeRateDataService = {
+      toCurrency: jest.fn()
+    };
     orderService = {
+      createOrder: jest.fn(),
       getOrders: jest.fn()
     };
     portfolioService = {
@@ -38,6 +62,9 @@ describe('AiService', () => {
     redisCacheService = {
       get: jest.fn(),
       set: jest.fn()
+    };
+    aiAgentWebSearchService = {
+      searchStockNews: jest.fn()
     };
     aiObservabilityService = {
       captureChatFailure: jest.fn().mockResolvedValue(undefined),
@@ -61,18 +88,31 @@ describe('AiService', () => {
     };
 
     subject = new AiService(
+      accountService as never,
+      benchmarkService as never,
       dataProviderService as never,
+      exchangeRateDataService as never,
       orderService as never,
       portfolioService as never,
       propertyService as never,
       redisCacheService as never,
-      aiObservabilityService as never
+      aiObservabilityService as never,
+      aiAgentWebSearchService as never
     );
 
     delete process.env.minimax_api_key;
     delete process.env.minimax_model;
+    delete process.env.openai_api_key;
+    delete process.env.openai_model;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_MODEL;
     delete process.env.z_ai_glm_api_key;
     delete process.env.z_ai_glm_model;
+
+    accountService.getAccounts.mockResolvedValue([]);
+    benchmarkService.getBenchmarks.mockResolvedValue([]);
+    dataProviderService.getHistorical.mockResolvedValue({});
+    exchangeRateDataService.toCurrency.mockReturnValue(1);
   });
 
   afterAll(() => {
@@ -88,6 +128,30 @@ describe('AiService', () => {
       delete process.env.minimax_model;
     } else {
       process.env.minimax_model = originalMinimaxModel;
+    }
+
+    if (originalOpenAiApiKey === undefined) {
+      delete process.env.openai_api_key;
+    } else {
+      process.env.openai_api_key = originalOpenAiApiKey;
+    }
+
+    if (originalOpenAiModel === undefined) {
+      delete process.env.openai_model;
+    } else {
+      process.env.openai_model = originalOpenAiModel;
+    }
+
+    if (originalOpenAiApiKeyUpper === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAiApiKeyUpper;
+    }
+
+    if (originalOpenAiModelUpper === undefined) {
+      delete process.env.OPENAI_MODEL;
+    } else {
+      process.env.OPENAI_MODEL = originalOpenAiModelUpper;
     }
 
     if (originalZAiGlmApiKey === undefined) {
@@ -209,6 +273,35 @@ describe('AiService', () => {
     );
   });
 
+  it('uses conversationId when resolving and storing memory', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {}
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    redisCacheService.set.mockResolvedValue(undefined);
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      conversationId: 'conversation-123',
+      query: 'hey there',
+      userCurrency: 'USD',
+      userId: 'user-1'
+    });
+
+    expect(redisCacheService.get).toHaveBeenCalledWith(
+      'ai-agent-memory-user-1-conversation-123'
+    );
+    expect(redisCacheService.get).toHaveBeenCalledWith(
+      'ai-agent-preferences-user-1'
+    );
+    expect(redisCacheService.set).toHaveBeenCalledWith(
+      'ai-agent-memory-user-1-conversation-123',
+      expect.any(String),
+      expect.any(Number)
+    );
+    expect(result.memory.sessionId).toBe('conversation-123');
+  });
+
   it('keeps memory history and caps turns at the configured limit', async () => {
     const previousTurns = Array.from({ length: 10 }, (_, index) => {
       return {
@@ -295,45 +388,6 @@ describe('AiService', () => {
     expect(result.answer).toBe('2+2 = 4');
     expect(result.toolCalls).toEqual([]);
     expect(generateTextSpy).not.toHaveBeenCalled();
-  });
-
-  it('adds ticker clarification hint when market lookup cannot resolve a close symbol typo', async () => {
-    dataProviderService.getQuotes.mockResolvedValue({});
-    redisCacheService.get.mockResolvedValue(undefined);
-    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
-
-    const result = await subject.chat({
-      languageCode: 'en',
-      query: 'price for tsle',
-      sessionId: 'session-symbol-clarify-tools',
-      userCurrency: 'USD',
-      userId: 'user-symbol-clarify-tools'
-    });
-
-    expect(result.toolCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: 'success',
-          tool: 'market_data_lookup'
-        })
-      ])
-    );
-    expect(result.answer).toContain('Did you mean Tesla (TSLA)?');
-  });
-
-  it('adds ticker clarification hint on direct fallback for company-name typos', async () => {
-    redisCacheService.get.mockResolvedValue(undefined);
-
-    const result = await subject.chat({
-      languageCode: 'en',
-      query: 'tell me about tesal stock',
-      sessionId: 'session-symbol-clarify-direct',
-      userCurrency: 'USD',
-      userId: 'user-symbol-clarify-direct'
-    });
-
-    expect(result.toolCalls).toEqual([]);
-    expect(result.answer).toContain('Did you mean Tesla (TSLA)?');
   });
 
   it('uses portfolio data for "how much money i have?" queries', async () => {
@@ -543,6 +597,55 @@ describe('AiService', () => {
     expect(result.answer).not.toContain('I am Ghostfolio AI');
   });
 
+  it('uses freshness breaker to prefer live market/news tools for fresh follow-ups', async () => {
+    dataProviderService.getQuotes.mockResolvedValue({});
+    aiAgentWebSearchService.searchStockNews.mockResolvedValue({
+      results: [],
+      success: true
+    });
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-follow-up-fresh-session-follow-up-fresh') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer: 'Previous market and risk snapshot.',
+              query: 'Analyze risk and market news for NVDA',
+              timestamp: '2026-02-24T18:40:00.000Z',
+              toolCalls: [
+                { status: 'success', tool: 'risk_assessment' },
+                { status: 'success', tool: 'market_data_lookup' },
+                { status: 'success', tool: 'get_financial_news' }
+              ]
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'what about that latest?',
+      sessionId: 'session-follow-up-fresh',
+      userCurrency: 'USD',
+      userId: 'user-follow-up-fresh'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'market_data_lookup' }),
+        expect.objectContaining({ tool: 'get_financial_news' })
+      ])
+    );
+    expect(result.toolCalls).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ tool: 'risk_assessment' })
+      ])
+    );
+  });
+
   it('returns targeted clarification for short follow-up queries without prior context', async () => {
     redisCacheService.get.mockResolvedValue(undefined);
 
@@ -556,166 +659,6 @@ describe('AiService', () => {
 
     expect(result.toolCalls).toEqual([]);
     expect(result.answer).toContain('I can explain the previous result');
-  });
-
-  it('maps news-expansion follow-ups to article-content tool using prior headline context', async () => {
-    redisCacheService.get.mockImplementation(async (key: string) => {
-      if (key === 'ai-agent-memory-user-news-expansion-session-news-expansion') {
-        return JSON.stringify({
-          turns: [
-            {
-              answer: 'News catalysts (latest): 1) TSLA: Tesla expands factory',
-              newsItems: [
-                {
-                  link: 'https://example.com/news/tesla-expands-factory',
-                  symbol: 'TSLA',
-                  title: 'Tesla expands factory'
-                }
-              ],
-              query: 'Show financial news for TSLA',
-              timestamp: '2026-02-24T18:40:00.000Z',
-              toolCalls: [{ status: 'success', tool: 'get_financial_news' }]
-            }
-          ]
-        });
-      }
-
-      return undefined;
-    });
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      text: jest
-        .fn()
-        .mockResolvedValue(
-          '<html><body><article>Tesla announced expansion plans with expected production gains.</article></body></html>'
-        )
-    }) as unknown as typeof fetch;
-    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
-
-    const result = await subject.chat({
-      languageCode: 'en',
-      query: 'more about first headline',
-      sessionId: 'session-news-expansion',
-      userCurrency: 'USD',
-      userId: 'user-news-expansion'
-    });
-
-    expect(result.toolCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: 'success',
-          tool: 'get_article_content'
-        })
-      ])
-    );
-    expect(result.toolCalls).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          tool: 'portfolio_analysis'
-        })
-      ])
-    );
-    expect(result.answer).toContain('Article detail (TSLA): Tesla expands factory');
-    expect(result.answer).toContain('Tesla announced expansion plans');
-  });
-
-  it('returns article-target clarification when news expansion is requested without prior headline context', async () => {
-    redisCacheService.get.mockResolvedValue(undefined);
-    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
-
-    const result = await subject.chat({
-      languageCode: 'en',
-      query: 'more about that headline',
-      sessionId: 'session-news-expansion-no-context',
-      userCurrency: 'USD',
-      userId: 'user-news-expansion-no-context'
-    });
-
-    expect(result.toolCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: 'success',
-          tool: 'get_article_content'
-        })
-      ])
-    );
-    expect(result.answer).toContain('I need a headline or URL first');
-  });
-
-  it('passes full chat history to LLM message payload on tool-routed turns', async () => {
-    portfolioService.getDetails.mockResolvedValue({
-      holdings: {
-        AAPL: {
-          allocationInPercentage: 0.7,
-          dataSource: DataSource.YAHOO,
-          symbol: 'AAPL',
-          valueInBaseCurrency: 7000
-        },
-        MSFT: {
-          allocationInPercentage: 0.3,
-          dataSource: DataSource.YAHOO,
-          symbol: 'MSFT',
-          valueInBaseCurrency: 3000
-        }
-      }
-    });
-    redisCacheService.get.mockImplementation(async (key: string) => {
-      if (key === 'ai-agent-memory-user-history-session-history') {
-        return JSON.stringify({
-          turns: [
-            {
-              answer: 'Concentration is high with AAPL at 70.0%.',
-              query: 'Show my concentration risk',
-              timestamp: '2026-02-24T18:40:00.000Z',
-              toolCalls: [{ status: 'success', tool: 'risk_assessment' }]
-            },
-            {
-              answer: 'Top holdings are AAPL and MSFT.',
-              query: 'Show my holdings',
-              timestamp: '2026-02-24T18:41:00.000Z',
-              toolCalls: [{ status: 'success', tool: 'portfolio_analysis' }]
-            }
-          ]
-        });
-      }
-
-      return undefined;
-    });
-    const generateTextSpy = jest.spyOn(subject, 'generateText').mockResolvedValue({
-      text:
-        'Snapshot: concentration remains elevated due to AAPL. Actionable next steps: trim gradually and add to underweight exposures.'
-    } as never);
-
-    await subject.chat({
-      languageCode: 'en',
-      query: 'Why is my concentration high?',
-      sessionId: 'session-history',
-      userCurrency: 'USD',
-      userId: 'user-history'
-    });
-
-    expect(generateTextSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages: expect.arrayContaining([
-          expect.objectContaining({
-            content: 'Show my concentration risk',
-            role: 'user'
-          }),
-          expect.objectContaining({
-            content: 'Concentration is high with AAPL at 70.0%.',
-            role: 'assistant'
-          }),
-          expect.objectContaining({
-            content: 'Show my holdings',
-            role: 'user'
-          }),
-          expect.objectContaining({
-            content: 'Top holdings are AAPL and MSFT.',
-            role: 'assistant'
-          })
-        ])
-      })
-    );
   });
 
   it('persists and recalls cross-session user preferences for the same user', async () => {
@@ -839,16 +782,11 @@ describe('AiService', () => {
       expect.arrayContaining([
         expect.objectContaining({ tool: 'portfolio_analysis' }),
         expect.objectContaining({ tool: 'risk_assessment' }),
-        expect.objectContaining({ tool: 'rebalance_plan' }),
         expect.objectContaining({ tool: 'stress_test' })
       ])
     );
     expect(result.verification).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          check: 'rebalance_coverage',
-          status: 'passed'
-        }),
         expect.objectContaining({
           check: 'stress_test_coherence',
           status: 'passed'
@@ -1072,6 +1010,33 @@ describe('AiService', () => {
     expect(result.answer).toContain('Recent transactions:');
   });
 
+  it('returns a friendly empty-transactions message when no transactions exist', async () => {
+    orderService.getOrders.mockResolvedValue({
+      activities: [],
+      count: 0
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Show my recent transactions',
+      sessionId: 'session-transactions-none',
+      userCurrency: 'USD',
+      userId: 'user-transactions-none'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_recent_transactions'
+        })
+      ])
+    );
+    expect(result.answer).toContain("I don't have any recorded transactions yet for this account.");
+  });
+
   it('executes fundamentals and trade impact tools for explicit analysis queries', async () => {
     portfolioService.getDetails.mockResolvedValue({
       holdings: {
@@ -1160,61 +1125,6 @@ describe('AiService', () => {
     expect(tradeImpactResult.answer).toContain('Trade impact simulation');
   });
 
-  it('routes ticker investment queries to market research tools without portfolio risk defaults', async () => {
-    dataProviderService.getQuotes.mockResolvedValue({
-      NVDA: {
-        currency: 'USD',
-        marketPrice: 192.85,
-        marketState: 'REGULAR'
-      }
-    });
-    dataProviderService.getAssetProfiles.mockResolvedValue({
-      NVDA: {
-        assetClass: 'EQUITY',
-        countries: [{ code: 'US', weight: 1 }],
-        name: 'NVIDIA Corporation',
-        sectors: [{ name: 'Technology', weight: 1 }]
-      }
-    });
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      text: async () =>
-        '<rss><channel><item><title>NVIDIA expands AI data-center partnerships</title><link>https://example.com/nvda-news</link></item></channel></rss>'
-    } as never);
-    redisCacheService.get.mockResolvedValue(undefined);
-    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
-
-    const result = await subject.chat({
-      languageCode: 'en',
-      query: 'Should I invest in NVIDIA right now?',
-      sessionId: 'session-nvda-invest',
-      userCurrency: 'USD',
-      userId: 'user-nvda-invest'
-    });
-
-    expect(result.toolCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ tool: 'market_data_lookup' }),
-        expect.objectContaining({ tool: 'get_asset_fundamentals' }),
-        expect.objectContaining({ tool: 'get_financial_news' })
-      ])
-    );
-    expect(result.toolCalls).toEqual(
-      expect.not.arrayContaining([
-        expect.objectContaining({ tool: 'portfolio_analysis' }),
-        expect.objectContaining({ tool: 'risk_assessment' }),
-        expect.objectContaining({ tool: 'rebalance_plan' })
-      ])
-    );
-    expect(result.answer).toContain('Market snapshot: NVDA:');
-    expect(result.answer).toContain('Fundamental analysis:');
-    expect(result.answer).toContain('News catalysts (latest):');
-    expect(result.answer).not.toContain('Risk concentration is');
-    expect(result.answer).not.toContain('Total portfolio value:');
-
-    global.fetch = originalFetch;
-  });
-
   it('executes transaction categorization, tax estimate, and compliance check tools', async () => {
     orderService.getOrders.mockResolvedValue({
       activities: [
@@ -1285,6 +1195,375 @@ describe('AiService', () => {
     );
   });
 
+  it('handles partial tax input without crashing and shows inferred assumptions', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Estimate my tax liability for income 120000',
+      sessionId: 'session-tax-partial',
+      userCurrency: 'USD',
+      userId: 'user-tax-partial'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'tax_estimate'
+        })
+      ])
+    );
+    expect(result.answer).toContain(
+      'Tax estimate (assumption-based): income 120000.00 USD, deductions 0.00 USD.'
+    );
+    expect(result.answer).toContain('Income or deductions were partially inferred');
+  });
+
+  it('keeps missing income explicit when only deductions are provided', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Can you calculate my tax estimate? Deductions are 20000 and tax rate 20%',
+      sessionId: 'session-tax-deductions-only',
+      userCurrency: 'USD',
+      userId: 'user-tax-deductions-only'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'tax_estimate'
+        })
+      ])
+    );
+    expect(result.answer).toContain(
+      'Tax estimate (assumption-based): income 0.00 USD, deductions 20000.00 USD.'
+    );
+  });
+
+  it('executes account overview, exchange rate, benchmarks, activity history, and demo data tools', async () => {
+    accountService.getAccounts.mockResolvedValue([
+      {
+        balance: 1500,
+        currency: 'USD',
+        id: 'account-1',
+        name: 'Cash'
+      }
+    ]);
+    exchangeRateDataService.toCurrency.mockReturnValue(0.91);
+    benchmarkService.getBenchmarks.mockResolvedValue([
+      {
+        symbol: 'SPY',
+        trend50d: 'UP',
+        trend200d: 'UP'
+      },
+      {
+        symbol: 'QQQ',
+        trend50d: 'NEUTRAL',
+        trend200d: 'UP'
+      }
+    ]);
+    orderService.getOrders.mockResolvedValue({
+      activities: [
+        {
+          SymbolProfile: { symbol: 'AAPL' },
+          date: new Date('2026-02-20T00:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-aapl',
+          type: 'BUY',
+          valueInBaseCurrency: 1200.5
+        }
+      ],
+      count: 1
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query:
+        'Show account overview, usd to eur exchange rate, benchmark indices, activity history, and demo data',
+      sessionId: 'session-new-read-tools',
+      userCurrency: 'USD',
+      userId: 'user-new-read-tools'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'account_overview' }),
+        expect.objectContaining({ status: 'success', tool: 'exchange_rate' }),
+        expect.objectContaining({ status: 'success', tool: 'market_benchmarks' }),
+        expect.objectContaining({ status: 'success', tool: 'activity_history' }),
+        expect.objectContaining({ status: 'success', tool: 'demo_data' })
+      ])
+    );
+    expect(result.answer).toContain('Account overview:');
+    expect(result.answer).toContain('Exchange rate snapshot:');
+    expect(result.answer).toContain('Market benchmarks:');
+    expect(result.answer).toContain('Activity history:');
+  });
+
+  it('creates account and order for explicit action requests', async () => {
+    accountService.createAccount.mockResolvedValue({
+      balance: 500,
+      currency: 'USD',
+      id: 'created-account',
+      name: 'Trading',
+      userId: 'user-create-tools'
+    });
+    accountService.getAccounts.mockResolvedValue([
+      {
+        balance: 500,
+        currency: 'USD',
+        id: 'created-account',
+        name: 'Trading'
+      }
+    ]);
+    orderService.createOrder.mockResolvedValue({
+      id: 'order-1',
+      type: 'BUY'
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query:
+        'Create account named Trading with 500 USD and place order for 2 shares of AAPL at 100 USD',
+      sessionId: 'session-create-tools',
+      userCurrency: 'USD',
+      userId: 'user-create-tools'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'create_account' }),
+        expect.objectContaining({ status: 'success', tool: 'create_order' })
+      ])
+    );
+    expect(accountService.createAccount).toHaveBeenCalled();
+    expect(orderService.createOrder).toHaveBeenCalled();
+  });
+
+  it('asks for missing order details for vague order requests', async () => {
+    accountService.getAccounts.mockResolvedValue([
+      {
+        balance: 500,
+        currency: 'USD',
+        id: 'account-1',
+        name: 'Trading'
+      }
+    ]);
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'make an order for tesla',
+      sessionId: 'session-create-order-vague',
+      userCurrency: 'USD',
+      userId: 'user-create-order-vague'
+    });
+
+    expect(result.answer).toContain('please specify the amount');
+    expect(result.toolCalls).toEqual([]);
+    expect(orderService.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('does not infer deductions from tax rate when only income is provided', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Estimate tax liability for income 120000 at tax rate 20%',
+      sessionId: 'session-tax-rate-only',
+      userCurrency: 'USD',
+      userId: 'user-tax-rate-only'
+    });
+
+    expect(result.answer).toContain(
+      'Tax estimate (assumption-based): income 120000.00 USD, deductions 0.00 USD.'
+    );
+  });
+
+  it('returns tax planning checklist when query asks broad tax question without amounts', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'what do i need to know this year about taxes',
+      sessionId: 'session-tax-checklist',
+      userCurrency: 'USD',
+      userId: 'user-tax-checklist'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'tax_estimate'
+        })
+      ])
+    );
+    expect(result.answer).toContain('Tax planning checklist for this year:');
+    expect(result.answer).not.toContain('Price for NVDA');
+  });
+
+  it('uses web news search service for financial news', async () => {
+    dataProviderService.getAssetProfiles.mockResolvedValue({
+      AAPL: {
+        name: 'Apple'
+      }
+    });
+    aiAgentWebSearchService.searchStockNews.mockResolvedValue({
+      results: [
+        {
+          link: 'https://example.com/article',
+          snippet: 'Apple announced strong guidance.',
+          source: 'Apple (AAPL)',
+          title: 'Apple reports stronger quarter'
+        }
+      ],
+      success: true
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Show financial news for AAPL',
+      sessionId: 'session-financial-news',
+      userCurrency: 'USD',
+      userId: 'user-financial-news'
+    });
+
+    expect(aiAgentWebSearchService.searchStockNews).toHaveBeenCalledWith(
+      'AAPL',
+      'Apple'
+    );
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_financial_news'
+        })
+      ])
+    );
+    expect(result.answer).toContain('News catalysts (latest):');
+    expect(result.answer).toContain('Apple (AAPL)');
+    expect(result.answer).toContain('Apple reports stronger quarter');
+  });
+
+  it('routes ticker investment queries to market research tools without forcing portfolio context', async () => {
+    dataProviderService.getQuotes.mockResolvedValue({
+      NVDA: {
+        currency: 'USD',
+        marketPrice: 192.85,
+        marketState: 'REGULAR'
+      }
+    });
+    dataProviderService.getAssetProfiles.mockResolvedValue({
+      NVDA: {
+        assetClass: 'EQUITY',
+        name: 'NVIDIA Corporation',
+        sectors: [{ name: 'Technology', weight: 1 }]
+      }
+    });
+    dataProviderService.getHistorical.mockResolvedValue({
+      NVDA: {
+        '2026-02-01': { marketPrice: 165.2 },
+        '2026-02-10': { marketPrice: 181.4 },
+        '2026-02-20': { marketPrice: 192.85 }
+      }
+    });
+    aiAgentWebSearchService.searchStockNews.mockResolvedValue({
+      results: [
+        {
+          link: 'https://example.com/nvda-news',
+          snippet: 'NVIDIA announced expanded AI data-center partnerships.',
+          source: 'NVIDIA',
+          title: 'NVIDIA expands AI data-center partnerships'
+        }
+      ],
+      success: true
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Should I invest in NVIDIA right now?',
+      sessionId: 'session-nvda-invest',
+      userCurrency: 'USD',
+      userId: 'user-nvda-invest'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'get_asset_fundamentals' }),
+        expect.objectContaining({ tool: 'get_financial_news' }),
+        expect.objectContaining({ tool: 'price_history' })
+      ])
+    );
+    expect(result.toolCalls).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({ tool: 'portfolio_analysis' }),
+        expect.objectContaining({ tool: 'risk_assessment' }),
+        expect.objectContaining({ tool: 'rebalance_plan' })
+      ])
+    );
+    expect(portfolioService.getDetails).not.toHaveBeenCalled();
+    expect(result.answer).toContain('Fundamental analysis:');
+    expect(result.answer).toContain('Price history (NVDA, 30d):');
+    expect(result.answer).toContain('News catalysts (latest):');
+    expect(result.answer).not.toContain('Risk concentration is');
+    expect(result.answer).not.toContain('Total portfolio value:');
+  });
+
+  it('routes FIRE retirement queries to portfolio and stress tools', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        SPY: {
+          allocationInPercentage: 0.7,
+          dataSource: DataSource.YAHOO,
+          symbol: 'SPY',
+          valueInBaseCurrency: 7000
+        },
+        BND: {
+          allocationInPercentage: 0.3,
+          dataSource: DataSource.YAHOO,
+          symbol: 'BND',
+          valueInBaseCurrency: 3000
+        }
+      }
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Am I on track for early retirement?',
+      sessionId: 'session-fire-routing',
+      userCurrency: 'USD',
+      userId: 'user-fire-routing'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'portfolio_analysis' }),
+        expect.objectContaining({ tool: 'get_portfolio_summary' }),
+        expect.objectContaining({ tool: 'risk_assessment' }),
+        expect.objectContaining({ tool: 'stress_test' })
+      ])
+    );
+  });
+
   it('reuses one quote lookup for combined market and live quote tools', async () => {
     dataProviderService.getQuotes.mockResolvedValue({
       NVDA: {
@@ -1306,11 +1585,54 @@ describe('AiService', () => {
 
     expect(result.toolCalls).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ tool: 'market_data_lookup' }),
         expect.objectContaining({ tool: 'get_live_quote' })
       ])
     );
     expect(dataProviderService.getQuotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('injects next response preference into tool-to-LLM prompt', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        AAPL: {
+          allocationInPercentage: 0.6,
+          dataSource: DataSource.YAHOO,
+          symbol: 'AAPL',
+          valueInBaseCurrency: 6000
+        }
+      }
+    });
+    dataProviderService.getQuotes.mockResolvedValue({
+      AAPL: {
+        currency: 'USD',
+        marketPrice: 210.12,
+        marketState: 'REGULAR'
+      }
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+
+    const generateTextSpy = jest
+      .spyOn(subject, 'generateText')
+      .mockResolvedValue({
+        text: 'Preference applied response.'
+      } as never);
+
+    await subject.chat({
+      languageCode: 'en',
+      nextResponsePreference: 'Keep the response to 3 bullets.',
+      query: 'Analyze my portfolio risk',
+      sessionId: 'session-pref-prompt',
+      userCurrency: 'USD',
+      userId: 'user-pref-prompt'
+    });
+
+    expect(generateTextSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining(
+          'User preference for this response: Keep the response to 3 bullets.'
+        )
+      })
+    );
   });
 
   it('uses z.ai glm provider when z_ai_glm_api_key is available', async () => {
@@ -1346,67 +1668,6 @@ describe('AiService', () => {
       })
     );
     expect(propertyService.getByKey).not.toHaveBeenCalled();
-  });
-
-  it('sends structured message history payload when messages are provided', async () => {
-    process.env.z_ai_glm_api_key = 'zai-key';
-    process.env.z_ai_glm_model = 'glm-5';
-
-    const fetchMock = jest.fn().mockResolvedValue({
-      json: jest.fn().mockResolvedValue({
-        choices: [{ message: { content: 'history-response' } }]
-      }),
-      ok: true
-    });
-    global.fetch = fetchMock as unknown as typeof fetch;
-
-    await subject.generateText({
-      messages: [
-        {
-          content: 'You are a neutral financial assistant.',
-          role: 'system'
-        },
-        {
-          content: 'Show my recent transactions',
-          role: 'user'
-        },
-        {
-          content: 'Recent transactions are unavailable.',
-          role: 'assistant'
-        },
-        {
-          content: 'why?',
-          role: 'user'
-        }
-      ]
-    });
-
-    const requestBody = JSON.parse(
-      (fetchMock.mock.calls[0][1] as { body: string }).body
-    ) as {
-      messages: { content: string; role: string }[];
-      model: string;
-    };
-
-    expect(requestBody.model).toBe('glm-5');
-    expect(requestBody.messages).toEqual([
-      {
-        content: 'You are a neutral financial assistant.',
-        role: 'system'
-      },
-      {
-        content: 'Show my recent transactions',
-        role: 'user'
-      },
-      {
-        content: 'Recent transactions are unavailable.',
-        role: 'assistant'
-      },
-      {
-        content: 'why?',
-        role: 'user'
-      }
-    ]);
   });
 
   it('falls back to minimax when z.ai request fails', async () => {
@@ -1458,6 +1719,171 @@ describe('AiService', () => {
         model: 'MiniMax-M2.5',
         provider: 'minimax',
         responseText: 'minimax-response'
+      })
+    );
+  });
+
+  it('falls back to openai when minimax request fails', async () => {
+    process.env.z_ai_glm_api_key = 'zai-key';
+    process.env.minimax_api_key = 'minimax-key';
+    process.env.minimax_model = 'MiniMax-M2.5';
+    process.env.openai_api_key = 'openai-key';
+    process.env.openai_model = 'gpt-4o-mini';
+
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: jest.fn().mockResolvedValue({
+          choices: [{ message: { content: 'openai-response' } }]
+        })
+      });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await subject.generateText({
+      prompt: 'openai fallback test'
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.z.ai/api/paas/v4/chat/completions',
+      expect.any(Object)
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://api.minimax.io/v1/chat/completions',
+      expect.any(Object)
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'https://api.openai.com/v1/chat/completions',
+      expect.any(Object)
+    );
+    expect(result).toEqual({
+      text: 'openai-response'
+    });
+    expect(aiObservabilityService.recordLlmInvocation).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        model: 'gpt-4o-mini',
+        provider: 'openai',
+        responseText: 'openai-response'
+      })
+    );
+  });
+
+  it('uses openai provider when explicitly requested', async () => {
+    process.env.openai_api_key = 'openai-key';
+    process.env.openai_model = 'gpt-4o-mini';
+
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'explicit-openai-response' } }]
+      })
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await subject.generateText({
+      model: 'openai',
+      prompt: 'explicit model test'
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/chat/completions',
+      expect.any(Object)
+    );
+    expect(result).toEqual({
+      text: 'explicit-openai-response'
+    });
+  });
+
+  it('falls back to openrouter when minimax provider fails', async () => {
+    process.env.minimax_api_key = 'minimax-key';
+    process.env.minimax_model = 'MiniMax-M2.5';
+    propertyService.getByKey
+      .mockResolvedValueOnce('openrouter-key')
+      .mockResolvedValueOnce('gpt-4o-mini');
+
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: jest
+          .fn()
+          .mockResolvedValue(
+            JSON.stringify({
+              id: 'chatcmpl-1',
+              model: 'gpt-4o-mini',
+              choices: [
+                {
+                  index: 0,
+                  message: {
+                    role: 'assistant',
+                    content: 'openrouter-response'
+                  },
+                  finish_reason: 'stop'
+                }
+              ]
+            })
+          ),
+        headers: {
+          forEach: jest.fn()
+        },
+        json: jest.fn().mockResolvedValue({
+          id: 'chatcmpl-1',
+          model: 'gpt-4o-mini',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: 'openrouter-response'
+              },
+              finish_reason: 'stop'
+            }
+          ]
+        })
+      });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await subject.generateText({
+      model: 'minimax',
+      prompt: 'fallback to openrouter'
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.minimax.io/v1/chat/completions',
+      expect.any(Object)
+    );
+    expect(result).toEqual({
+      text: 'openrouter-response'
+    });
+    expect(aiObservabilityService.recordLlmInvocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'minimax'
+      })
+    );
+    expect(aiObservabilityService.recordLlmInvocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'openrouter',
+        responseText: 'openrouter-response'
       })
     );
   });

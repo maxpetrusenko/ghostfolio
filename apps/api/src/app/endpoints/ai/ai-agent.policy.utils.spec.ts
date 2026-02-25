@@ -122,7 +122,7 @@ describe('AiAgentPolicyUtils', () => {
     });
 
     expect(identityResponse).toContain('portfolio copilot');
-    expect(capabilityResponse).toContain('four modes');
+    expect(capabilityResponse).toContain('Pages with AI');
     expect(capabilityResponse).toContain('Show my recent transactions');
     expect(identityResponse).not.toBe(capabilityResponse);
   });
@@ -156,6 +156,8 @@ describe('AiAgentPolicyUtils', () => {
   it('detects follow-up prompts without capturing full market-news questions', () => {
     expect(isFollowUpQuery('why?')).toBe(true);
     expect(isFollowUpQuery('what about that?')).toBe(true);
+    expect(isFollowUpQuery('what about that now?')).toBe(true);
+    expect(isFollowUpQuery('why latest?')).toBe(true);
     expect(isFollowUpQuery('why did tsla drop today?')).toBe(false);
   });
 
@@ -237,24 +239,19 @@ describe('AiAgentPolicyUtils', () => {
       reason: 'read-only intent strips rebalance'
     },
     {
-      expectedTools: [
-        'portfolio_analysis',
-        'risk_assessment',
-        'rebalance_plan'
-      ] as AiAgentToolName[],
+      expectedTools: ['portfolio_analysis', 'risk_assessment'] as AiAgentToolName[],
       plannedTools: [
         'portfolio_analysis',
         'risk_assessment',
         'rebalance_plan'
       ] as AiAgentToolName[],
       query: 'invest 2000 and rebalance',
-      reason: 'action intent preserves rebalance'
+      reason: 'action intent without details strips rebalance'
     },
     {
       expectedTools: [
         'portfolio_analysis',
         'risk_assessment',
-        'rebalance_plan',
         'market_data_lookup'
       ] as AiAgentToolName[],
       plannedTools: [
@@ -264,7 +261,7 @@ describe('AiAgentPolicyUtils', () => {
         'market_data_lookup'
       ] as AiAgentToolName[],
       query: 'invest and rebalance after checking market quote for NVDA',
-      reason: 'action + market intent keeps all planned tools'
+      reason: 'action + market intent keeps read tools when rebalance details are missing'
     },
     {
       expectedTools: ['stress_test'] as AiAgentToolName[],
@@ -302,6 +299,72 @@ describe('AiAgentPolicyUtils', () => {
     expect(decision.toolsToExecute).toEqual([]);
   });
 
+  it('allows new read-only tools without action intent', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['account_overview', 'exchange_rate', 'market_benchmarks'],
+      query: 'show account overview and usd to eur exchange rate'
+    });
+
+    expect(decision.route).toBe('tools');
+    expect(decision.blockedByPolicy).toBe(false);
+    expect(decision.toolsToExecute).toEqual([
+      'account_overview',
+      'exchange_rate',
+      'market_benchmarks'
+    ]);
+  });
+
+  it('blocks create-account action tool without action intent', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['create_account'],
+      query: 'account details please'
+    });
+
+    expect(decision.route).toBe('clarify');
+    expect(decision.toolsToExecute).toEqual([]);
+  });
+
+  it('allows create-account action tool with explicit action intent', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['create_account'],
+      query: 'create account named trading'
+    });
+
+    expect(decision.route).toBe('tools');
+    expect(decision.toolsToExecute).toEqual(['create_account']);
+  });
+
+  it('requires order details for vague create-order prompts', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['create_order'],
+      query: 'make an order for tesla'
+    });
+
+    expect(decision.route).toBe('clarify');
+    expect(decision.blockReason).toBe('needs_order_details');
+    expect(decision.toolsToExecute).toEqual([]);
+    expect(
+      createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'make an order for tesla'
+      })
+    ).toContain('please specify the amount');
+  });
+
+  it('requires rebalance details even with action wording', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
+      query: 'rebalance me'
+    });
+
+    expect(decision.route).toBe('tools');
+    expect(decision.blockReason).toBe('needs_rebalance_details');
+    expect(decision.toolsToExecute).toEqual([
+      'portfolio_analysis',
+      'risk_assessment'
+    ]);
+  });
+
   it('formats policy verification details with planned and executed tools', () => {
     const decision = applyToolExecutionPolicy({
       plannedTools: [
@@ -324,5 +387,112 @@ describe('AiAgentPolicyUtils', () => {
     expect(details).toContain(
       'executed_tools=portfolio_analysis, risk_assessment'
     );
+  });
+
+  describe('Feature Discovery Responses', () => {
+    it('includes FIRE page in capability response', () => {
+      const decision = applyToolExecutionPolicy({
+        plannedTools: [],
+        query: 'what can you do?'
+      });
+      const response = createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'what can you do?'
+      });
+
+      expect(response).toContain('Pages with AI');
+      expect(response).toContain('/portfolio/fire');
+      expect(response).toContain('/portfolio/analysis');
+      expect(response).toContain('/chat');
+      expect(response).toContain('FIRE Calculator');
+      expect(response).toContain('retirement planning');
+    });
+
+    it('includes AI feature categories in capability response', () => {
+      const decision = applyToolExecutionPolicy({
+        plannedTools: [],
+        query: 'what can you do?'
+      });
+      const response = createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'what can you do?'
+      });
+
+      expect(response).toContain('Account:');
+      expect(response).toContain('Holdings:');
+      expect(response).toContain('Risk:');
+      expect(response).toContain('Advice:');
+      expect(response).toContain('News:');
+      expect(response).toContain('FIRE:');
+    });
+
+    it('includes all feature categories in greeting response', () => {
+      const decision = applyToolExecutionPolicy({
+        plannedTools: [],
+        query: 'hello'
+      });
+      const response = createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'hello'
+      });
+
+      expect(response).toContain('Portfolio:');
+      expect(response).toContain('Risk:');
+      expect(response).toContain('FIRE:');
+      expect(response).toContain('Market:');
+      expect(response).toContain('Transactions:');
+      expect(response).toContain('Advice:');
+    });
+
+    it('includes FIRE examples in greeting response', () => {
+      const decision = applyToolExecutionPolicy({
+        plannedTools: [],
+        query: 'hi there'
+      });
+      const response = createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'hi there'
+      });
+
+      expect(response).toContain('retirement planning');
+      expect(response).toContain('safe withdrawal rates');
+      expect(response).toContain('savings scenarios');
+    });
+
+    it.each([
+      'what features do you have',
+      'what can i test',
+      'help me understand what to do',
+      'what can i ask you'
+    ])('provides feature guidance for "%s" query', (query) => {
+      const decision = applyToolExecutionPolicy({
+        plannedTools: [],
+        query
+      });
+      const response = createPolicyRouteResponse({
+        policyDecision: decision,
+        query
+      });
+
+      expect(response).toMatch(/(Pages with AI|portfolio|fire|chat)/i);
+    });
+
+    it('includes quick examples in capability response', () => {
+      const decision = applyToolExecutionPolicy({
+        plannedTools: [],
+        query: 'what can I do?'
+      });
+      const response = createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'what can I do?'
+      });
+
+      expect(response).toContain('Show my account balances');
+      expect(response).toContain('Analyze my concentration risk');
+      expect(response).toContain('Get latest news for AAPL');
+      expect(response).toContain('Am I on track for early retirement?');
+      expect(response).toContain('Calculate rebalance plan');
+      expect(response).toContain('Simulate trade impact');
+    });
   });
 });

@@ -1,7 +1,10 @@
+import { AccountService } from '@ghostfolio/api/app/account/account.service';
 import { OrderService } from '@ghostfolio/api/app/order/order.service';
 import { PortfolioService } from '@ghostfolio/api/app/portfolio/portfolio.service';
 import { RedisCacheService } from '@ghostfolio/api/app/redis-cache/redis-cache.service';
+import { BenchmarkService } from '@ghostfolio/api/services/benchmark/benchmark.service';
 import { DataProviderService } from '@ghostfolio/api/services/data-provider/data-provider.service';
+import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.service';
 import { PropertyService } from '@ghostfolio/api/services/property/property.service';
 import {
   PROPERTY_API_KEY_OPENROUTER,
@@ -11,18 +14,16 @@ import { Filter } from '@ghostfolio/common/interfaces';
 import type { AiPromptMode } from '@ghostfolio/common/types';
 import { Injectable } from '@nestjs/common';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { DataSource } from '@prisma/client';
+import { DataSource, Type } from '@prisma/client';
 import type { SymbolProfile } from '@prisma/client';
 import { RunnableLambda } from '@langchain/core/runnables';
 import { generateText } from 'ai';
 import { randomUUID } from 'node:crypto';
 import {
-  AiAgentChatMessage,
   AiAgentChatResponse,
   AiAgentToolName,
   AiAgentToolCall
 } from './ai-agent.interfaces';
-import { AiAgentMemoryState } from './ai-agent.chat.interfaces';
 import {
   AI_AGENT_MEMORY_MAX_TURNS,
   buildAnswer,
@@ -46,17 +47,18 @@ import {
 import { createHoldingsPrompt } from './ai-agent.prompt.helpers';
 import {
   generateTextWithMinimax,
+  generateTextWithOpenAI,
   generateTextWithZAiGlm
 } from './ai-llm.providers';
 import { AiObservabilityService } from './ai-observability.service';
+import { AiAgentWebSearchService } from './ai-agent.web-search';
 import {
   calculateConfidence,
   determineToolPlan,
   evaluateAnswerQuality,
-  extractSymbolsFromQuery,
-  formatTickerClarificationSuggestion,
-  getTickerClarificationSuggestion
+  extractSymbolsFromQuery
 } from './ai-agent.utils';
+import { searchWebNewsForSymbols } from './ai-agent.web-search.helpers';
 import {
   applyToolExecutionPolicy,
   createPolicyRouteResponse,
@@ -65,6 +67,7 @@ import {
 } from './ai-agent.policy.utils';
 
 const PORTFOLIO_CONTEXT_SYMBOL_TOOLS = new Set([
+  'price_history',
   'calculate_rebalance_plan',
   'get_asset_fundamentals',
   'get_current_holdings',
@@ -78,12 +81,20 @@ const PORTFOLIO_CONTEXT_SYMBOL_TOOLS = new Set([
 ]);
 const PORTFOLIO_SYMBOL_CONTEXT_QUERY_PATTERN =
   /\b(?:my|portfolio|holdings?|allocation|account|risk|concentration|rebalance)\b/i;
+const FOLLOW_UP_FRESHNESS_PATTERN =
+  /\b(?:now|today|latest|current|updated|update)\b/i;
+const FOLLOW_UP_FRESHNESS_TOOLS = new Set<AiAgentToolName>([
+  'get_financial_news',
+  'get_live_quote',
+  'market_data_lookup',
+  'price_history'
+]);
 const ORDER_TOOL_TAKE_BY_NAME: Partial<Record<AiAgentToolName, number>> = {
+  activity_history: 20,
   get_recent_transactions: 5,
   transaction_categorize: 50,
   compliance_check: 100
 };
-const ARTICLE_URL_PATTERN = /https?:\/\/[^\s)]+/i;
 type OrderActivity = Awaited<
   ReturnType<OrderService['getOrders']>
 >['activities'][number];
@@ -91,60 +102,55 @@ type OrderActivity = Awaited<
 @Injectable()
 export class AiService {
   public constructor(
+    private readonly accountService: AccountService,
+    private readonly benchmarkService: BenchmarkService,
     private readonly dataProviderService: DataProviderService,
+    private readonly exchangeRateDataService: ExchangeRateDataService,
     private readonly orderService: OrderService,
     private readonly portfolioService: PortfolioService,
     private readonly propertyService: PropertyService,
     private readonly redisCacheService: RedisCacheService,
-    private readonly aiObservabilityService: AiObservabilityService
+    private readonly aiObservabilityService: AiObservabilityService,
+    private readonly aiAgentWebSearchService?: AiAgentWebSearchService
   ) {}
   public async generateText({
-    messages,
     prompt,
     signal,
     model,
-    traceContext
+    traceContext,
+    onLlmInvocation
   }: {
-    messages?: AiAgentChatMessage[];
-    prompt?: string;
+    prompt: string;
     signal?: AbortSignal;
     model?: string;
+    onLlmInvocation?: (invocation: { model: string; provider: string }) => void;
     traceContext?: {
       query?: string;
       sessionId?: string;
       userId?: string;
     };
   }) {
-    const filteredMessages = messages?.filter(({ content }) => {
-      return typeof content === 'string' && content.trim().length > 0;
-    });
-    const promptFromMessages =
-      filteredMessages && filteredMessages.length > 0
-        ? filteredMessages
-            .map(({ content, role }) => {
-              return `${role}: ${content}`;
-            })
-            .join('\n\n')
-        : '';
-    const resolvedPrompt = prompt?.trim() || promptFromMessages;
-
-    if (!resolvedPrompt) {
-      throw new Error('prompt or messages are required for LLM generation');
-    }
-
     const zAiGlmApiKey =
       process.env.z_ai_glm_api_key ?? process.env.Z_AI_GLM_API_KEY;
     const zAiGlmModel = process.env.z_ai_glm_model ?? process.env.Z_AI_GLM_MODEL;
     const minimaxApiKey =
       process.env.minimax_api_key ?? process.env.MINIMAX_API_KEY;
     const minimaxModel = process.env.minimax_model ?? process.env.MINIMAX_MODEL;
+    const openAiApiKey =
+      process.env.openai_api_key ?? process.env.OPENAI_API_KEY;
+    const openAiModel =
+      process.env.openai_model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
     const normalizedModel = (model ?? 'auto').toLowerCase();
-    const requestedModel = ['auto', 'glm', 'minimax'].includes(normalizedModel)
+    const requestedModel = ['auto', 'glm', 'minimax', 'openai'].includes(
+      normalizedModel
+    )
       ? normalizedModel
       : 'auto';
     const shouldTryGlm = requestedModel === 'auto' || requestedModel === 'glm';
     const shouldTryMinimax =
       requestedModel === 'auto' || requestedModel === 'minimax';
+    const shouldTryOpenAi =
+      requestedModel === 'auto' || requestedModel === 'openai';
     const providerUnavailable = (provider: string) =>
       `${provider}: not configured`;
     const providerErrors: string[] = [];
@@ -172,19 +178,23 @@ export class AiService {
           query?: string;
           sessionId?: string;
           userId?: string;
-          messages?: AiAgentChatMessage[];
         }) => {
-          const startedAt = Date.now();
-          let invocationError: unknown;
-          let responseText: string | undefined;
+        const startedAt = Date.now();
+        let invocationError: unknown;
+        let responseText: string | undefined;
 
-          try {
-            const response = await run();
-            responseText = response?.text;
+        try {
+          const response = await run();
+          responseText = response?.text;
 
-            return response;
-          } catch (error) {
-            invocationError = error;
+          onLlmInvocation?.({
+            model,
+            provider
+          });
+
+          return response;
+        } catch (error) {
+          invocationError = error;
             throw error;
           } finally {
             void this.aiObservabilityService.recordLlmInvocation({
@@ -205,12 +215,11 @@ export class AiService {
       return invocationRunnable.invoke(
         {
           model,
-          prompt: resolvedPrompt,
+          prompt,
           provider,
           query: traceContext?.query,
           sessionId: traceContext?.sessionId,
-          userId: traceContext?.userId,
-          messages: filteredMessages
+          userId: traceContext?.userId
         },
         {
           metadata: {
@@ -229,8 +238,10 @@ export class AiService {
     if (shouldTryGlm) {
       if (!zAiGlmApiKey) {
         if (requestedModel === 'glm') {
-          providerErrors.push(providerUnavailable('z_ai_glm'));
+          throw new Error(providerUnavailable('z_ai_glm'));
         }
+
+        providerErrors.push(providerUnavailable('z_ai_glm'));
       } else {
         try {
           return await invokeProviderWithTracing({
@@ -240,12 +251,17 @@ export class AiService {
               generateTextWithZAiGlm({
                 apiKey: zAiGlmApiKey,
                 model: zAiGlmModel,
-                messages: filteredMessages,
-                prompt: resolvedPrompt,
+                prompt,
                 signal
               })
           });
         } catch (error) {
+          if (requestedModel === 'glm') {
+            throw new Error(
+              error instanceof Error ? error.message : 'request failed'
+            );
+          }
+
           providerErrors.push(
             `z_ai_glm: ${error instanceof Error ? error.message : 'request failed'}`
           );
@@ -255,9 +271,7 @@ export class AiService {
 
     if (shouldTryMinimax) {
       if (!minimaxApiKey) {
-        if (requestedModel === 'minimax') {
-          providerErrors.push(providerUnavailable('minimax'));
-        }
+        providerErrors.push(providerUnavailable('minimax'));
       } else {
         try {
           return await invokeProviderWithTracing({
@@ -267,14 +281,39 @@ export class AiService {
               generateTextWithMinimax({
                 apiKey: minimaxApiKey,
                 model: minimaxModel,
-                messages: filteredMessages,
-                prompt: resolvedPrompt,
+                prompt,
                 signal
               })
           });
         } catch (error) {
           providerErrors.push(
             `minimax: ${error instanceof Error ? error.message : 'request failed'}`
+          );
+        }
+      }
+    }
+
+    if (shouldTryOpenAi) {
+      if (!openAiApiKey) {
+        providerErrors.push(providerUnavailable('openai'));
+      } else {
+        try {
+          return await invokeProviderWithTracing({
+            model: openAiModel,
+            provider: 'openai',
+            run: () =>
+              generateTextWithOpenAI({
+                apiKey: openAiApiKey,
+                model: openAiModel,
+                prompt,
+                signal
+              })
+          });
+        } catch (error) {
+          providerErrors.push(
+            `openai: ${
+              error instanceof Error ? error.message : 'request failed'
+            }`
           );
         }
       }
@@ -301,21 +340,19 @@ export class AiService {
       model: openRouterModel,
       provider: 'openrouter',
       run: async () => {
-        if (filteredMessages && filteredMessages.length > 0) {
-          return generateText({
-            abortSignal: signal,
-            messages: filteredMessages.map(({ content, role }) => {
-              return { content, role };
-            }),
-            model: openRouterService.chat(openRouterModel)
-          });
+        const response = await generateText({
+          prompt,
+          abortSignal: signal,
+          model: openRouterService.chat(openRouterModel)
+        });
+
+        if (typeof response.text !== 'string') {
+          throw new Error('OpenRouter response does not contain text output');
         }
 
-        return generateText({
-          abortSignal: signal,
-          model: openRouterService.chat(openRouterModel),
-          prompt: resolvedPrompt
-        });
+        return {
+          text: response.text
+        };
       }
     });
   }
@@ -323,22 +360,34 @@ export class AiService {
   public async chat({
     languageCode,
     query,
+    conversationId,
     sessionId,
     symbols,
     model,
+    nextResponsePreference,
     userCurrency,
     userId
   }: {
     languageCode: string;
     query: string;
+    conversationId?: string;
     sessionId?: string;
     symbols?: string[];
     model?: string;
+    nextResponsePreference?: string;
     userCurrency: string;
     userId: string;
   }): Promise<AiAgentChatResponse> {
     const normalizedQuery = query.trim();
-    const resolvedSessionId = sessionId?.trim() || randomUUID();
+    const preferredStyleInstruction =
+      nextResponsePreference?.trim() ?? '';
+    const queryForTools = normalizedQuery;
+    const queryForPrompt =
+      preferredStyleInstruction.length > 0
+        ? `${normalizedQuery}\n\nUser preference for this response: ${preferredStyleInstruction}`
+        : normalizedQuery;
+    const resolvedSessionId =
+      conversationId?.trim() || sessionId?.trim() || randomUUID();
     const chatStartedAt = Date.now();
     let llmGenerationInMs = 0;
     let memoryReadInMs = 0;
@@ -361,7 +410,7 @@ export class AiService {
       memoryReadInMs = Date.now() - memoryReadStartedAt;
 
       const inferredPlannedTools = determineToolPlan({
-        query: normalizedQuery,
+        query: queryForTools,
         symbols
       });
       const previousTurn =
@@ -377,18 +426,26 @@ export class AiService {
             )
           )
         : [];
-      const plannedTools =
+      const hasFollowUpReuseOpportunity =
         inferredPlannedTools.length === 0 &&
-        isFollowUpQuery(normalizedQuery) &&
-        previousSuccessfulTools.length > 0
-          ? previousSuccessfulTools
-          : inferredPlannedTools;
+        isFollowUpQuery(queryForTools) &&
+        previousSuccessfulTools.length > 0;
+      const freshnessFollowUpTools = FOLLOW_UP_FRESHNESS_PATTERN.test(queryForTools)
+        ? previousSuccessfulTools.filter((toolName) => {
+            return FOLLOW_UP_FRESHNESS_TOOLS.has(toolName);
+          })
+        : [];
+      const plannedTools = hasFollowUpReuseOpportunity
+        ? freshnessFollowUpTools.length > 0
+          ? freshnessFollowUpTools
+          : previousSuccessfulTools
+        : inferredPlannedTools;
       const policyDecision = applyToolExecutionPolicy({
         plannedTools,
-        query: normalizedQuery
+        query: queryForTools
       });
       const preferenceUpdate = resolvePreferenceUpdate({
-        query: normalizedQuery,
+        query: queryForTools,
         userPreferences
       });
       const effectiveUserPreferences = preferenceUpdate.userPreferences;
@@ -397,38 +454,43 @@ export class AiService {
       const verification: AiAgentChatResponse['verification'] = [];
       const explicitRequestedSymbols = symbols?.length
         ? symbols
-        : extractSymbolsFromQuery(normalizedQuery);
+        : extractSymbolsFromQuery(queryForTools);
       const hasExplicitSymbolRequest = explicitRequestedSymbols.length > 0;
       const hasPortfolioSymbolContext = PORTFOLIO_SYMBOL_CONTEXT_QUERY_PATTERN.test(
-        normalizedQuery
+        queryForTools
       );
       const hasExtendedTickerResearchStack =
-        policyDecision.toolsToExecute.includes('get_financial_news');
+        policyDecision.toolsToExecute.includes('get_financial_news') ||
+        policyDecision.toolsToExecute.includes('price_history');
       const shouldForceExternalSymbolContext =
         hasExplicitSymbolRequest &&
         !hasPortfolioSymbolContext &&
         hasExtendedTickerResearchStack;
+      let llmInvocation:
+        | {
+            model: string;
+            provider: string;
+          }
+        | undefined;
       let portfolioAnalysis: Awaited<ReturnType<typeof runPortfolioAnalysis>>;
       let riskAssessment: ReturnType<typeof runRiskAssessment>;
       let marketData: Awaited<ReturnType<typeof runMarketDataLookup>>;
       let rebalancePlan: ReturnType<typeof runRebalancePlan>;
       let stressTest: ReturnType<typeof runStressTest>;
       let assetFundamentalsSummary: string | undefined;
-      let articleContentSummary: string | undefined;
+      let accountOverviewSummary: string | undefined;
+      let activityHistorySummary: string | undefined;
+      let benchmarkSummary: string | undefined;
       let complianceCheckSummary: string | undefined;
+      let demoDataSummary: string | undefined;
+      let exchangeRateSummary: string | undefined;
       let financialNewsSummary: string | undefined;
-      let latestNewsItems:
-        | {
-            link: string;
-            symbol: string;
-            title: string;
-          }[]
-        | undefined;
+      let priceHistorySummary: string | undefined;
       let recentTransactionsSummary: string | undefined;
+      let symbolLookupSummary: string | undefined;
       let taxEstimateSummary: string | undefined;
       let tradeImpactSummary: string | undefined;
       let transactionCategorizationSummary: string | undefined;
-      let symbolClarificationHint: string | undefined;
 
       const shouldUsePortfolioContextForSymbols =
         policyDecision.toolsToExecute.some((toolName) => {
@@ -457,7 +519,7 @@ export class AiService {
       >();
       const financialNewsBySymbolsCache = new Map<
         string,
-        Promise<{ link: string; symbol: string; title: string }[]>
+        Promise<Awaited<ReturnType<typeof searchWebNewsForSymbols>>>
       >();
 
       const getPortfolioAnalysis = () => {
@@ -577,33 +639,19 @@ export class AiService {
         if (!financialNewsBySymbolsCache.has(cacheKey)) {
           financialNewsBySymbolsCache.set(
             cacheKey,
-            this.getFinancialNewsHeadlines({
+            searchWebNewsForSymbols({
+              aiAgentWebSearchService:
+                this.aiAgentWebSearchService ?? new AiAgentWebSearchService(),
+              dataProviderService: this.dataProviderService,
+              portfolioAnalysis: shouldUsePortfolioContextForSymbols
+                ? await getPortfolioAnalysis()
+                : portfolioAnalysis,
               symbols: requestedSymbols
             })
           );
         }
 
         return financialNewsBySymbolsCache.get(cacheKey)!;
-      };
-      const updateSymbolClarificationHint = ({
-        unresolvedSymbols
-      }: {
-        unresolvedSymbols: string[];
-      }) => {
-        if (symbolClarificationHint || unresolvedSymbols.length === 0) {
-          return;
-        }
-
-        const suggestion = getTickerClarificationSuggestion({
-          query: normalizedQuery,
-          unresolvedSymbols
-        });
-
-        if (!suggestion) {
-          return;
-        }
-
-        symbolClarificationHint = `${formatTickerClarificationSuggestion(suggestion)} If yes, I can run quotes, fundamentals, and news for ${suggestion.symbol}.`;
       };
 
       const toolExecutionStartedAt = Date.now();
@@ -721,15 +769,6 @@ export class AiService {
               const requestedSymbols = await getResolvedSymbols();
               const currentMarketData = await getMarketDataBySymbols(requestedSymbols);
               const topQuote = currentMarketData.quotes[0];
-              const resolvedSymbolSet = new Set(
-                currentMarketData.quotes.map(({ symbol }) => symbol.toUpperCase())
-              );
-              const unresolvedSymbols = requestedSymbols.filter((symbol) => {
-                return !resolvedSymbolSet.has(symbol.toUpperCase());
-              });
-              updateSymbolClarificationHint({
-                unresolvedSymbols
-              });
 
               return {
                 citations:
@@ -753,15 +792,6 @@ export class AiService {
               const requestedSymbols = await getResolvedSymbols();
               const currentMarketData = await getMarketDataBySymbols(requestedSymbols);
               const topQuote = currentMarketData.quotes[0];
-              const resolvedSymbolSet = new Set(
-                currentMarketData.quotes.map(({ symbol }) => symbol.toUpperCase())
-              );
-              const unresolvedSymbols = requestedSymbols.filter((symbol) => {
-                return !resolvedSymbolSet.has(symbol.toUpperCase());
-              });
-              updateSymbolClarificationHint({
-                unresolvedSymbols
-              });
 
               return {
                 citations:
@@ -781,6 +811,329 @@ export class AiService {
                   tool: toolName
                 }
               };
+            } else if (toolName === 'account_overview') {
+              const accounts = await this.accountService.getAccounts(userId);
+              const totalBalance = accounts.reduce((total, account) => {
+                return total + Number(account.balance ?? 0);
+              }, 0);
+              const topAccounts = accounts
+                .slice(0, 3)
+                .map((account) => {
+                  return `${account.name} ${Number(account.balance ?? 0).toFixed(2)} ${account.currency}`;
+                })
+                .join(', ');
+
+              accountOverviewSummary =
+                accounts.length > 0
+                  ? [
+                      `Account overview: ${accounts.length} accounts.`,
+                      `Total account cash balance: ${totalBalance.toFixed(2)} ${userCurrency}.`,
+                      `Top accounts: ${topAccounts || 'n/a'}.`
+                    ].join('\n')
+                  : 'Account overview: no accounts found.';
+
+              return {
+                citations: [
+                  {
+                    confidence: accounts.length > 0 ? 0.82 : 0.62,
+                    snippet:
+                      accounts.length > 0
+                        ? `Accounts ${accounts.length}, total balance ${totalBalance.toFixed(2)} ${userCurrency}`
+                        : 'No accounts found',
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: `${accounts.length} accounts summarized`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'exchange_rate') {
+              const exchangeRateInput = this.extractExchangeRateInput({
+                baseCurrency: userCurrency,
+                query: normalizedQuery
+              });
+              const rate = this.exchangeRateDataService.toCurrency(
+                1,
+                exchangeRateInput.from,
+                exchangeRateInput.to
+              );
+
+              exchangeRateSummary = `Exchange rate snapshot: 1 ${exchangeRateInput.from} = ${rate.toFixed(4)} ${exchangeRateInput.to}.`;
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.8,
+                    snippet: exchangeRateSummary,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: exchangeRateInput,
+                  outputSummary: `1 ${exchangeRateInput.from} -> ${rate.toFixed(4)} ${exchangeRateInput.to}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'price_history') {
+              const requestedSymbols = await getResolvedSymbols();
+              const lookup = await getMarketDataBySymbols(requestedSymbols);
+              const symbol =
+                lookup.quotes[0]?.symbol ??
+                requestedSymbols.find((candidate) => {
+                  return /^[A-Z0-9]{1,6}(?:\.[A-Z0-9]{1,4})?$/.test(candidate);
+                }) ?? requestedSymbols[0] ?? 'SPY';
+              const to = new Date();
+              const from = new Date(to);
+              from.setDate(to.getDate() - 30);
+              const historicalData = await this.dataProviderService.getHistorical(
+                [{ dataSource: DataSource.YAHOO, symbol }],
+                'day',
+                from,
+                to
+              );
+              const points = Object.entries(historicalData[symbol] ?? {})
+                .map(([, value]) => {
+                  return value?.marketPrice;
+                })
+                .filter((value): value is number => Number.isFinite(value));
+              const first = points[0];
+              const last = points[points.length - 1];
+              const changeInPercent =
+                Number.isFinite(first) && Number.isFinite(last) && first !== 0
+                  ? ((last - first) / first) * 100
+                  : undefined;
+
+              priceHistorySummary =
+                points.length > 0
+                  ? `Price history (${symbol}, 30d): ${points.length} points, latest ${last.toFixed(2)} ${userCurrency}${typeof changeInPercent === 'number' ? `, change ${changeInPercent.toFixed(2)}%` : ''}.`
+                  : `Price history (${symbol}): no historical points found for the selected window.`;
+
+              return {
+                citations: [
+                  {
+                    confidence: points.length > 0 ? 0.79 : 0.62,
+                    snippet: priceHistorySummary,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {
+                    from: from.toISOString(),
+                    symbol,
+                    to: to.toISOString()
+                  },
+                  outputSummary: `${points.length} historical points returned for ${symbol}`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'symbol_lookup') {
+              const symbolsFromQuery = extractSymbolsFromQuery(normalizedQuery);
+
+              symbolLookupSummary =
+                symbolsFromQuery.length > 0
+                  ? `Symbol lookup: matched ${symbolsFromQuery.join(', ')} from the query.`
+                  : 'Symbol lookup: no ticker symbol found in the query text.';
+
+              return {
+                citations: [
+                  {
+                    confidence: symbolsFromQuery.length > 0 ? 0.78 : 0.6,
+                    snippet: symbolLookupSummary,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { query: normalizedQuery },
+                  outputSummary: `${symbolsFromQuery.length} symbols matched`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'market_benchmarks') {
+              const benchmarks = await this.benchmarkService.getBenchmarks({
+                useCache: true
+              });
+              const topBenchmarks = benchmarks
+                .slice(0, 3)
+                .map(({ symbol, trend50d, trend200d }) => {
+                  return `${symbol} (50d ${trend50d}, 200d ${trend200d})`;
+                })
+                .join(', ');
+
+              benchmarkSummary =
+                benchmarks.length > 0
+                  ? `Market benchmarks: ${topBenchmarks}.`
+                  : 'Market benchmarks: no benchmark entries available.';
+
+              return {
+                citations: [
+                  {
+                    confidence: benchmarks.length > 0 ? 0.8 : 0.62,
+                    snippet: benchmarkSummary,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: `${benchmarks.length} benchmark entries returned`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'activity_history') {
+              const activities = await getRecentActivities(20);
+              const typeCounts = new Map<string, number>();
+
+              for (const activity of activities) {
+                const normalizedType = String(activity.type ?? 'UNKNOWN').toUpperCase();
+                typeCounts.set(normalizedType, (typeCounts.get(normalizedType) ?? 0) + 1);
+              }
+
+              const typeSummary = Array.from(typeCounts.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([type, count]) => `${type} ${count}`)
+                .join(', ');
+
+              activityHistorySummary =
+                activities.length > 0
+                  ? `Activity history: ${activities.length} recent entries. Top activity types: ${typeSummary || 'n/a'}.`
+                  : 'Activity history: no recent entries found.';
+
+              return {
+                citations: [
+                  {
+                    confidence: activities.length > 0 ? 0.8 : 0.62,
+                    snippet: activityHistorySummary,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { take: 20 },
+                  outputSummary: `${activities.length} activities summarized`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'demo_data') {
+              demoDataSummary =
+                'Demo data mode: sample flow includes account overview, benchmark comparison, and scenario analysis prompts without placing trades.';
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.72,
+                    snippet: demoDataSummary,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: {},
+                  outputSummary: 'demo workflow summary returned',
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'create_account') {
+              const accountInput = this.extractCreateAccountInput({
+                baseCurrency: userCurrency,
+                query: normalizedQuery
+              });
+              const createdAccount = await this.accountService.createAccount(
+                {
+                  balance: accountInput.balance,
+                  currency: accountInput.currency,
+                  name: accountInput.name,
+                  user: { connect: { id: userId } }
+                },
+                userId
+              );
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.85,
+                    snippet: `Created account ${createdAccount.name} (${createdAccount.currency}) with opening balance ${Number(createdAccount.balance ?? 0).toFixed(2)}.`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: accountInput,
+                  outputSummary: `account ${createdAccount.name} created`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'create_order') {
+              const orderInput = this.extractCreateOrderInput({
+                baseCurrency: userCurrency,
+                query: normalizedQuery
+              });
+
+              if (
+                !orderInput.hasSymbol ||
+                !orderInput.hasQuantity ||
+                !orderInput.hasUnitPrice
+              ) {
+                throw new Error(
+                  'Order request is missing required details. Provide symbol, quantity, and unit price (for example: "Buy 10 shares of TSLA at 250 USD").'
+                );
+              }
+              const userAccounts = await this.accountService.getAccounts(userId);
+              const accountId = userAccounts[0]?.id;
+
+              if (!accountId) {
+                throw new Error('No account available to place an order');
+              }
+
+              const createdOrder = await this.orderService.createOrder({
+                accountId,
+                currency: orderInput.currency,
+                date: new Date(),
+                fee: 0,
+                quantity: orderInput.quantity,
+                SymbolProfile: {
+                  connectOrCreate: {
+                    create: {
+                      currency: orderInput.currency,
+                      dataSource: DataSource.YAHOO,
+                      symbol: orderInput.symbol
+                    },
+                    where: {
+                      dataSource_symbol: {
+                        dataSource: DataSource.YAHOO,
+                        symbol: orderInput.symbol
+                      }
+                    }
+                  }
+                },
+                type: orderInput.type,
+                unitPrice: orderInput.unitPrice,
+                updateAccountBalance: false,
+                user: { connect: { id: userId } },
+                userId
+              });
+
+              return {
+                citations: [
+                  {
+                    confidence: 0.84,
+                    snippet: `Created order ${createdOrder.type} ${orderInput.quantity} ${orderInput.symbol} at ${orderInput.unitPrice.toFixed(2)} ${orderInput.currency}.`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: orderInput,
+                  outputSummary: `order ${createdOrder.id} created`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
             } else if (toolName === 'get_asset_fundamentals') {
               const analysis = shouldUsePortfolioContextForSymbols
                 ? await getPortfolioAnalysis()
@@ -791,15 +1144,6 @@ export class AiService {
               const topProfile = profileSymbols[0]
                 ? profilesBySymbol[profileSymbols[0]]
                 : undefined;
-              const resolvedProfileSymbolSet = new Set(
-                profileSymbols.map((symbol) => symbol.toUpperCase())
-              );
-              const unresolvedSymbols = requestedSymbols.filter((symbol) => {
-                return !resolvedProfileSymbolSet.has(symbol.toUpperCase());
-              });
-              updateSymbolClarificationHint({
-                unresolvedSymbols
-              });
 
               assetFundamentalsSummary = this.buildAssetFundamentalsSummary({
                 portfolioAnalysis: analysis,
@@ -828,17 +1172,22 @@ export class AiService {
               };
             } else if (toolName === 'get_financial_news') {
               const requestedSymbols = await getResolvedSymbols();
-              const headlines = await getFinancialNewsBySymbols(requestedSymbols);
-              latestNewsItems = headlines;
+              const newsResult = await getFinancialNewsBySymbols(requestedSymbols);
+              const firstSymbol = newsResult.symbolsSearched[0];
+              const firstHeadline = firstSymbol
+                ? newsResult.searchResultsBySymbol.get(firstSymbol)?.news.results[0]
+                : undefined;
+              const headlineCount = Array.from(
+                newsResult.searchResultsBySymbol.values()
+              ).reduce((total, value) => {
+                return total + value.news.results.length;
+              }, 0);
 
               financialNewsSummary =
-                headlines.length > 0
+                newsResult.formattedSummary.length > 0
                   ? [
                       'News catalysts (latest):',
-                      ...headlines.slice(0, 5).map(({ link, symbol, title }, index) => {
-                        return `${index + 1}) ${symbol}: ${title} (${link})`;
-                      }),
-                      'Ask a follow-up like "more about 1" or "more about <headline>" to expand a specific article.',
+                      newsResult.formattedSummary,
                       'Use headlines as catalyst context and confirm with filings, earnings transcripts, and guidance changes before acting.'
                     ].join('\n')
                   : 'Financial news lookup returned no headlines for the requested symbols.';
@@ -846,78 +1195,17 @@ export class AiService {
               return {
                 citations: [
                   {
-                    confidence: headlines.length > 0 ? 0.75 : 0.6,
+                    confidence: headlineCount > 0 ? 0.75 : 0.6,
                     snippet:
-                      headlines.length > 0
-                        ? `${headlines[0].symbol}: ${headlines[0].title}`
+                      firstHeadline
+                        ? `${firstHeadline.title}`
                         : 'No financial headlines were returned',
                     source: toolName
                   }
                 ],
                 toolCall: {
                   input: { symbols: requestedSymbols },
-                  outputSummary: `${headlines.length} financial headlines resolved`,
-                  status: 'success' as const,
-                  tool: toolName
-                }
-              };
-            } else if (toolName === 'get_article_content') {
-              const recentNewsItems = this.getRecentNewsItemsFromMemory({
-                memory
-              });
-              const articleTarget = this.resolveNewsArticleTarget({
-                query: normalizedQuery,
-                recentNewsItems
-              });
-
-              if (!articleTarget) {
-                articleContentSummary =
-                  recentNewsItems.length > 0
-                    ? 'Article detail: I found recent headlines, but I need the exact target. Ask "more about 1" or quote part of a headline.'
-                    : 'Article detail: I need a headline or URL first. Ask for market news, then ask "more about 1".';
-
-                return {
-                  citations: [],
-                  toolCall: {
-                    input: { query: normalizedQuery },
-                    outputSummary: 'article target not resolved',
-                    status: 'success' as const,
-                    tool: toolName
-                  }
-                };
-              }
-
-              const articleBody = await this.fetchArticleContent({
-                url: articleTarget.link
-              });
-              const contentPreview =
-                articleBody.length > 0
-                  ? articleBody
-                      .slice(0, 1_000)
-                      .replace(/\s+/g, ' ')
-                      .trim()
-                  : 'No article body was extracted from the provided URL.';
-              articleContentSummary = [
-                `Article detail (${articleTarget.symbol}): ${articleTarget.title}`,
-                `Source: ${articleTarget.link}`,
-                `Extract: ${contentPreview}`,
-                'If you want, ask "summarize this article for portfolio impact" to get a decision-focused breakdown.'
-              ].join('\n');
-
-              return {
-                citations: [
-                  {
-                    confidence: articleBody.length > 0 ? 0.78 : 0.62,
-                    snippet: `${articleTarget.title}`,
-                    source: toolName
-                  }
-                ],
-                toolCall: {
-                  input: { url: articleTarget.link },
-                  outputSummary:
-                    articleBody.length > 0
-                      ? 'article content extracted'
-                      : 'article URL resolved but content extraction returned empty',
+                  outputSummary: `${headlineCount} financial headlines resolved`,
                   status: 'success' as const,
                   tool: toolName
                 }
@@ -935,7 +1223,7 @@ export class AiService {
                         return `${activity.type} ${symbol} ${activity.valueInBaseCurrency.toFixed(2)} ${userCurrency}`;
                       })
                       .join(' | ')}.`
-                  : 'Recent transactions are currently unavailable.';
+                  : `I don't have any recorded transactions yet for this account.`;
 
               return {
                 citations: [
@@ -944,7 +1232,7 @@ export class AiService {
                     snippet:
                       latestActivities.length > 0
                         ? `Latest transaction: ${latestActivities[0].type} ${(latestActivities[0].SymbolProfile?.symbol ?? latestActivities[0].symbolProfileId)} on ${new Date(latestActivities[0].date).toISOString().slice(0, 10)}`
-                        : 'No recent transactions found',
+                        : 'No recorded transactions found for this account',
                     source: toolName
                   }
                 ],
@@ -1008,21 +1296,41 @@ export class AiService {
               };
             } else if (toolName === 'tax_estimate') {
               const taxInput = this.extractTaxEstimateInput(normalizedQuery);
-              const taxableBase = Math.max(taxInput.income - taxInput.deductions, 0);
+              const income = Number.isFinite(taxInput.income) ? taxInput.income : 0;
+              const deductions = Number.isFinite(taxInput.deductions)
+                ? taxInput.deductions
+                : 0;
+              const taxableBase = Math.max(income - deductions, 0);
               const estimatedLiability = taxableBase * taxInput.taxRate;
+              const hasAnyTaxInputs = taxInput.hasIncome || taxInput.hasDeductions;
 
-              taxEstimateSummary = [
-                `Tax estimate (assumption-based): income ${taxInput.income.toFixed(2)} ${userCurrency}, deductions ${taxInput.deductions.toFixed(2)} ${userCurrency}.`,
-                `Estimated taxable base: ${taxableBase.toFixed(2)} ${userCurrency}.`,
-                `Estimated tax liability at ${(taxInput.taxRate * 100).toFixed(1)}%: ${estimatedLiability.toFixed(2)} ${userCurrency}.`,
-                'Assumptions: flat rate estimate for planning only; this is not filing-ready tax advice.'
-              ].join('\n');
+              taxEstimateSummary = hasAnyTaxInputs
+                ? [
+                    `Tax estimate (assumption-based): income ${income.toFixed(2)} ${userCurrency}, deductions ${deductions.toFixed(2)} ${userCurrency}.`,
+                    `Estimated taxable base: ${taxableBase.toFixed(2)} ${userCurrency}.`,
+                    `Estimated tax liability at ${(taxInput.taxRate * 100).toFixed(1)}%: ${estimatedLiability.toFixed(2)} ${userCurrency}.`,
+                    ...(!taxInput.hasIncome || !taxInput.hasDeductions
+                      ? ['Income or deductions were partially inferred from the prompt text.']
+                      : []),
+                    'Assumptions: flat rate estimate for planning only; this is not filing-ready tax advice.'
+                  ].join('\n')
+                : [
+                    'Tax planning checklist for this year:',
+                    '- Confirm expected ordinary income, capital gains, dividends, and interest totals.',
+                    '- Review realized gains/losses and identify loss-harvesting opportunities before year-end.',
+                    '- Verify contribution room and deadlines for tax-advantaged accounts.',
+                    '- Track deductible items and required records for filing.',
+                    '- Estimate withholding/quarterly payments and adjust to avoid penalties.',
+                    'Share income, deductions, and expected rate if you want a numeric estimate.'
+                  ].join('\n');
 
               return {
                 citations: [
                   {
-                    confidence: 0.74,
-                    snippet: `Tax estimate: taxable base ${taxableBase.toFixed(2)} ${userCurrency}, liability ${estimatedLiability.toFixed(2)} ${userCurrency}`,
+                    confidence: hasAnyTaxInputs ? 0.74 : 0.7,
+                    snippet: hasAnyTaxInputs
+                      ? `Tax estimate: taxable base ${taxableBase.toFixed(2)} ${userCurrency}, liability ${estimatedLiability.toFixed(2)} ${userCurrency}`
+                      : 'Tax planning checklist generated for current-year preparation',
                     source: toolName
                   }
                 ],
@@ -1239,14 +1547,14 @@ export class AiService {
 
       let answer = createPolicyRouteResponse({
         policyDecision,
-        query: normalizedQuery
+        query: queryForTools
       });
 
       if (
         policyDecision.route === 'direct' &&
         policyDecision.blockReason === 'no_tool_query'
       ) {
-        if (isPreferenceRecallQuery(normalizedQuery)) {
+        if (isPreferenceRecallQuery(queryForTools)) {
           answer = createPreferenceSummaryResponse({
             userPreferences: effectiveUserPreferences
           });
@@ -1255,41 +1563,42 @@ export class AiService {
         }
       }
 
-      if (
-        !symbolClarificationHint &&
-        (policyDecision.route === 'direct' || policyDecision.route === 'clarify')
-      ) {
-        const suggestion = getTickerClarificationSuggestion({
-          query: normalizedQuery
-        });
-
-        if (suggestion) {
-          symbolClarificationHint = `${formatTickerClarificationSuggestion(suggestion)} If yes, I can continue with that symbol.`;
-        }
-      }
-
       if (policyDecision.route === 'tools') {
         const llmGenerationStartedAt = Date.now();
         answer = await buildAnswer({
-          articleContentSummary,
+          additionalContextSummaries: [
+            accountOverviewSummary,
+            activityHistorySummary,
+            benchmarkSummary,
+            demoDataSummary,
+            exchangeRateSummary,
+            priceHistorySummary,
+            symbolLookupSummary
+          ].filter((summary): summary is string => Boolean(summary)),
           assetFundamentalsSummary,
           complianceCheckSummary,
           financialNewsSummary,
           generateText: (options) =>
-            this.generateText({
-              ...options,
-              model,
-              traceContext: {
-                query: normalizedQuery,
-                sessionId: resolvedSessionId,
-                userId
-              }
+              this.generateText({
+                ...options,
+                model,
+                onLlmInvocation: ({ model, provider }) => {
+                  llmInvocation = {
+                    model,
+                    provider
+                  };
+                },
+                traceContext: {
+                  query: queryForPrompt,
+                  sessionId: resolvedSessionId,
+                  userId
+                }
             }),
           languageCode,
           marketData,
           memory,
           portfolioAnalysis,
-          query: normalizedQuery,
+          query: queryForPrompt,
           recentTransactionsSummary,
           rebalancePlan,
           riskAssessment,
@@ -1303,35 +1612,6 @@ export class AiService {
         llmGenerationInMs = Date.now() - llmGenerationStartedAt;
       }
 
-      if (!symbolClarificationHint && policyDecision.route === 'tools') {
-        const executedSymbolIntelligenceTool = policyDecision.toolsToExecute.some(
-          (toolName) => {
-            return [
-              'market_data_lookup',
-              'get_live_quote',
-              'get_asset_fundamentals',
-              'get_financial_news'
-            ].includes(toolName);
-          }
-        );
-
-        if (executedSymbolIntelligenceTool) {
-          const suggestion = getTickerClarificationSuggestion({
-            query: normalizedQuery
-          });
-
-          if (suggestion) {
-            symbolClarificationHint = `${formatTickerClarificationSuggestion(suggestion)} If yes, I can run quotes, fundamentals, and news for ${suggestion.symbol}.`;
-          }
-        }
-      }
-
-      if (symbolClarificationHint) {
-        if (!answer.includes(symbolClarificationHint)) {
-          answer = [answer, symbolClarificationHint].filter(Boolean).join('\n\n');
-        }
-      }
-
       verification.push({
         check: 'output_completeness',
         details:
@@ -1343,7 +1623,7 @@ export class AiService {
       verification.push(
         evaluateAnswerQuality({
           answer,
-          query: normalizedQuery
+          query: queryForTools
         })
       );
 
@@ -1374,9 +1654,6 @@ export class AiService {
         ...memory.turns,
         {
           answer,
-          ...(latestNewsItems && latestNewsItems.length > 0
-            ? { newsItems: latestNewsItems.slice(0, 5) }
-            : {}),
           query: normalizedQuery,
           timestamp: new Date().toISOString(),
           toolCalls: toolCalls.map(({ status, tool }) => {
@@ -1409,6 +1686,7 @@ export class AiService {
       const response: AiAgentChatResponse = {
         answer,
         citations,
+        llmInvocation,
         confidence,
         memory: {
           sessionId: resolvedSessionId,
@@ -1434,7 +1712,7 @@ export class AiService {
           route: policyDecision.route,
           toolsToExecute: policyDecision.toolsToExecute
         },
-        query: normalizedQuery,
+        query: queryForTools,
         response,
         sessionId: resolvedSessionId,
         userId
@@ -1445,7 +1723,7 @@ export class AiService {
       await this.aiObservabilityService.captureChatFailure({
         durationInMs: Date.now() - chatStartedAt,
         error,
-        query: normalizedQuery,
+        query: queryForTools,
         sessionId: resolvedSessionId,
         userId
       });
@@ -1454,40 +1732,46 @@ export class AiService {
     }
   }
 
-  private decodeXmlEntities(value: string) {
-    return value
-      .replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
-  }
-
   private extractTaxEstimateInput(query: string) {
     const normalized = query.toLowerCase();
-    const numericTokens = Array.from(
-      normalized.matchAll(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/g)
-    )
-      .map((match) => {
-        return Number.parseFloat(match[1].replace(/,/g, ''));
-      })
-      .filter((value) => Number.isFinite(value));
-    const incomePattern =
-      /\b(?:income|salary|earnings?)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i;
-    const deductionsPattern =
-      /\b(?:deduction|deductions|deductible|write[-\s]?off)\b[^\d$]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)/i;
+    const numericPattern = /\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)/g;
+    const numericTokens: number[] = [];
+    let numericMatch: RegExpExecArray | null = null;
+
+    while ((numericMatch = numericPattern.exec(normalized)) !== null) {
+      const rawValue = numericMatch[1];
+      const parsedValue = Number.parseFloat(rawValue.replace(/,/g, ''));
+      const matchStart = numericMatch.index;
+      const matchEnd = matchStart + numericMatch[0].length;
+      const trailingSegment = normalized.slice(matchEnd, matchEnd + 3);
+      const isPercentage = /^\s*%/.test(trailingSegment);
+
+      if (Number.isFinite(parsedValue) && !isPercentage) {
+        numericTokens.push(parsedValue);
+      }
+    }
+
+    const incomePattern = /\b(?:income|salary|earnings?)\b[^\d$]*\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)/i;
+    const deductionsPattern = /\b(?:deduction|deductions|deductible|write[-\s]?off)\b[^\d$]*\$?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)/i;
     const taxRatePattern = /\b(?:tax\s*rate|rate)\b[^\d]*([0-9]{1,2}(?:\.[0-9]+)?)\s*%/i;
-    const incomeMatch = incomePattern.exec(normalized);
-    const deductionsMatch = deductionsPattern.exec(normalized);
+    const hasIncomeKeyword = incomePattern.test(normalized);
+    const hasDeductionsKeyword = deductionsPattern.test(normalized);
+    const incomeMatch = hasIncomeKeyword ? incomePattern.exec(normalized) : null;
+    const deductionsMatch = hasDeductionsKeyword
+      ? deductionsPattern.exec(normalized)
+      : null;
     const taxRateMatch = taxRatePattern.exec(normalized);
 
-    const parsedIncome = incomeMatch
-      ? Number.parseFloat(incomeMatch[1].replace(/,/g, ''))
-      : numericTokens[0];
-    const parsedDeductions = deductionsMatch
-      ? Number.parseFloat(deductionsMatch[1].replace(/,/g, ''))
-      : numericTokens[1];
+    const parsedIncome = hasIncomeKeyword
+      ? Number.parseFloat((incomeMatch?.[1] ?? '').replace(/,/g, ''))
+      : hasDeductionsKeyword
+        ? undefined
+        : numericTokens[0];
+    const parsedDeductions = hasDeductionsKeyword
+      ? Number.parseFloat((deductionsMatch?.[1] ?? '').replace(/,/g, ''))
+      : hasIncomeKeyword
+        ? undefined
+        : numericTokens[1];
     const parsedTaxRate = taxRateMatch
       ? Number.parseFloat(taxRateMatch[1]) / 100
       : undefined;
@@ -1501,6 +1785,79 @@ export class AiService {
         Number.isFinite(parsedTaxRate) && parsedTaxRate > 0 && parsedTaxRate < 1
           ? parsedTaxRate
           : 0.22
+    };
+  }
+
+  private extractExchangeRateInput({
+    baseCurrency,
+    query
+  }: {
+    baseCurrency: string;
+    query: string;
+  }) {
+    const normalizedQuery = query.toUpperCase();
+    const pairMatch = /\b([A-Z]{3})\s+(?:TO|\/)\s+([A-Z]{3})\b/.exec(
+      normalizedQuery
+    );
+    const explicitCodes = normalizedQuery.match(/\b[A-Z]{3}\b/g) ?? [];
+    const from = pairMatch?.[1] ?? explicitCodes[0] ?? baseCurrency;
+    const to = pairMatch?.[2] ?? explicitCodes[1] ?? 'USD';
+
+    return {
+      from,
+      to
+    };
+  }
+
+  private extractCreateAccountInput({
+    baseCurrency,
+    query
+  }: {
+    baseCurrency: string;
+    query: string;
+  }) {
+    const nameMatch =
+      /(?:account(?:\s+named)?|create\s+account)\s+([a-z0-9 _-]{2,40})/i.exec(
+        query
+      );
+    const currencyMatch = /\b([A-Z]{3})\b/.exec(query.toUpperCase());
+    const balanceMatch = /\b(?:with|balance)\s+\$?([0-9]+(?:\.[0-9]+)?)/i.exec(
+      query
+    );
+
+    return {
+      balance: Number.parseFloat(balanceMatch?.[1] ?? '0'),
+      currency: currencyMatch?.[1] ?? baseCurrency,
+      name: nameMatch?.[1]?.trim() || 'AI Account'
+    };
+  }
+
+  private extractCreateOrderInput({
+    baseCurrency,
+    query
+  }: {
+    baseCurrency: string;
+    query: string;
+  }) {
+    const symbols = extractSymbolsFromQuery(query);
+    const quantityMatch = /\b([0-9]+(?:\.[0-9]+)?)\s*(?:shares?|units?)\b/i.exec(
+      query
+    );
+    const unitPriceMatch = /\b(?:at|price)\s+\$?([0-9]+(?:\.[0-9]+)?)\b/i.exec(
+      query
+    );
+    const currencyMatch = /\b([A-Z]{3})\b/.exec(query.toUpperCase());
+    const normalizedQuery = query.toLowerCase();
+
+    return {
+      currency: currencyMatch?.[1] ?? baseCurrency,
+      hasQuantity: Boolean(quantityMatch?.[1]),
+      hasSymbol: symbols.length > 0,
+      hasUnitPrice: Boolean(unitPriceMatch?.[1]),
+      quantity: Number.parseFloat(quantityMatch?.[1] ?? '1'),
+      symbol: symbols[0] ?? 'SPY',
+      type: normalizedQuery.includes('sell') ? Type.SELL : Type.BUY,
+      unitPrice: Number.parseFloat(unitPriceMatch?.[1] ?? '1')
     };
   }
 
@@ -1603,183 +1960,6 @@ export class AiService {
         symbol
       };
     });
-  }
-
-  private async getFinancialNewsHeadlines({
-    symbols
-  }: {
-    symbols: string[];
-  }): Promise<{ link: string; symbol: string; title: string }[]> {
-    const targetSymbols = Array.from(
-      new Set(
-        symbols
-          .map((symbol) => symbol.trim().toUpperCase())
-          .filter(Boolean)
-      )
-    ).slice(0, 2);
-    const headlinesBySymbol = await Promise.all(
-      targetSymbols.map(async (symbol) => {
-        try {
-          const response = await fetch(
-            `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(symbol)}&region=US&lang=en-US`
-          );
-
-          if (!response.ok) {
-            return [];
-          }
-
-          const xml = await response.text();
-          const itemPattern = /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>/gi;
-          let match: RegExpExecArray | null = itemPattern.exec(xml);
-          const symbolHeadlines: { link: string; symbol: string; title: string }[] = [];
-
-          while (match && symbolHeadlines.length < 3) {
-            const title = this.decodeXmlEntities(match[1]).trim();
-            const link = this.decodeXmlEntities(match[2]).trim();
-
-            if (title) {
-              symbolHeadlines.push({
-                link,
-                symbol,
-                title
-              });
-            }
-
-            match = itemPattern.exec(xml);
-          }
-
-          return symbolHeadlines;
-        } catch {
-          return [];
-        }
-      })
-    );
-
-    return headlinesBySymbol.flat().slice(0, 5);
-  }
-
-  private getRecentNewsItemsFromMemory({
-    memory
-  }: {
-    memory: AiAgentMemoryState;
-  }) {
-    for (const turn of [...memory.turns].reverse()) {
-      if (turn.newsItems && turn.newsItems.length > 0) {
-        return turn.newsItems;
-      }
-    }
-
-    return [] as {
-      link: string;
-      symbol: string;
-      title: string;
-    }[];
-  }
-
-  private resolveNewsArticleTarget({
-    query,
-    recentNewsItems
-  }: {
-    query: string;
-    recentNewsItems: {
-      link: string;
-      symbol: string;
-      title: string;
-    }[];
-  }) {
-    const directUrlMatch = query.match(ARTICLE_URL_PATTERN);
-
-    if (directUrlMatch) {
-      const matchingItem = recentNewsItems.find(({ link }) => {
-        return link === directUrlMatch[0];
-      });
-
-      return (
-        matchingItem ?? {
-          link: directUrlMatch[0],
-          symbol: 'NEWS',
-          title: 'Linked article'
-        }
-      );
-    }
-
-    if (recentNewsItems.length === 0) {
-      return undefined;
-    }
-
-    const normalizedQuery = query.toLowerCase();
-    const indexMatch = normalizedQuery.match(
-      /\b(?:headline|article|story)\s*(?:#|number\s*)?(\d+)\b/
-    ) ??
-      normalizedQuery.match(/\b(?:about|on)\s+(\d+)\b/) ??
-      normalizedQuery.match(/\b(?:first|second|third)\b/);
-    const ordinalToIndex: Record<string, number> = {
-      first: 0,
-      second: 1,
-      third: 2
-    };
-
-    if (indexMatch) {
-      const parsedIndex = Number.parseInt(indexMatch[1], 10);
-      const indexFromNumber = Number.isFinite(parsedIndex) ? parsedIndex - 1 : -1;
-      const indexFromOrdinal =
-        typeof indexMatch[0] === 'string' ? ordinalToIndex[indexMatch[0]] : undefined;
-      const resolvedIndex =
-        indexFromOrdinal !== undefined ? indexFromOrdinal : indexFromNumber;
-
-      if (resolvedIndex >= 0 && resolvedIndex < recentNewsItems.length) {
-        return recentNewsItems[resolvedIndex];
-      }
-    }
-
-    const topicMatch = normalizedQuery.match(
-      /(?:about|on)\s+(.+?)(?:$|\?|!|\.)/
-    );
-    const topic = topicMatch?.[1]?.trim();
-
-    if (topic) {
-      const matchedByTopic = recentNewsItems.find(({ symbol, title }) => {
-        return (
-          title.toLowerCase().includes(topic) ||
-          symbol.toLowerCase() === topic
-        );
-      });
-
-      if (matchedByTopic) {
-        return matchedByTopic;
-      }
-    }
-
-    return recentNewsItems[0];
-  }
-
-  private async fetchArticleContent({
-    url
-  }: {
-    url: string;
-  }) {
-    try {
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        return '';
-      }
-
-      const html = await response.text();
-      const withoutScripts = html
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ');
-      const plainText = this.decodeXmlEntities(
-        withoutScripts
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-      );
-
-      return plainText;
-    } catch {
-      return '';
-    }
   }
 
   private buildAssetFundamentalsSummary({
