@@ -317,7 +317,13 @@ const DEMO_DATA_QUERY_PATTERNS = [
   /\b(?:demo\s+data|sample\s+data|mock\s+data|scenario\s+planning)\b/
 ];
 const SEED_FUNDS_QUERY_PATTERNS = [
-  /\b(?:seed\s+(?:money|funds|data)|add(?:ing)?\s+test\s+(?:money|funds|data)|quick\s+check|top\s+up|load\s+test\s+money|fund\s+my\s+account)\b/
+  /\b(?:seed(?:\s+my)?\s+(?:account|money|funds|data))\b/,
+  /\b(?:add|load)\s+(?:test\s+)?(?:money|funds|cash|capital)\b/,
+  /\b(?:top[\s-]?up)\b/,
+  /\b(?:fund|funding)\s+(?:my\s+)?account\b/,
+  /\b(?:add|put|inject)\s+more\s+money\b/,
+  /\b(?:add|put)\s+(?:money|cash|capital)\s+(?:into|in)\s+(?:my\s+)?account\b/,
+  /\b(?:quick\s+check)\b/
 ];
 const CREATE_ACCOUNT_QUERY_PATTERNS = [/\b(?:create|open|add)\b.*\baccount\b/];
 const CREATE_ORDER_QUERY_PATTERNS = [

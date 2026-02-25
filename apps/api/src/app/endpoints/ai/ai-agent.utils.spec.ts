@@ -468,6 +468,15 @@ describe('AiAgentUtils', () => {
     ).toEqual(['seed_funds']);
   });
 
+  it('selects seed funds tool for "seed my account" phrasing with split amounts', () => {
+    expect(
+      determineToolPlan({
+        query:
+          'seed my account with stocks of apple tesla and goodle split 10000 30% 20% and 50%'
+      })
+    ).toEqual(['seed_funds']);
+  });
+
   it('keeps both seed funds and account overview tool when requested together', () => {
     expect(
       determineToolPlan({
@@ -476,6 +485,21 @@ describe('AiAgentUtils', () => {
     ).toEqual(
       expect.arrayContaining(['seed_funds', 'account_overview'])
     );
+  });
+
+  it.each([
+    'top up my account with 2000',
+    'add more money to my account',
+    'put more money in my account',
+    'inject more money into my account',
+    'fund my account with 1500 usd',
+    'add cash into my account for testing'
+  ])('selects seed funds tool for funding variant "%s"', (query) => {
+    expect(
+      determineToolPlan({
+        query
+      })
+    ).toContain('seed_funds');
   });
 
   it('selects create account tool for account creation prompts', () => {

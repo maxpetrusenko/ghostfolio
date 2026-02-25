@@ -20,6 +20,7 @@ Last updated: 2026-02-24
 | T-012 | LangChain wrapper enforcement for provider calls + arithmetic direct-response correction | Complete | `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`, `npm run test:ai` | Local implementation |
 | T-013 | Cross-session user preference memory (persisted by user, independent of chat session) | Complete | `apps/api/src/app/endpoints/ai/ai-agent.chat.helpers.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `npm run test:ai`, `npx nx run api:lint` | Local implementation |
 | T-014 | Chat page icon-first UX (newest-first flow + shadcn-style Lucide action icons) | Complete | `npx nx run client:build:development-en`, `npx nx run client:lint`, `npx dotenv-cli -e .env.example -- npx jest apps/client/src/app/pages/portfolio/analysis/ai-chat-panel/ai-chat-panel.component.spec.ts --config apps/client/jest.config.ts` | Local implementation |
+| T-015 | Seed/top-up intent routing hardening (`seed`, `top up`, `more money`, account funding variants) | In Progress | `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts` | Local implementation |
 
 ## Notes
 

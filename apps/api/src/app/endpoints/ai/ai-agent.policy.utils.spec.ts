@@ -391,10 +391,39 @@ describe('AiAgentPolicyUtils', () => {
     ).toContain('To add seed funds');
   });
 
+  it.each([
+    'top up my account',
+    'add more money to my account',
+    'put more money in my account'
+  ])('requires amount details for seed-funds wording variant "%s"', (query) => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['seed_funds'],
+      query
+    });
+
+    expect(decision.route).toBe('clarify');
+    expect(decision.blockReason).toBe('needs_seed_funds_details');
+    expect(decision.toolsToExecute).toEqual([]);
+  });
+
   it('runs seed-funds tool when amount is provided', () => {
     const decision = applyToolExecutionPolicy({
       plannedTools: ['seed_funds'],
       query: 'add 500 USD seed funds'
+    });
+
+    expect(decision.route).toBe('tools');
+    expect(decision.toolsToExecute).toEqual(['seed_funds']);
+  });
+
+  it.each([
+    'top up my account with 500',
+    'add more money to my account 1200 usd',
+    'put more money in my account 750'
+  ])('runs seed-funds tool for amount-provided wording variant "%s"', (query) => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['seed_funds'],
+      query
     });
 
     expect(decision.route).toBe('tools');

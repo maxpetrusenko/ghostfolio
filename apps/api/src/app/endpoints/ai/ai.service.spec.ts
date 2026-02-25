@@ -1471,6 +1471,90 @@ describe('AiService', () => {
     );
   });
 
+  it('routes "seed my account ... split ..." phrasing to seed_funds instead of market snapshot tools', async () => {
+    accountService.getAccounts.mockResolvedValue([
+      {
+        balance: 500,
+        currency: 'USD',
+        id: 'account-1',
+        name: 'Testing'
+      }
+    ]);
+    orderService.createOrder.mockResolvedValue({
+      id: 'order-seed-2',
+      type: 'INTEREST'
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query:
+        'seed my account with stocks of apple tesla and goodle split 10000 30% 20% and 50%',
+      sessionId: 'session-seed-account-split',
+      userCurrency: 'USD',
+      userId: 'user-seed-account-split'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'seed_funds' })
+      ])
+    );
+    expect(result.toolCalls).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'market_data_lookup' })
+      ])
+    );
+    expect(dataProviderService.getQuotes).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'top up my account with 1200 usd',
+    'add more money to my account 900 usd',
+    'put more money in my account 600'
+  ])(
+    'routes funding wording "%s" to seed_funds without quote lookup',
+    async (query) => {
+      accountService.getAccounts.mockResolvedValue([
+        {
+          balance: 500,
+          currency: 'USD',
+          id: 'account-1',
+          name: 'Testing'
+        }
+      ]);
+      orderService.createOrder.mockResolvedValue({
+        id: 'order-seed-variant',
+        type: 'INTEREST'
+      });
+      redisCacheService.get.mockResolvedValue(undefined);
+      jest
+        .spyOn(subject, 'generateText')
+        .mockRejectedValue(new Error('offline'));
+
+      const result = await subject.chat({
+        languageCode: 'en',
+        query,
+        sessionId: 'session-seed-variant',
+        userCurrency: 'USD',
+        userId: 'user-seed-variant'
+      });
+
+      expect(result.toolCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ status: 'success', tool: 'seed_funds' })
+        ])
+      );
+      expect(result.toolCalls).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ tool: 'market_data_lookup' })
+        ])
+      );
+      expect(dataProviderService.getQuotes).not.toHaveBeenCalled();
+    }
+  );
+
   it('asks for missing order details for vague order requests', async () => {
     accountService.getAccounts.mockResolvedValue([
       {

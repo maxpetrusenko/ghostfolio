@@ -65,7 +65,7 @@ const VAGUE_ORDER_QUERY_PATTERN =
 const DETAILED_ORDER_QUERY_PATTERN =
   /\b(?:buy|purchase|invest|order|create|place|submit)\b.*\b(?:\$?\s*\d+[,\d]*\s*(?:usd|eur|gbp|cad|chf|jpy|aud)|\d+\s+shares?|100\s+shares|\d+\s+units?)\b/i;
 const SEED_FUNDS_QUERY_PATTERN =
-  /\b(?:seed|test|top up|fund|add funds?)\b/i;
+  /\b(?:seed(?:\s+my)?\s+(?:account|money|funds|data)|add(?:ing)?\s+(?:test\s+)?(?:money|funds|cash|capital)|top[\s-]?up|fund(?:ing)?\s+(?:my\s+)?account|add\s+more\s+money|put\s+more\s+money|inject\s+more\s+money)\b/i;
 const SEED_FUNDS_AMOUNT_PATTERN = /\$?\d+(?:,\d{3})*(?:\.\d{1,2})?/;
 const REBALANCE_TARGET_DETAIL_PATTERN =
   /\b(?:\d{1,2}(?:\.\d{1,2})?\s*%|target\s+allocation|max(?:imum)?\s+position|80\s*\/\s*20|70\s*\/\s*30|60\s*\/\s*40)\b/i;
