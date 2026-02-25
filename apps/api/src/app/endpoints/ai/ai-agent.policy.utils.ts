@@ -47,10 +47,12 @@ const SIMPLE_ARITHMETIC_QUERY_PATTERN =
 const SIMPLE_ARITHMETIC_OPERATOR_PATTERN = /[+\-*/]/;
 const SIMPLE_ARITHMETIC_PREFIX_PATTERN = /^\s*(?:what(?:'s| is)\s+)?/i;
 const SIMPLE_ASSISTANT_QUERY_PATTERNS = [
+  /^\s*(?:who am i|what is my name)\s*[!.?]*\s*$/i,
   /^\s*(?:who are you|what are you|what can you do)\s*[!.?]*\s*$/i,
   /^\s*(?:how do you work|how (?:can|do) i use (?:you|this))\s*[!.?]*\s*$/i,
   /^\s*(?:help|assist(?: me)?|what can you help with)\s*[!.?]*\s*$/i
 ];
+const DIRECT_SELF_IDENTITY_QUERY_PATTERN = /\b(?:who am i|what is my name)\b/i;
 const DIRECT_IDENTITY_QUERY_PATTERN = /\b(?:who are you|what are you)\b/i;
 const DIRECT_USAGE_QUERY_PATTERN =
   /\b(?:how do you work|how (?:can|do) i use (?:you|this)|how should i ask)\b/i;
@@ -98,6 +100,48 @@ const READ_ONLY_TOOLS = new Set<AiAgentToolName>([
   'market_data_lookup',
   'stress_test'
 ]);
+const ALL_TOOL_NAMES: AiAgentToolName[] = [
+  'portfolio_analysis',
+  'risk_assessment',
+  'market_data_lookup',
+  'rebalance_plan',
+  'stress_test',
+  'account_overview',
+  'exchange_rate',
+  'get_portfolio_summary',
+  'get_current_holdings',
+  'get_portfolio_risk_metrics',
+  'get_recent_transactions',
+  'get_live_quote',
+  'get_asset_fundamentals',
+  'get_financial_news',
+  'price_history',
+  'symbol_lookup',
+  'market_benchmarks',
+  'activity_history',
+  'demo_data',
+  'create_account',
+  'create_order',
+  'calculate_rebalance_plan',
+  'simulate_trade_impact',
+  'transaction_categorize',
+  'tax_estimate',
+  'compliance_check'
+];
+const INTENT_TOOL_ALLOWLISTS: Record<'readOnly' | 'action', Set<AiAgentToolName>> = {
+  action: new Set(ALL_TOOL_NAMES),
+  readOnly: READ_ONLY_TOOLS
+};
+const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 8;
+const DEFAULT_MAX_TOOL_CALLS_PER_TOOL: Partial<Record<AiAgentToolName, number>> = {
+  create_account: 1,
+  create_order: 1,
+  compliance_check: 1,
+  rebalance_plan: 1,
+  calculate_rebalance_plan: 1,
+  simulate_trade_impact: 1,
+  stress_test: 1
+};
 
 export type AiAgentPolicyRoute = 'direct' | 'tools' | 'clarify';
 export type AiAgentPolicyBlockReason =
@@ -108,6 +152,7 @@ export type AiAgentPolicyBlockReason =
   | 'needs_rebalance_details'
   | 'needs_order_details'
   | 'unauthorized_access'
+  | 'tool_rate_limit'
   | 'unknown';
 
 export interface AiAgentToolPolicyDecision {
@@ -115,6 +160,10 @@ export interface AiAgentToolPolicyDecision {
   blockReason: AiAgentPolicyBlockReason;
   forcedDirect: boolean;
   plannedTools: AiAgentToolName[];
+  limits?: {
+    maxToolCallsPerRequest: number;
+    maxToolCallsPerTool: Partial<Record<AiAgentToolName, number>>;
+  };
   route: AiAgentPolicyRoute;
   toolsToExecute: AiAgentToolName[];
 }
@@ -433,6 +482,14 @@ function createNoToolDirectResponse(query?: string) {
     ].join('\n');
   }
 
+  if (DIRECT_SELF_IDENTITY_QUERY_PATTERN.test(normalizedQuery)) {
+    return [
+      'I do not have access to personal identity details like your name.',
+      'I can access only your portfolio data and chat context in this account.',
+      'Try: "How much money do I have?" or "Show my top holdings."'
+    ].join('\n');
+  }
+
   if (DIRECT_USAGE_QUERY_PATTERN.test(normalizedQuery)) {
     return [
       'I am Ghostfolio AI. Use short direct prompts and include your goal or constraint.',
@@ -492,10 +549,15 @@ function createNoToolDirectResponse(query?: string) {
 
 export function applyToolExecutionPolicy({
   plannedTools,
-  query
+  query,
+  policyLimits
 }: {
   plannedTools: AiAgentToolName[];
   query: string;
+  policyLimits?: {
+    maxToolCallsPerRequest?: number;
+    maxToolCallsPerTool?: Partial<Record<AiAgentToolName, number>>;
+  };
 }): AiAgentToolPolicyDecision {
   const normalizedQuery = query.toLowerCase();
   const deduplicatedPlannedTools = Array.from(new Set(plannedTools));
@@ -507,6 +569,15 @@ export function applyToolExecutionPolicy({
     keywords: FINANCE_READ_INTENT_KEYWORDS,
     normalizedQuery
   });
+  const effectiveLimits = {
+    maxToolCallsPerRequest:
+      policyLimits?.maxToolCallsPerRequest ?? DEFAULT_MAX_TOOL_CALLS_PER_REQUEST,
+    maxToolCallsPerTool:
+      policyLimits?.maxToolCallsPerTool ?? DEFAULT_MAX_TOOL_CALLS_PER_TOOL
+  };
+  const allowedToolsByIntent = hasActionIntent
+    ? INTENT_TOOL_ALLOWLISTS.action
+    : INTENT_TOOL_ALLOWLISTS.readOnly;
 
   if (isUnauthorizedPortfolioQuery(query)) {
     return {
@@ -514,6 +585,7 @@ export function applyToolExecutionPolicy({
       blockReason: 'unauthorized_access',
       forcedDirect: true,
       plannedTools: deduplicatedPlannedTools,
+      limits: effectiveLimits,
       route: 'direct',
       toolsToExecute: []
     };
@@ -525,6 +597,7 @@ export function applyToolExecutionPolicy({
       blockReason: 'no_tool_query',
       forcedDirect: deduplicatedPlannedTools.length > 0,
       plannedTools: deduplicatedPlannedTools,
+      limits: effectiveLimits,
       route: 'direct',
       toolsToExecute: []
     };
@@ -540,6 +613,7 @@ export function applyToolExecutionPolicy({
           : 'no_tool_query',
       forcedDirect: false,
       plannedTools: [],
+      limits: effectiveLimits,
       route:
         hasReadIntent || hasActionIntent || hasFollowUpIntent
           ? 'clarify'
@@ -551,6 +625,21 @@ export function applyToolExecutionPolicy({
   let toolsToExecute = deduplicatedPlannedTools;
   let blockedByPolicy = false;
   let blockReason: AiAgentPolicyBlockReason = 'none';
+
+  if (toolsToExecute.length > effectiveLimits.maxToolCallsPerRequest) {
+    toolsToExecute = toolsToExecute.slice(0, effectiveLimits.maxToolCallsPerRequest);
+    blockedByPolicy = true;
+    blockReason = 'tool_rate_limit';
+  }
+
+  const allowedTools = toolsToExecute.filter((tool) => {
+    return allowedToolsByIntent.has(tool);
+  });
+  if (allowedTools.length !== toolsToExecute.length) {
+    toolsToExecute = allowedTools;
+    blockedByPolicy = true;
+    blockReason = blockReason === 'none' ? 'read_only' : blockReason;
+  }
 
   if (!hasActionIntent && toolsToExecute.includes('rebalance_plan')) {
     toolsToExecute = toolsToExecute.filter((tool) => {
@@ -618,6 +707,7 @@ export function applyToolExecutionPolicy({
         : blockReason,
       forcedDirect: false,
       plannedTools: deduplicatedPlannedTools,
+      limits: effectiveLimits,
       route,
       toolsToExecute: []
     };
@@ -628,6 +718,7 @@ export function applyToolExecutionPolicy({
     blockReason,
     forcedDirect: false,
     plannedTools: deduplicatedPlannedTools,
+    limits: effectiveLimits,
     route: 'tools',
     toolsToExecute
   };

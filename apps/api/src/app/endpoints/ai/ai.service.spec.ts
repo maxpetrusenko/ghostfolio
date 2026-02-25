@@ -273,6 +273,17 @@ describe('AiService', () => {
     );
   });
 
+  it('fails fast when request userId is missing', async () => {
+    await expect(
+      subject.chat({
+        languageCode: 'en',
+        query: 'Analyze my portfolio',
+        sessionId: 'session-missing-user',
+        userCurrency: 'USD'
+      } as never)
+    ).rejects.toThrow('MISSING_USER_ID');
+  });
+
   it('uses conversationId when resolving and storing memory', async () => {
     portfolioService.getDetails.mockResolvedValue({
       holdings: {}

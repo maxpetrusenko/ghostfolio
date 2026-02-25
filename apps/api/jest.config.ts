@@ -1,4 +1,6 @@
 /* eslint-disable */
+process.env.TZ = 'UTC';
+
 export default {
   displayName: 'api',
 

@@ -2,6 +2,7 @@ import { AiAgentChatMessage } from './ai-agent.interfaces';
 
 const DEFAULT_GLM_MODEL = 'glm-5';
 const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.5';
+const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 const DEFAULT_REQUEST_TIMEOUT_IN_MS = 15_000;
 
 function extractTextFromResponsePayload(payload: unknown) {
@@ -147,5 +148,25 @@ export async function generateTextWithMinimax({
     prompt,
     signal,
     url: 'https://api.minimax.io/v1/chat/completions'
+  });
+}
+
+export async function generateTextWithOpenAI({
+  apiKey,
+  model,
+  prompt,
+  signal
+}: {
+  apiKey: string;
+  model?: string;
+  prompt: string;
+  signal?: AbortSignal;
+}) {
+  return callChatCompletions({
+    apiKey,
+    model: model ?? DEFAULT_OPENAI_MODEL,
+    prompt,
+    signal,
+    url: 'https://api.openai.com/v1/chat/completions'
   });
 }

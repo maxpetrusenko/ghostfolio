@@ -291,5 +291,29 @@ export const HAPPY_PATH_EVAL_CASES: AiAgentMvpEvalCase[] = [
     setup: {
       holdings: CONCENTRATED_HOLDINGS
     }
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      requiredToolCalls: [{ status: 'success', tool: 'tax_estimate' }],
+      requiredTools: ['tax_estimate']
+    },
+    id: 'hp-023-tax-checklist-yearly',
+    input: {
+      query: 'what do i need to know this year about taxes'
+    },
+    intent: 'tax-checklist-yearly'
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      answerIncludes: ['please specify the amount'],
+      forbiddenTools: ['create_order']
+    },
+    id: 'hp-024-order-clarify-missing-details',
+    input: {
+      query: 'make an order for tesla'
+    },
+    intent: 'order-clarify-missing-details'
   })
 ];

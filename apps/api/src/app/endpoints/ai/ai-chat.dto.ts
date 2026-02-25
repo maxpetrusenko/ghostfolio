@@ -10,6 +10,10 @@ export class AiChatDto {
   public sessionId?: string;
 
   @IsOptional()
+  @IsString()
+  public conversationId?: string;
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   public symbols?: string[];
@@ -17,4 +21,8 @@ export class AiChatDto {
   @IsOptional()
   @IsString()
   public model?: string;
+
+  @IsOptional()
+  @IsString()
+  public nextResponsePreference?: string;
 }

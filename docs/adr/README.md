@@ -57,4 +57,10 @@
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
-| ADR-001 | [TBD] | - | - |
+| ADR-001 | Deployment topology | Accepted | 2026-02-25 |
+| ADR-002 | Integration seam (AgentKernel + ToolRegistry) | Accepted | 2026-02-25 |
+| ADR-003 | AI UI surface | Accepted | 2026-02-25 |
+| ADR-004 | Auth + tenancy model | Accepted | 2026-02-25 |
+| ADR-005 | Tool execution policy | Accepted | 2026-02-25 |
+| ADR-006 | Tracing + correlation | Accepted | 2026-02-25 |
+| ADR-007 | Ghostfolio AI Agent - Portfolio Analysis Tool | Proposed | 2026-02-23 |

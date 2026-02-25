@@ -16,15 +16,15 @@ import { DataService } from '@ghostfolio/ui/services';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { PageEvent } from '@angular/material/paginator';
 import { MatSnackBarModule } from '@angular/material/snack-bar';
+import { PageEvent } from '@angular/material/paginator';
 import { Sort, SortDirection } from '@angular/material/sort';
 import { MatTableDataSource } from '@angular/material/table';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { IonIcon } from '@ionic/angular/standalone';
 import { format, parseISO } from 'date-fns';
 import { addIcons } from 'ionicons';
-import { addOutline } from 'ionicons/icons';
+import { addOutline, cashOutline } from 'ionicons/icons';
 import { DeviceDetectorService } from 'ngx-device-detector';
 import { Subject, Subscription } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
@@ -33,6 +33,7 @@ import { GfCreateOrUpdateActivityDialogComponent } from './create-or-update-acti
 import { CreateOrUpdateActivityDialogParams } from './create-or-update-activity-dialog/interfaces/interfaces';
 import { GfImportActivitiesDialogComponent } from './import-activities-dialog/import-activities-dialog.component';
 import { ImportActivitiesDialogParams } from './import-activities-dialog/interfaces/interfaces';
+import { GfAddFundsDialogComponent } from './add-funds-dialog.component';
 
 @Component({
   host: { class: 'has-fab' },
@@ -53,6 +54,7 @@ export class GfActivitiesPageComponent implements OnDestroy, OnInit {
   public hasImpersonationId: boolean;
   public hasPermissionToCreateActivity: boolean;
   public hasPermissionToDeleteActivity: boolean;
+  public isDemoUser = false;
   public pageIndex = 0;
   public pageSize = DEFAULT_PAGE_SIZE;
   public routeQueryParams: Subscription;
@@ -102,7 +104,7 @@ export class GfActivitiesPageComponent implements OnDestroy, OnInit {
         }
       });
 
-    addIcons({ addOutline });
+    addIcons({ addOutline, cashOutline });
   }
 
   public ngOnInit() {
@@ -300,6 +302,21 @@ export class GfActivitiesPageComponent implements OnDestroy, OnInit {
       });
   }
 
+  public onAddFunds() {
+    const dialogRef = this.dialog.open(GfAddFundsDialogComponent, {
+      width: this.deviceType === 'mobile' ? '100vw' : '400px'
+    });
+
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntil(this.unsubscribeSubject))
+      .subscribe((result) => {
+        if (result) {
+          this.fetchActivities();
+        }
+      });
+  }
+
   public onSortChanged({ active, direction }: Sort) {
     this.pageIndex = 0;
     this.sortColumn = active;
@@ -411,5 +428,9 @@ export class GfActivitiesPageComponent implements OnDestroy, OnInit {
     this.hasPermissionToDeleteActivity =
       !this.hasImpersonationId &&
       hasPermission(this.user.permissions, permissions.deleteOrder);
+
+    this.isDemoUser = aUser.tags?.some((tag) => {
+      return tag.id === 'DEMO' || tag.name === 'Demo';
+    });
   }
 }

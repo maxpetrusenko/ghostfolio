@@ -5,6 +5,7 @@ import { BehaviorSubject, combineLatest } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 export interface AiChatFeedbackState {
+  comment?: string;
   feedbackId?: string;
   isSubmitting: boolean;
   rating?: 'down' | 'up';

@@ -98,6 +98,14 @@ describe('AiAgentUtils', () => {
     ).toEqual([]);
   });
 
+  it('returns no tools for self-identity queries', () => {
+    expect(
+      determineToolPlan({
+        query: 'who am i'
+      })
+    ).toEqual([]);
+  });
+
   it('routes greetings to direct no-tool policy', () => {
     const decision = applyToolExecutionPolicy({
       plannedTools: ['portfolio_analysis'],

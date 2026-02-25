@@ -3,7 +3,28 @@ export type AiAgentToolName =
   | 'risk_assessment'
   | 'market_data_lookup'
   | 'rebalance_plan'
-  | 'stress_test';
+  | 'stress_test'
+  | 'get_portfolio_summary'
+  | 'get_current_holdings'
+  | 'get_portfolio_risk_metrics'
+  | 'get_recent_transactions'
+  | 'get_live_quote'
+  | 'get_asset_fundamentals'
+  | 'get_financial_news'
+  | 'account_overview'
+  | 'exchange_rate'
+  | 'price_history'
+  | 'symbol_lookup'
+  | 'market_benchmarks'
+  | 'activity_history'
+  | 'demo_data'
+  | 'create_account'
+  | 'create_order'
+  | 'calculate_rebalance_plan'
+  | 'simulate_trade_impact'
+  | 'transaction_categorize'
+  | 'tax_estimate'
+  | 'compliance_check';
 
 export type AiAgentConfidenceBand = 'high' | 'medium' | 'low';
 
@@ -42,6 +63,11 @@ export interface AiAgentTokenEstimate {
   total: number;
 }
 
+export interface AiAgentLlmInvocation {
+  model: string;
+  provider: string;
+}
+
 export interface AiAgentLatencyBreakdown {
   llmGenerationInMs: number;
   memoryReadInMs: number;
@@ -52,6 +78,7 @@ export interface AiAgentLatencyBreakdown {
 export interface AiAgentObservabilitySnapshot {
   latencyBreakdownInMs: AiAgentLatencyBreakdown;
   latencyInMs: number;
+  llmInvocation?: AiAgentLlmInvocation;
   tokenEstimate: AiAgentTokenEstimate;
   traceId?: string;
 }
@@ -64,6 +91,7 @@ export interface AiAgentFeedbackResponse {
 export interface AiAgentChatResponse {
   answer: string;
   citations: AiAgentCitation[];
+  llmInvocation?: AiAgentLlmInvocation;
   confidence: AiAgentConfidence;
   memory: AiAgentMemorySnapshot;
   observability?: AiAgentObservabilitySnapshot;

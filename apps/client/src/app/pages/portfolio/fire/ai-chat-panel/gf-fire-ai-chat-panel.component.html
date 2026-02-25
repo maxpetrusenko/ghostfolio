@@ -1,9 +1,9 @@
 <mat-card appearance="outlined">
   <mat-card-content>
     <div class="mb-3">
-      <h2 class="h5 mb-1" i18n>AI Portfolio Assistant</h2>
+      <h2 class="h5 mb-1" i18n>AI Retirement Assistant</h2>
       <p class="mb-0 text-muted" i18n>
-        Ask portfolio, risk, and market questions with cited results.
+        Ask questions about your FIRE plan, retirement scenarios, and withdrawal strategies.
       </p>
     </div>
 
@@ -26,9 +26,9 @@
       </div>
 
       <mat-form-field class="w-100">
-        <mat-label i18n>Ask about your portfolio</mat-label>
+        <mat-label i18n>Ask about your retirement plan</mat-label>
         <textarea
-          aria-label="Ask about your portfolio"
+          aria-label="Ask about your retirement plan"
           i18n-aria-label
           matInput
           rows="3"
@@ -208,7 +208,7 @@
 
               @if (details.citations.length > 0) {
                 <div class="response-details-section">
-                  <strong i18n>Citations</strong>
+                <strong i18n>Citations</strong>
                 <ul class="mb-0 pl-3 response-details-list">
                   @for (citation of details.citations; track $index) {
                     <li>
@@ -238,22 +238,22 @@
             }
 
             @if (details.observability) {
-                  <div class="response-details-section">
-                    <strong i18n>Observability</strong>:
-                    <span class="ml-1"
-                      >{{ details.observability.latencyInMs }}ms, ~{{
-                        details.observability.tokenEstimate.total
-                      }}
-                      tokens</span
-                    >
-                    @if (details.observability.traceId) {
-                      <div class="response-details-trace">
-                        <strong i18n>Trace ID</strong>:
-                        <span class="ml-1">{{ details.observability.traceId }}</span>
-                      </div>
-                    }
-                  </div>
-                }
+                    <div class="response-details-section">
+                      <strong i18n>Observability</strong>:
+                      <span class="ml-1"
+                        >{{ details.observability.latencyInMs }}ms, ~{{
+                          details.observability.tokenEstimate.total
+                        }}
+                        tokens</span
+                      >
+                      @if (details.observability.traceId) {
+                        <div class="response-details-trace">
+                          <strong i18n>Trace ID</strong>:
+                          <span class="ml-1">{{ details.observability.traceId }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
           } @else {
             <span class="text-muted" i18n>No response details available.</span>
           }

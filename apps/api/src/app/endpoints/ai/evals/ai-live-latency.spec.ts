@@ -12,7 +12,9 @@ function hasLiveProviderKey() {
     process.env.z_ai_glm_api_key ||
       process.env.Z_AI_GLM_API_KEY ||
       process.env.minimax_api_key ||
-      process.env.MINIMAX_API_KEY
+      process.env.MINIMAX_API_KEY ||
+      process.env.openai_api_key ||
+      process.env.OPENAI_API_KEY
   );
 }
 
@@ -38,8 +40,16 @@ function percentile(values: number[], quantile: number) {
 }
 
 function createLiveBenchmarkSubject() {
+  const accountService = {
+    createAccount: jest.fn(),
+    getAccounts: jest.fn().mockResolvedValue([])
+  };
+  const benchmarkService = {
+    getBenchmarks: jest.fn().mockResolvedValue([])
+  };
   const dataProviderService = {
     getAssetProfiles: jest.fn().mockResolvedValue({}),
+    getHistorical: jest.fn().mockResolvedValue({}),
     getQuotes: jest.fn().mockImplementation(async () => {
       return {
         AAPL: {
@@ -59,6 +69,9 @@ function createLiveBenchmarkSubject() {
         }
       };
     })
+  };
+  const exchangeRateDataService = {
+    toCurrency: jest.fn().mockReturnValue(1)
   };
   const portfolioService = {
     getDetails: jest.fn().mockResolvedValue({
@@ -88,6 +101,7 @@ function createLiveBenchmarkSubject() {
     getByKey: jest.fn()
   };
   const orderService = {
+    createOrder: jest.fn(),
     getOrders: jest.fn().mockResolvedValue({
       activities: [],
       count: 0
@@ -119,7 +133,10 @@ function createLiveBenchmarkSubject() {
   };
 
   return new AiService(
+    accountService as never,
+    benchmarkService as never,
     dataProviderService as never,
+    exchangeRateDataService as never,
     orderService as never,
     portfolioService as never,
     propertyService as never,

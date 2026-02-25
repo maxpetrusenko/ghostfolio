@@ -14,7 +14,6 @@ import {
   RiskAssessmentResult,
   StressTestResult
 } from './ai-agent.chat.interfaces';
-import { AiAgentChatMessage } from './ai-agent.interfaces';
 import {
   extractSymbolsFromQuery,
   isGeneratedAnswerReliable
@@ -45,7 +44,7 @@ const RECOMMENDATION_SUPPORTING_SECTIONS = [
 ];
 const MINIMUM_RECOMMENDATION_WORDS = 45;
 const FUNDAMENTALS_INTENT_PATTERN =
-  /\b(?:fundamentals?|valuation|market\s*cap|p\/?e|dividend|earnings|balance\s*sheet|company\s+analysis)\b/i;
+  /\b(?:fundamentals?|valuation|market\s*cap|p\/?e|dividend|earnings|balance\s*sheet|tesla\s+stock|company\s+analysis)\b/i;
 const FUNDAMENTALS_INTENT_FRAGMENTS = [
   'fundament',
   'valuat',
@@ -106,18 +105,24 @@ function getResponseInstruction({
   return `Write a concise response with actionable insight and avoid speculation.`;
 }
 
-function normalizeTurnText(value: string) {
+function summarizeTurnText(value: string, maxLength: number) {
   const normalized = value.replace(/\s+/g, ' ').trim();
 
-  return normalized.length > 0 ? normalized : 'none';
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength).trimEnd()}...`;
 }
 
 function formatRecentMemoryTurns(memory: AiAgentMemoryState) {
-  if (memory.turns.length === 0) {
+  const recentTurns = memory.turns.slice(-3);
+
+  if (recentTurns.length === 0) {
     return 'none';
   }
 
-  return memory.turns
+  return recentTurns
     .map((turn, index) => {
       const successfulTools = turn.toolCalls
         .filter(({ status }) => {
@@ -126,45 +131,12 @@ function formatRecentMemoryTurns(memory: AiAgentMemoryState) {
         .map(({ tool }) => tool);
 
       return [
-        `Turn ${index + 1} query: ${normalizeTurnText(turn.query)}`,
+        `Turn ${index + 1} query: ${summarizeTurnText(turn.query, 160)}`,
         `Turn ${index + 1} tools: ${successfulTools.join(', ') || 'none'}`,
-        `Turn ${index + 1} answer: ${normalizeTurnText(turn.answer)}`
+        `Turn ${index + 1} answer: ${summarizeTurnText(turn.answer, 220)}`
       ].join('\n');
     })
     .join('\n');
-}
-
-function buildConversationMessages({
-  memory,
-  prompt
-}: {
-  memory: AiAgentMemoryState;
-  prompt: string;
-}): AiAgentChatMessage[] {
-  const historyMessages = memory.turns.flatMap((turn) => {
-    return [
-      {
-        content: normalizeTurnText(turn.query),
-        role: 'user' as const
-      },
-      {
-        content: normalizeTurnText(turn.answer),
-        role: 'assistant' as const
-      }
-    ];
-  });
-
-  return [
-    {
-      content: 'You are a neutral financial assistant.',
-      role: 'system'
-    },
-    ...historyMessages,
-    {
-      content: prompt,
-      role: 'user'
-    }
-  ];
 }
 
 export function isRecommendationIntentQuery(query: string) {
@@ -410,7 +382,7 @@ export function resolvePreferenceUpdate({
 }
 
 export async function buildAnswer({
-  articleContentSummary,
+  additionalContextSummaries,
   assetFundamentalsSummary,
   complianceCheckSummary,
   financialNewsSummary,
@@ -430,20 +402,26 @@ export async function buildAnswer({
   userPreferences,
   userCurrency
 }: {
-  articleContentSummary?: string;
+  additionalContextSummaries?: string[];
   assetFundamentalsSummary?: string;
   complianceCheckSummary?: string;
   financialNewsSummary?: string;
   generateText: ({
-    messages,
     prompt,
     signal,
-    model
+    model,
+    onLlmInvocation,
+    traceContext
   }: {
-    messages?: AiAgentChatMessage[];
     prompt: string;
     signal?: AbortSignal;
     model?: string;
+    onLlmInvocation?: (invocation: { model: string; provider: string }) => void;
+    traceContext?: {
+      query?: string;
+      sessionId?: string;
+      userId?: string;
+    };
   }) => Promise<{ text?: string }>;
   languageCode: string;
   marketData?: MarketDataLookupResult;
@@ -579,10 +557,6 @@ export async function buildAnswer({
     fallbackSections.push(financialNewsSummary);
   }
 
-  if (articleContentSummary) {
-    fallbackSections.push(articleContentSummary);
-  }
-
   if (recentTransactionsSummary) {
     fallbackSections.push(recentTransactionsSummary);
   }
@@ -601,6 +575,10 @@ export async function buildAnswer({
 
   if (tradeImpactSummary) {
     fallbackSections.push(tradeImpactSummary);
+  }
+
+  if (additionalContextSummaries?.length) {
+    fallbackSections.push(...additionalContextSummaries.filter(Boolean));
   }
 
   if (hasFundamentalsIntent && userPreferences?.responseStyle !== 'concise') {
@@ -680,10 +658,6 @@ export async function buildAnswer({
         fallbackAnswer,
         getResponseInstruction({ userPreferences })
       ].join('\n');
-  const conversationMessages = buildConversationMessages({
-    memory,
-    prompt: llmPrompt
-  });
   const llmTimeoutInMs = getLlmTimeoutInMs();
   const abortController = new AbortController();
   let timeoutId: NodeJS.Timeout | undefined;
@@ -691,7 +665,6 @@ export async function buildAnswer({
   try {
     const generated = await Promise.race([
       generateText({
-        messages: conversationMessages,
         prompt: llmPrompt,
         signal: abortController.signal
       }),

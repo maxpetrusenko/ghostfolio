@@ -41,6 +41,19 @@ import { AssetProfileInvalidError } from './errors/asset-profile-invalid.error';
 @Injectable()
 export class DataProviderService implements OnModuleInit {
   private dataProviderMapping: { [dataProviderName: string]: string };
+  private readonly inFlightQuoteRequests = new Map<
+    string,
+    Promise<{ [symbol: string]: DataProviderResponse }>
+  >();
+  private readonly quoteRequestThrottleByDataSource = new Map<
+    string,
+    {
+      blockedUntil: number;
+      consecutiveFailures: number;
+    }
+  >();
+  private static readonly BASE_QUOTE_REQUEST_RETRY_MS = 1_000;
+  private static readonly MAX_QUOTE_REQUEST_RETRY_MS = 60_000;
 
   public constructor(
     private readonly configurationService: ConfigurationService,
@@ -619,15 +632,123 @@ export class DataProviderService implements OnModuleInit {
           i,
           i + maximumNumberOfSymbolsPerRequest
         );
+        const dataSourceThrottle = this.getQuoteRequestThrottleState(dataSource);
+        const cacheKey = `${dataSource}:${symbolsChunk.join(',')}`;
 
         const promise = Promise.resolve(
-          dataProvider.getQuotes({ requestTimeout, symbols: symbolsChunk })
+          (async () => {
+            if (Date.now() < dataSourceThrottle.blockedUntil) {
+              Logger.debug(
+                `Skipping ${dataSource} quote request for symbols [${symbolsChunk.join(
+                  ', '
+                )}] until ${new Date(
+                  dataSourceThrottle.blockedUntil
+                ).toISOString()}`,
+                'DataProviderService'
+              );
+
+              return {};
+            }
+
+            const inFlight = this.inFlightQuoteRequests.get(cacheKey);
+
+            if (inFlight) {
+              return inFlight;
+            }
+
+            const request = dataProvider
+              .getQuotes({ requestTimeout, symbols: symbolsChunk })
+              .then(
+                (result) => {
+                  this.recordQuoteRequestSuccess(dataSource);
+
+                  return result;
+                }
+              )
+              .catch((error: unknown) => {
+                this.recordQuoteRequestFailure(dataSource, error);
+
+                Logger.error(
+                  error,
+                  `DataProviderService.getQuotes(${dataSource})`
+                );
+
+                return {};
+              })
+              .finally(() => {
+                this.inFlightQuoteRequests.delete(cacheKey);
+              });
+
+            this.inFlightQuoteRequests.set(cacheKey, request);
+
+            return request;
+          })()
         );
 
         promises.push(
           promise.then(async (result) => {
+            const finalQuotes: {
+              [symbol: string]: DataProviderResponse;
+            } = { ...(result ?? {}) };
+
+            const missingSymbols = symbolsChunk.filter(
+              (symbol) => !finalQuotes[symbol]
+            );
+
+            if (missingSymbols.length > 0) {
+              const fallbackQuotes = await Promise.all(
+                missingSymbols.map(async (symbol) => {
+                  try {
+                    const fallback = await this.marketDataService.getMax({
+                      dataSource: DataSource[dataSource],
+                      symbol
+                    });
+
+                    if (!fallback || fallback.marketPrice <= 0) {
+                      return undefined;
+                    }
+
+                    return {
+                      symbol,
+                      dataProviderResponse: {
+                        currency:
+                          getCurrencyFromSymbol(symbol) ?? DEFAULT_CURRENCY,
+                        dataSource: DataSource[dataSource],
+                        marketPrice: fallback.marketPrice,
+                        marketState: 'closed',
+                        dataProviderInfo: {
+                          dataSource: DataSource[dataSource],
+                          isPremium: dataProvider
+                            .getDataProviderInfo()
+                            .isPremium,
+                          name: `${dataProvider.getDataProviderInfo().name} (stale)`,
+                          url: dataProvider.getDataProviderInfo().url
+                        }
+                      } as DataProviderResponse
+                    };
+                  } catch (error) {
+                    Logger.error(
+                      `Could not load stale market data for ${symbol}: ${String(
+                        error
+                      )}`
+                    );
+
+                    return undefined;
+                  }
+                })
+              );
+
+              for (const fallback of fallbackQuotes) {
+                if (!fallback) {
+                  continue;
+                }
+
+                finalQuotes[fallback.symbol] = fallback.dataProviderResponse;
+              }
+            }
+
             for (const [symbol, dataProviderResponse] of Object.entries(
-              result
+              finalQuotes
             )) {
               if (
                 [
@@ -657,11 +778,27 @@ export class DataProviderService implements OnModuleInit {
                 rootCurrency
               } of DERIVED_CURRENCIES) {
                 if (symbol === `${DEFAULT_CURRENCY}${rootCurrency}`) {
+                  const rootCurrencyQuote = finalQuotes[
+                    `${DEFAULT_CURRENCY}${rootCurrency}`
+                  ];
+
+                  if (!rootCurrencyQuote) {
+                    continue;
+                  }
+
+                  if (
+                    rootCurrencyQuote.marketPrice === undefined ||
+                    !isNumber(rootCurrencyQuote.marketPrice) ||
+                    rootCurrencyQuote.marketPrice <= 0
+                  ) {
+                    continue;
+                  }
+
                   response[`${DEFAULT_CURRENCY}${currency}`] = {
                     ...dataProviderResponse,
                     currency,
                     marketPrice: new Big(
-                      result[`${DEFAULT_CURRENCY}${rootCurrency}`].marketPrice
+                      rootCurrencyQuote.marketPrice
                     )
                       .mul(factor)
                       .toNumber(),
@@ -729,6 +866,49 @@ export class DataProviderService implements OnModuleInit {
     Logger.debug('========================================================');
 
     return response;
+  }
+
+  private getQuoteRequestThrottleState(dataSource: string) {
+    let state = this.quoteRequestThrottleByDataSource.get(dataSource);
+
+    if (!state) {
+      state = {
+        blockedUntil: 0,
+        consecutiveFailures: 0
+      };
+      this.quoteRequestThrottleByDataSource.set(dataSource, state);
+    }
+
+    return state;
+  }
+
+  private recordQuoteRequestFailure(
+    dataSource: string,
+    error: unknown
+  ) {
+    const state = this.getQuoteRequestThrottleState(dataSource);
+    state.consecutiveFailures += 1;
+    const retryDelayMs = Math.min(
+      DataProviderService.MAX_QUOTE_REQUEST_RETRY_MS,
+      DataProviderService.BASE_QUOTE_REQUEST_RETRY_MS *
+        2 ** Math.min(state.consecutiveFailures - 1, 6)
+    );
+
+    state.blockedUntil = Date.now() + retryDelayMs;
+
+    Logger.warn(
+      `Quote provider for ${dataSource} temporarily blocked for ${retryDelayMs}ms after error: ${String(
+        error
+      )}`,
+      'DataProviderService'
+    );
+  }
+
+  private recordQuoteRequestSuccess(dataSource: string) {
+    const state = this.getQuoteRequestThrottleState(dataSource);
+
+    state.consecutiveFailures = 0;
+    state.blockedUntil = 0;
   }
 
   public async search({

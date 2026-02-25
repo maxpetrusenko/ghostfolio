@@ -163,6 +163,7 @@ export class AiObservabilityService {
     return {
       latencyBreakdownInMs,
       latencyInMs: durationInMs,
+      llmInvocation: response.llmInvocation,
       tokenEstimate: {
         input: inputTokenEstimate,
         output: outputTokenEstimate,
@@ -195,7 +196,7 @@ export class AiObservabilityService {
 
     const runTree = new RunTree({
       client,
-      inputs: { query, sessionId, userId },
+      inputs: { query, sessionId, userId, traceId },
       name: 'ghostfolio_ai_chat',
       project_name: this.langSmithProjectName,
       run_type: 'chain'
@@ -245,6 +246,7 @@ export class AiObservabilityService {
       inputs: {
         query,
         sessionId: response.memory.sessionId,
+        traceId,
         userId
       },
       name: 'ghostfolio_ai_chat',
@@ -256,7 +258,10 @@ export class AiObservabilityService {
 
     for (const toolCall of response.toolCalls) {
       const childRun = runTree.createChild({
-        inputs: toolCall.input,
+        inputs: {
+          ...toolCall.input,
+          traceId
+        },
         name: toolCall.tool,
         run_type: 'tool'
       });
@@ -278,6 +283,7 @@ export class AiObservabilityService {
         outputs: {
           answer: response.answer,
           confidence: response.confidence,
+          llmInvocation: response.llmInvocation,
           durationInMs,
           latencyBreakdownInMs,
           policy,
@@ -360,6 +366,7 @@ export class AiObservabilityService {
         provider,
         query,
         sessionId,
+        traceId,
         userId
       },
       name: `ghostfolio_ai_llm_${provider}`,
@@ -389,15 +396,17 @@ export class AiObservabilityService {
     error,
     query,
     sessionId,
+    traceId,
     userId
   }: {
     durationInMs: number;
     error: unknown;
     query: string;
     sessionId?: string;
+    traceId?: string;
     userId: string;
   }) {
-    const traceId = randomUUID();
+    const effectiveTraceId = traceId ?? randomUUID();
     const errorMessage = error instanceof Error ? error.message : 'unknown error';
 
     this.logger.warn(
@@ -407,7 +416,7 @@ export class AiObservabilityService {
         event: 'ai_chat_failure',
         queryLength: query.length,
         sessionId,
-        traceId,
+        traceId: effectiveTraceId,
         userId
       })
     );
@@ -421,7 +430,7 @@ export class AiObservabilityService {
       errorMessage,
       query,
       sessionId,
-      traceId,
+      traceId: effectiveTraceId,
       userId
     }).catch(() => undefined);
   }
@@ -433,6 +442,7 @@ export class AiObservabilityService {
     query,
     response,
     sessionId,
+    traceId,
     userId
   }: {
     durationInMs: number;
@@ -441,9 +451,10 @@ export class AiObservabilityService {
     query: string;
     response: AiAgentChatResponse;
     sessionId?: string;
+    traceId?: string;
     userId: string;
   }): Promise<AiAgentObservabilitySnapshot> {
-    const traceId = randomUUID();
+    const effectiveTraceId = traceId ?? randomUUID();
     const snapshot = this.buildChatSuccessSnapshot({
       durationInMs,
       latencyBreakdownInMs,
@@ -451,7 +462,7 @@ export class AiObservabilityService {
       query,
       response,
       sessionId,
-      traceId,
+      traceId: effectiveTraceId,
       userId
     });
 
@@ -465,7 +476,7 @@ export class AiObservabilityService {
         sessionId: response.memory.sessionId,
         tokenEstimate: snapshot.tokenEstimate,
         toolCalls: response.toolCalls.length,
-        traceId,
+        traceId: effectiveTraceId,
         userId,
         verificationChecks: response.verification.length
       })
@@ -479,7 +490,7 @@ export class AiObservabilityService {
         query,
         response,
         tokenEstimate: snapshot.tokenEstimate,
-        traceId,
+        traceId: effectiveTraceId,
         userId
       }).catch(() => undefined);
     }
@@ -533,6 +544,7 @@ export class AiObservabilityService {
     query,
     responseText,
     sessionId,
+    traceId,
     userId
   }: {
     durationInMs: number;
@@ -543,9 +555,10 @@ export class AiObservabilityService {
     query?: string;
     responseText?: string;
     sessionId?: string;
+    traceId?: string;
     userId?: string;
   }) {
-    const traceId = randomUUID();
+    const effectiveTraceId = traceId ?? randomUUID();
     const errorMessage = error instanceof Error ? error.message : undefined;
 
     this.logger.log(
@@ -559,7 +572,7 @@ export class AiObservabilityService {
         queryLength: query?.length ?? 0,
         responseLength: responseText?.length ?? 0,
         sessionId,
-        traceId,
+        traceId: effectiveTraceId,
         userId
       })
     );
@@ -577,7 +590,7 @@ export class AiObservabilityService {
       query,
       responseText,
       sessionId,
-      traceId,
+      traceId: effectiveTraceId,
       userId
     }).catch(() => undefined);
   }

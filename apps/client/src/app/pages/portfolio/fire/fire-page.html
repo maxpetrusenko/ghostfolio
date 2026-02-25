@@ -36,6 +36,15 @@
       </div>
     </div>
   </div>
+  @if (user?.settings?.isExperimentalFeatures) {
+    <div class="row mt-5">
+      <div class="col-lg">
+        <gf-fire-ai-chat-panel
+          [hasPermissionToReadAiPrompt]="hasPermissionToReadAiPrompt"
+        />
+      </div>
+    </div>
+  }
   <div>
     <h4 class="align-items-center d-flex">
       <span i18n>Sustainable retirement income</span>

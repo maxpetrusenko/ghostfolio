@@ -4,6 +4,8 @@ export type AiAgentToolName =
   | 'market_data_lookup'
   | 'rebalance_plan'
   | 'stress_test'
+  | 'account_overview'
+  | 'exchange_rate'
   | 'get_portfolio_summary'
   | 'get_current_holdings'
   | 'get_portfolio_risk_metrics'
@@ -11,7 +13,13 @@ export type AiAgentToolName =
   | 'get_live_quote'
   | 'get_asset_fundamentals'
   | 'get_financial_news'
-  | 'get_article_content'
+  | 'price_history'
+  | 'symbol_lookup'
+  | 'market_benchmarks'
+  | 'activity_history'
+  | 'demo_data'
+  | 'create_account'
+  | 'create_order'
   | 'calculate_rebalance_plan'
   | 'simulate_trade_impact'
   | 'transaction_categorize'
@@ -60,6 +68,11 @@ export interface AiAgentTokenEstimate {
   total: number;
 }
 
+export interface AiAgentLlmInvocation {
+  model: string;
+  provider: string;
+}
+
 export interface AiAgentLatencyBreakdown {
   llmGenerationInMs: number;
   memoryReadInMs: number;
@@ -70,6 +83,7 @@ export interface AiAgentLatencyBreakdown {
 export interface AiAgentObservabilitySnapshot {
   latencyBreakdownInMs: AiAgentLatencyBreakdown;
   latencyInMs: number;
+  llmInvocation?: AiAgentLlmInvocation;
   tokenEstimate: AiAgentTokenEstimate;
   traceId?: string;
 }
@@ -79,9 +93,26 @@ export interface AiAgentFeedbackResponse {
   feedbackId: string;
 }
 
+export interface AiAgentChatRequest {
+  languageCode: string;
+  query: string;
+  conversationId?: string;
+  sessionId?: string;
+  symbols?: string[];
+  model?: string;
+  nextResponsePreference?: string;
+  userCurrency: string;
+  userId: string;
+}
+
+export interface AgentKernel {
+  run(request: AiAgentChatRequest): Promise<AiAgentChatResponse>;
+}
+
 export interface AiAgentChatResponse {
   answer: string;
   citations: AiAgentCitation[];
+  llmInvocation?: AiAgentLlmInvocation;
   confidence: AiAgentConfidence;
   memory: AiAgentMemorySnapshot;
   observability?: AiAgentObservabilitySnapshot;

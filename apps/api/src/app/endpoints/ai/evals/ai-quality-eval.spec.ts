@@ -7,8 +7,16 @@ function createSubject({
 }: {
   llmText: string;
 }) {
+  const accountService = {
+    createAccount: jest.fn(),
+    getAccounts: jest.fn().mockResolvedValue([])
+  };
+  const benchmarkService = {
+    getBenchmarks: jest.fn().mockResolvedValue([])
+  };
   const dataProviderService = {
     getAssetProfiles: jest.fn().mockResolvedValue({}),
+    getHistorical: jest.fn().mockResolvedValue({}),
     getQuotes: jest.fn().mockImplementation(async () => {
       return {
         AAPL: {
@@ -23,6 +31,9 @@ function createSubject({
         }
       };
     })
+  };
+  const exchangeRateDataService = {
+    toCurrency: jest.fn().mockReturnValue(1)
   };
   const portfolioService = {
     getDetails: jest.fn().mockResolvedValue({
@@ -52,6 +63,7 @@ function createSubject({
     getByKey: jest.fn()
   };
   const orderService = {
+    createOrder: jest.fn(),
     getOrders: jest.fn().mockResolvedValue({
       activities: [],
       count: 0
@@ -83,7 +95,10 @@ function createSubject({
   };
 
   const subject = new AiService(
+    accountService as never,
+    benchmarkService as never,
     dataProviderService as never,
+    exchangeRateDataService as never,
     orderService as never,
     portfolioService as never,
     propertyService as never,

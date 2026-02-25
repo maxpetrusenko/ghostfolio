@@ -317,6 +317,9 @@ const CREATE_ORDER_QUERY_PATTERNS = [
   /\b(?:create|place|submit|make|execute|put)\b.*\border\b/i,
   /\b(?:buy|purchase|trade|sell)\b.*\b\d+\s*(?:usd|eur|gbp|cad|chf|jpy|aud|shares?|units?|\$)/i
 ];
+const IDENTITY_PRIVACY_QUERY_PATTERNS = [
+  /\b(?:who\s+am\s+i|what\s+is\s+my\s+name|tell\s+me\s+who\s+i\s+am)\b/
+];
 const ANSWER_NUMERIC_INTENT_KEYWORDS = [
   'allocat',
   'balance',
@@ -558,6 +561,16 @@ export function determineToolPlan({
   symbols?: string[];
 }): AiAgentToolName[] {
   const normalizedQuery = normalizeIntentQuery(query);
+  const hasIdentityPrivacyIntent = IDENTITY_PRIVACY_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
+
+  if (hasIdentityPrivacyIntent) {
+    return [];
+  }
+
   const selectedTools = new Set<AiAgentToolName>();
   const extractedSymbols = symbols?.length
     ? symbols

@@ -53,4 +53,19 @@
       </a>
     </div>
   }
+
+  @if (isDemoUser) {
+    <div class="fab-container add-funds-fab">
+      <button
+        class="align-items-center d-flex justify-content-center"
+        mat-fab
+        extended
+        color="accent"
+        (click)="onAddFunds()"
+      >
+        <ion-icon class="mr-2" name="cash-outline" />
+        <span i18n>Add Funds</span>
+      </button>
+    </div>
+  }
 </div>

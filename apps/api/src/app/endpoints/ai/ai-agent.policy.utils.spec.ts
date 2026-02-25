@@ -58,6 +58,19 @@ describe('AiAgentPolicyUtils', () => {
     );
   });
 
+  it('routes self-identity query to direct no-tool with privacy-safe response', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['portfolio_analysis'],
+      query: 'who am i'
+    });
+
+    expect(decision.route).toBe('direct');
+    expect(decision.toolsToExecute).toEqual([]);
+    expect(
+      createPolicyRouteResponse({ policyDecision: decision, query: 'who am i' })
+    ).toContain('do not have access to personal identity details');
+  });
+
   it.each<[string, string]>([
     ['2+2', '2+2 = 4'],
     ['what is 5 * 3', '5 * 3 = 15'],
@@ -387,6 +400,31 @@ describe('AiAgentPolicyUtils', () => {
     expect(details).toContain(
       'executed_tools=portfolio_analysis, risk_assessment'
     );
+  });
+
+  it('enforces policy tool-call cap before execution', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: [
+        'portfolio_analysis',
+        'risk_assessment',
+        'market_data_lookup',
+        'get_live_quote',
+        'account_overview'
+      ],
+      query: 'analyze my portfolio risk',
+      policyLimits: {
+        maxToolCallsPerRequest: 3
+      }
+    });
+
+    expect(decision.blockedByPolicy).toBe(true);
+    expect(decision.blockReason).toBe('tool_rate_limit');
+    expect(decision.toolsToExecute).toEqual([
+      'portfolio_analysis',
+      'risk_assessment',
+      'market_data_lookup'
+    ]);
+    expect(decision.limits?.maxToolCallsPerRequest).toBe(3);
   });
 
   describe('Feature Discovery Responses', () => {

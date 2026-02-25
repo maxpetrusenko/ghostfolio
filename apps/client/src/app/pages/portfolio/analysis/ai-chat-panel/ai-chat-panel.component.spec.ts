@@ -19,11 +19,56 @@ const STORAGE_KEY_SESSION_ID = 'gf_ai_chat_session_id';
 function createChatResponse({
   answer,
   sessionId,
-  turns
+  turns,
+  llmInvocation,
+  toolCalls,
+  observability
 }: {
   answer: string;
   sessionId: string;
   turns: number;
+  llmInvocation?: {
+    model: string;
+    provider: string;
+  };
+  toolCalls?: Array<{
+    input: Record<string, unknown>;
+    outputSummary: string;
+    status: 'failed' | 'success';
+    tool:
+      | 'portfolio_analysis'
+      | 'risk_assessment'
+      | 'market_data_lookup'
+      | 'rebalance_plan'
+      | 'stress_test'
+      | 'get_portfolio_summary'
+      | 'get_current_holdings'
+      | 'get_portfolio_risk_metrics'
+      | 'get_recent_transactions'
+      | 'get_live_quote'
+      | 'get_asset_fundamentals'
+      | 'get_financial_news'
+      | 'calculate_rebalance_plan'
+      | 'simulate_trade_impact'
+      | 'transaction_categorize'
+      | 'tax_estimate'
+      | 'compliance_check';
+  }>;
+  observability?: {
+    latencyBreakdownInMs: {
+      llmGenerationInMs: number;
+      memoryReadInMs: number;
+      memoryWriteInMs: number;
+      toolExecutionInMs: number;
+    };
+    latencyInMs: number;
+    tokenEstimate: {
+      input: number;
+      output: number;
+      total: number;
+    };
+    traceId?: string;
+  };
 }): AiAgentChatResponse {
   return {
     answer,
@@ -42,21 +87,24 @@ function createChatResponse({
       sessionId,
       turns
     },
-    toolCalls: [
+    toolCalls:
+      toolCalls ?? [
       {
         input: {},
         outputSummary: '2 holdings analyzed',
         status: 'success',
         tool: 'portfolio_analysis'
       }
-    ],
+      ],
     verification: [
       {
         check: 'market_data_coverage',
         details: '2/2 symbols resolved',
         status: 'passed'
       }
-    ]
+    ],
+    llmInvocation,
+    observability
   };
 }
 
@@ -176,7 +224,40 @@ describe('GfAiChatPanelComponent', () => {
         createChatResponse({
           answer: 'You are concentrated in one position.',
           sessionId: 'session-details',
-          turns: 1
+          turns: 1,
+          llmInvocation: {
+            model: 'gpt-4o-mini',
+            provider: 'openai'
+          },
+          toolCalls: [
+            {
+              input: {},
+              outputSummary: '2 holdings analyzed',
+              status: 'success',
+              tool: 'portfolio_analysis'
+            },
+            {
+              input: {},
+              outputSummary: 'risk status checked',
+              status: 'success',
+              tool: 'risk_assessment'
+            }
+          ],
+          observability: {
+            latencyBreakdownInMs: {
+              llmGenerationInMs: 10,
+              memoryReadInMs: 2,
+              memoryWriteInMs: 4,
+              toolExecutionInMs: 7
+            },
+            latencyInMs: 30,
+            tokenEstimate: {
+              input: 12,
+              output: 24,
+              total: 36
+            },
+            traceId: 'trace-details'
+          }
         })
       )
     );
@@ -213,9 +294,40 @@ describe('GfAiChatPanelComponent', () => {
     expect(overlayText).toContain('Confidence');
     expect(overlayText).toContain('Citations');
     expect(overlayText).toContain('Verification');
+    expect(overlayText).toContain('LLM');
+    expect(overlayText).toContain('openai');
+    expect(overlayText).toContain('gpt-4o-mini');
+    expect(overlayText).toContain('Tools');
+    expect(overlayText).toContain('portfolio_analysis');
+    expect(overlayText).toContain('risk_assessment');
+    expect(overlayText).toContain('Trace ID');
+    expect(overlayText).toContain('trace-details');
     expect(overlayText).toContain('2 holdings analyzed');
     expect(overlayText).toContain('market_data_coverage');
   }));
+
+  it('sends next response preference when provided', () => {
+    dataService.postAiChat.mockReturnValue(
+      of(
+        createChatResponse({
+          answer: 'Portfolio response',
+          sessionId: 'session-pref',
+          turns: 1
+        })
+      )
+    );
+    component.query = 'Summarize risk';
+    component.nextResponsePreference = 'Give me short bullet points.';
+
+    component.onSubmit();
+
+    expect(dataService.postAiChat).toHaveBeenCalledWith({
+      query: 'Summarize risk',
+      nextResponsePreference: 'Give me short bullet points.',
+      sessionId: undefined
+    });
+    expect(component.nextResponsePreference).toBe('');
+  });
 
   it('reuses session id across consecutive prompts', () => {
     dataService.postAiChat

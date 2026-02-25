@@ -21,8 +21,11 @@ import { generateText } from 'ai';
 import { randomUUID } from 'node:crypto';
 import {
   AiAgentChatResponse,
+  AiAgentChatRequest,
   AiAgentToolName,
-  AiAgentToolCall
+  AiAgentCitation,
+  AiAgentToolCall,
+  AgentKernel
 } from './ai-agent.interfaces';
 import {
   AI_AGENT_MEMORY_MAX_TURNS,
@@ -95,12 +98,78 @@ const ORDER_TOOL_TAKE_BY_NAME: Partial<Record<AiAgentToolName, number>> = {
   transaction_categorize: 50,
   compliance_check: 100
 };
+const AI_TOOL_REGISTRY_MAX_CALLS_PER_REQUEST = 8;
+const AI_TOOL_REGISTRY_DEFAULT_MAX_CALLS_PER_TOOL = 1;
+
+type AiToolExecutionResult = {
+  citations: AiAgentCitation[];
+  toolCall: AiAgentToolCall;
+};
+
+class AiToolRegistry {
+  private readonly executionsByTool = new Map<AiAgentToolName, number>();
+  private totalExecutions = 0;
+
+  public constructor(
+    private readonly options?: {
+      maxToolCallsPerRequest?: number;
+      maxToolCallsPerTool?: Partial<Record<AiAgentToolName, number>>;
+    }
+  ) {}
+
+  public async executeTool(
+    toolName: AiAgentToolName,
+    executor: () => Promise<AiToolExecutionResult>
+  ): Promise<AiToolExecutionResult> {
+    const maxToolCallsPerRequest =
+      this.options?.maxToolCallsPerRequest ?? AI_TOOL_REGISTRY_MAX_CALLS_PER_REQUEST;
+    const maxToolCallsPerTool = this.options?.maxToolCallsPerTool ?? {};
+
+    if (this.totalExecutions >= maxToolCallsPerRequest) {
+      return {
+        citations: [],
+        toolCall: {
+          input: {
+            toolName
+          },
+          outputSummary: `Tool execution blocked by policy: maximum of ${maxToolCallsPerRequest} tools per request exceeded.`,
+          status: 'failed',
+          tool: toolName
+        }
+      };
+    }
+
+    const currentExecutions = this.executionsByTool.get(toolName) ?? 0;
+    const maxToolCalls =
+      maxToolCallsPerTool[toolName] ?? AI_TOOL_REGISTRY_DEFAULT_MAX_CALLS_PER_TOOL;
+
+    if (currentExecutions >= maxToolCalls) {
+      return {
+        citations: [],
+        toolCall: {
+          input: {
+            toolName
+          },
+          outputSummary: `Tool execution blocked by policy: max calls for ${toolName} exceeded.`,
+          status: 'failed',
+          tool: toolName
+        }
+      };
+    }
+
+    this.executionsByTool.set(toolName, currentExecutions + 1);
+    this.totalExecutions += 1;
+
+    return executor();
+  }
+}
+
 type OrderActivity = Awaited<
   ReturnType<OrderService['getOrders']>
 >['activities'][number];
 
 @Injectable()
-export class AiService {
+export class AiService implements AgentKernel {
   public constructor(
     private readonly accountService: AccountService,
     private readonly benchmarkService: BenchmarkService,
@@ -128,6 +197,7 @@ export class AiService {
       query?: string;
       sessionId?: string;
       userId?: string;
+      traceId?: string;
     };
   }) {
     const zAiGlmApiKey =
@@ -170,7 +240,8 @@ export class AiService {
           provider: runnableProvider,
           query,
           sessionId,
-          userId
+          userId,
+          traceId
         }: {
           model: string;
           prompt: string;
@@ -178,6 +249,7 @@ export class AiService {
           query?: string;
           sessionId?: string;
           userId?: string;
+          traceId?: string;
         }) => {
         const startedAt = Date.now();
         let invocationError: unknown;
@@ -195,20 +267,20 @@ export class AiService {
           return response;
         } catch (error) {
           invocationError = error;
-            throw error;
-          } finally {
-            void this.aiObservabilityService.recordLlmInvocation({
-              durationInMs: Date.now() - startedAt,
-              error: invocationError,
-              model: runnableModel,
-              prompt: runnablePrompt,
-              provider: runnableProvider,
-              query,
-              responseText,
-              sessionId,
-              userId
-            });
-          }
+          throw error;
+        } finally {
+          void this.aiObservabilityService.recordLlmInvocation({
+            durationInMs: Date.now() - startedAt,
+            error: invocationError,
+            model: runnableModel,
+            prompt: runnablePrompt,
+            provider: runnableProvider,
+            query,
+            responseText,
+            sessionId,
+            userId,
+            traceId
+          });
         }
       );
 
@@ -219,7 +291,8 @@ export class AiService {
           provider,
           query: traceContext?.query,
           sessionId: traceContext?.sessionId,
-          userId: traceContext?.userId
+          userId: traceContext?.userId,
+          traceId: traceContext?.traceId
         },
         {
           metadata: {
@@ -227,7 +300,8 @@ export class AiService {
             provider,
             query: traceContext?.query ?? '',
             sessionId: traceContext?.sessionId ?? '',
-            userId: traceContext?.userId ?? ''
+            userId: traceContext?.userId ?? '',
+            traceId: traceContext?.traceId ?? ''
           },
           runName: `ghostfolio_ai_llm_${provider}`,
           tags: ['ghostfolio-ai', 'llm-invocation', provider]
@@ -357,6 +431,10 @@ export class AiService {
     });
   }
 
+  public async run(request: AiAgentChatRequest): Promise<AiAgentChatResponse> {
+    return this.chat(request);
+  }
+
   public async chat({
     languageCode,
     query,
@@ -367,17 +445,11 @@ export class AiService {
     nextResponsePreference,
     userCurrency,
     userId
-  }: {
-    languageCode: string;
-    query: string;
-    conversationId?: string;
-    sessionId?: string;
-    symbols?: string[];
-    model?: string;
-    nextResponsePreference?: string;
-    userCurrency: string;
-    userId: string;
-  }): Promise<AiAgentChatResponse> {
+  }: AiAgentChatRequest): Promise<AiAgentChatResponse> {
+    if (!userId?.trim()) {
+      throw new Error('MISSING_USER_ID');
+    }
+
     const normalizedQuery = query.trim();
     const preferredStyleInstruction =
       nextResponsePreference?.trim() ?? '';
@@ -389,6 +461,7 @@ export class AiService {
     const resolvedSessionId =
       conversationId?.trim() || sessionId?.trim() || randomUUID();
     const chatStartedAt = Date.now();
+    const traceId = randomUUID();
     let llmGenerationInMs = 0;
     let memoryReadInMs = 0;
     let memoryWriteInMs = 0;
@@ -442,7 +515,10 @@ export class AiService {
         : inferredPlannedTools;
       const policyDecision = applyToolExecutionPolicy({
         plannedTools,
-        query: queryForTools
+        query: queryForTools,
+        policyLimits: {
+          maxToolCallsPerRequest: AI_TOOL_REGISTRY_MAX_CALLS_PER_REQUEST
+        }
       });
       const preferenceUpdate = resolvePreferenceUpdate({
         query: queryForTools,
@@ -655,9 +731,14 @@ export class AiService {
       };
 
       const toolExecutionStartedAt = Date.now();
+      const toolExecutionRegistry = new AiToolRegistry({
+        maxToolCallsPerRequest: policyDecision.limits?.maxToolCallsPerRequest,
+        maxToolCallsPerTool: policyDecision.limits?.maxToolCallsPerTool
+      });
       const toolOutcomes = await Promise.all(
         policyDecision.toolsToExecute.map(async (toolName) => {
-          try {
+          return toolExecutionRegistry.executeTool(toolName, async () => {
+            try {
             if (toolName === 'portfolio_analysis') {
               const analysis = await getPortfolioAnalysis();
 
@@ -1497,7 +1578,8 @@ export class AiService {
                 tool: toolName
               }
             };
-          }
+            }
+          });
         })
       );
       toolExecutionInMs = Date.now() - toolExecutionStartedAt;
@@ -1579,20 +1661,21 @@ export class AiService {
           complianceCheckSummary,
           financialNewsSummary,
           generateText: (options) =>
-              this.generateText({
-                ...options,
-                model,
-                onLlmInvocation: ({ model, provider }) => {
-                  llmInvocation = {
-                    model,
-                    provider
-                  };
-                },
-                traceContext: {
-                  query: queryForPrompt,
-                  sessionId: resolvedSessionId,
-                  userId
-                }
+            this.generateText({
+              ...options,
+              model,
+              onLlmInvocation: ({ model, provider }) => {
+                llmInvocation = {
+                  model,
+                  provider
+                };
+              },
+              traceContext: {
+                query: queryForPrompt,
+                sessionId: resolvedSessionId,
+                traceId,
+                userId
+              }
             }),
           languageCode,
           marketData,
@@ -1715,7 +1798,8 @@ export class AiService {
         query: queryForTools,
         response,
         sessionId: resolvedSessionId,
-        userId
+        userId,
+        traceId
       });
 
       return response;
@@ -1725,7 +1809,8 @@ export class AiService {
         error,
         query: queryForTools,
         sessionId: resolvedSessionId,
-        userId
+        userId,
+        traceId
       });
 
       throw error;

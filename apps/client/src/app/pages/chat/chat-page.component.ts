@@ -30,7 +30,7 @@ import {
   LucideAngularModule,
   MessageSquare,
   MessageSquarePlus,
-  Pencil,
+  SquarePen,
   Search,
   SendHorizontal,
   Check,
@@ -46,6 +46,14 @@ import { finalize, takeUntil } from 'rxjs/operators';
 interface ChatModelOption {
   id: string;
   label: string;
+}
+
+interface PendingSubmission {
+  conversationId: string;
+  nextResponsePreference?: string;
+  query: string;
+  requestedModelId: string;
+  sessionId?: string;
 }
 
 @Component({
@@ -90,15 +98,20 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     {
       id: 'minimax',
       label: 'MiniMax-M2.5'
+    },
+    {
+      id: 'openai',
+      label: 'OpenAI'
     }
   ];
   public query = '';
+  public nextResponsePreference = '';
   public selectedModelId = this.modelOptions[0].id;
   public readonly icons = {
     info: Info,
     messageSquare: MessageSquare,
     messageSquarePlus: MessageSquarePlus,
-    pencil: Pencil,
+    pencil: SquarePen,
     check: Check,
     x: X,
     search: Search,
@@ -115,6 +128,8 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   ];
   public readonly userRoleLabel = $localize`You`;
 
+  private activeSubmission: PendingSubmission | undefined;
+  private pendingSubmissionQueue: PendingSubmission[] = [];
   private unsubscribeSubject = new Subject<void>();
 
   public constructor(
@@ -146,7 +161,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       .subscribe((conversation) => {
         this.currentConversation = conversation;
         this.activeResponseDetails = undefined;
-        this.scrollToTop();
+        this.scrollToBottom();
       });
 
     if (this.aiChatConversationsService.getConversationsSnapshot().length === 0) {
@@ -155,7 +170,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public ngAfterViewInit() {
-    this.scrollToTop();
+    this.scrollToBottom();
   }
 
   public ngOnDestroy() {
@@ -163,15 +178,30 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     this.unsubscribeSubject.complete();
   }
 
-  private scrollToTop() {
+  private scrollToBottom() {
     if (this.chatLogContainer) {
-      this.chatLogContainer.nativeElement.scrollTop = 0;
+      const schedule =
+        typeof requestAnimationFrame === 'function'
+          ? requestAnimationFrame
+          : (callback: FrameRequestCallback) => setTimeout(callback, 0);
+
+      schedule(() => {
+        const element = this.chatLogContainer.nativeElement;
+        element.scrollTop = element.scrollHeight;
+      });
     }
   }
 
   public get visibleMessages() {
-    const messages = this.currentConversation?.messages ?? [];
-    return [...messages].reverse();
+    return this.currentConversation?.messages ?? [];
+  }
+
+  public get queueDepth() {
+    return this.pendingSubmissionQueue.length + (this.activeSubmission ? 1 : 0);
+  }
+
+  public get isQueueBusy() {
+    return this.queueDepth > 0;
   }
 
   public get filteredConversations() {
@@ -220,22 +250,48 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     this.editingConversationTitle = '';
   }
 
-  public onRenameConversation(event: Event, conversationId: string, title: string) {
+  public onRenameConversation(
+    event: Event,
+    conversationId: string,
+    title: string,
+    renameInput?: HTMLInputElement
+  ) {
     event.stopPropagation();
     this.editingConversationId = conversationId;
     this.editingConversationTitle = title;
+    this.focusConversationRenameInput(conversationId, renameInput);
+  }
 
-    requestAnimationFrame(() => {
-      const rowElement = document.querySelector<HTMLElement>(
-        `[data-conversation-id="${conversationId}"]`
-      );
-      const input = rowElement?.querySelector<HTMLInputElement>(
-        '.conversation-title-edit-input'
-      );
+  private focusConversationRenameInput(
+    conversationId: string,
+    renameInput?: HTMLInputElement
+  ) {
+    setTimeout(() => {
+      const input =
+        renameInput ??
+        document.querySelector<HTMLInputElement>(
+          `.conversation-title-editor input[data-conversation-id="${conversationId}"]`
+        );
 
-      input?.focus();
-      input?.select();
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      input.select();
     });
+  }
+
+  public onRenameConversationInputBlur(conversationId: string) {
+    if (conversationId !== this.editingConversationId) {
+      return;
+    }
+
+    if (document.activeElement?.closest('.conversation-title-editor')) {
+      return;
+    }
+
+    this.onSaveConversationTitle(conversationId);
   }
 
   public onRenameConversationInputKeydown(
@@ -250,24 +306,6 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     if (event.key === 'Escape') {
       event.preventDefault();
       this.onCancelRenameConversation(event);
-    }
-  }
-
-  public onRenameConversationInputBlur(
-    conversationId: string,
-    event: FocusEvent
-  ) {
-    const relatedTarget = event.relatedTarget as HTMLElement | null;
-
-    if (
-      relatedTarget?.closest('.conversation-title-editor') &&
-      conversationId === this.editingConversationId
-    ) {
-      return;
-    }
-
-    if (conversationId === this.editingConversationId) {
-      this.onSaveConversationTitle(conversationId);
     }
   }
 
@@ -290,6 +328,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   public onNewChat() {
     this.errorMessage = undefined;
     this.query = '';
+    this.nextResponsePreference = '';
     this.aiChatConversationsService.createConversation();
   }
 
@@ -338,6 +377,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
     this.dataService
       .postAiChatFeedback({
+        comment: message.feedback?.comment?.trim() || undefined,
         rating,
         sessionId: message.response.memory.sessionId
       })
@@ -377,9 +417,38 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       });
   }
 
+  public onFeedbackCommentChange({
+    comment,
+    messageId
+  }: {
+    comment: string;
+    messageId: number;
+  }) {
+    const conversation = this.currentConversation;
+
+    if (!conversation) {
+      return;
+    }
+
+    this.aiChatConversationsService.updateMessage({
+      conversationId: conversation.id,
+      messageId,
+      updater: (currentMessage) => {
+        return {
+          ...currentMessage,
+          feedback: {
+            ...currentMessage.feedback,
+            comment
+          }
+        };
+      }
+    });
+  }
+
   public onSelectConversation(conversationId: string) {
     this.errorMessage = undefined;
     this.query = '';
+    this.nextResponsePreference = '';
     this.aiChatConversationsService.selectConversation(conversationId);
   }
 
@@ -392,65 +461,104 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public onSubmit() {
+    const activeConversation =
+      this.aiChatConversationsService.getCurrentConversationSnapshot() ??
+      this.currentConversation;
+
+    const conversation =
+      activeConversation ??
+      this.aiChatConversationsService.createConversation();
+
     const normalizedQuery = this.query?.trim();
+    const nextResponsePreference = this.nextResponsePreference?.trim();
 
     if (
       !this.hasPermissionToReadAiPrompt ||
-      this.isSubmitting ||
       !normalizedQuery
     ) {
       return;
     }
-
-    const conversation =
-      this.currentConversation ?? this.aiChatConversationsService.createConversation();
 
     this.aiChatConversationsService.appendUserMessage({
       content: normalizedQuery,
       conversationId: conversation.id
     });
 
+    this.pendingSubmissionQueue.push({
+      conversationId: conversation.id,
+      ...(nextResponsePreference ? { nextResponsePreference } : {}),
+      query: normalizedQuery,
+      requestedModelId: this.selectedModelId,
+      sessionId: conversation.sessionId
+    });
+
     this.errorMessage = undefined;
-    this.isSubmitting = true;
     this.query = '';
+    this.nextResponsePreference = '';
+    this.scrollToBottom();
+    this.processSubmissionQueue();
+  }
+
+  private processSubmissionQueue() {
+    if (this.isSubmitting) {
+      return;
+    }
+
+    const submission = this.pendingSubmissionQueue.shift();
+
+    if (!submission) {
+      return;
+    }
+
+    this.isSubmitting = true;
+    this.activeSubmission = submission;
 
     this.dataService
       .postAiChat({
-        query: normalizedQuery,
+        query: submission.query,
+        conversationId: submission.conversationId,
         model:
-          this.selectedModelId === 'auto'
+          submission.requestedModelId === 'auto'
             ? undefined
-            : this.selectedModelId,
-        sessionId: conversation.sessionId
+            : submission.requestedModelId,
+        ...(submission.nextResponsePreference
+          ? { nextResponsePreference: submission.nextResponsePreference }
+          : {}),
+        sessionId: submission.sessionId
       })
       .pipe(
         finalize(() => {
           this.isSubmitting = false;
+          this.activeSubmission = undefined;
+          this.scrollToBottom();
+          this.processSubmissionQueue();
         }),
         takeUntil(this.unsubscribeSubject)
       )
       .subscribe({
         next: (response) => {
           this.aiChatConversationsService.setConversationSessionId({
-            conversationId: conversation.id,
+            conversationId: submission.conversationId,
             sessionId: response.memory.sessionId
           });
           this.aiChatConversationsService.appendAssistantMessage({
             content: response.answer,
-            conversationId: conversation.id,
+            conversationId: submission.conversationId,
             feedback: {
               isSubmitting: false
             },
             response
           });
+          this.scrollToBottom();
         },
         error: () => {
           this.errorMessage = $localize`AI request failed. Check your model quota and permissions.`;
 
           this.aiChatConversationsService.appendAssistantMessage({
             content: $localize`Request failed. Please retry.`,
-            conversationId: conversation.id
+            conversationId: submission.conversationId
           });
+          this.scrollToBottom();
         }
       });
   }

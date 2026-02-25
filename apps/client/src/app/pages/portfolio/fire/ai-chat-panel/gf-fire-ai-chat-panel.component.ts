@@ -55,13 +55,13 @@ type StoredAiChatMessage = Omit<AiChatMessage, 'createdAt'> & {
     MatMenuModule,
     MatProgressSpinnerModule
   ],
-  selector: 'gf-ai-chat-panel',
-  styleUrls: ['./ai-chat-panel.component.scss'],
-  templateUrl: './ai-chat-panel.component.html'
+  selector: 'gf-fire-ai-chat-panel',
+  styleUrls: ['./gf-fire-ai-chat-panel.component.scss'],
+  templateUrl: './gf-fire-ai-chat-panel.component.html'
 })
-export class GfAiChatPanelComponent implements OnDestroy {
-  private readonly STORAGE_KEY_MESSAGES = 'gf_ai_chat_messages';
-  private readonly STORAGE_KEY_SESSION_ID = 'gf_ai_chat_session_id';
+export class GfFireAiChatPanelComponent implements OnDestroy {
+  private readonly STORAGE_KEY_MESSAGES = 'gf_fire_ai_chat_messages';
+  private readonly STORAGE_KEY_SESSION_ID = 'gf_fire_ai_chat_session_id';
   private readonly MAX_STORED_MESSAGES = 200;
 
   @Input() hasPermissionToReadAiPrompt = false;
@@ -75,9 +75,10 @@ export class GfAiChatPanelComponent implements OnDestroy {
   public query = '';
   public nextResponsePreference = '';
   public readonly starterPrompts = [
-    $localize`Give me a portfolio risk summary.`,
-    $localize`What are my top concentration risks right now?`,
-    $localize`Show me the latest market prices for my top holdings.`
+    $localize`Am I on track for early retirement?`,
+    $localize`What if I increase my savings rate by 5%?`,
+    $localize`How does a market crash affect my FIRE date?`,
+    $localize`Explain my safe withdrawal rate options.`
   ];
   public readonly userRoleLabel = $localize`You`;
 
@@ -316,7 +317,6 @@ export class GfAiChatPanelComponent implements OnDestroy {
         JSON.stringify(this.chatMessages.slice(-this.MAX_STORED_MESSAGES))
       );
     } catch {
-      // Keep chat available if browser storage is unavailable or full.
     }
   }
 

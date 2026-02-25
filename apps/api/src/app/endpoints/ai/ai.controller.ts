@@ -71,10 +71,14 @@ export class AiController {
   @HasPermission(permissions.readAiPrompt)
   @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
   public async chat(@Body() data: AiChatDto): Promise<AiAgentChatResponse> {
-    return this.aiService.chat({
+    return this.aiService.run({
       languageCode: this.request.user.settings.settings.language,
       query: data.query,
       ...(data.model ? { model: data.model } : {}),
+      ...(data.nextResponsePreference
+        ? { nextResponsePreference: data.nextResponsePreference }
+        : {}),
+      ...(data.conversationId ? { conversationId: data.conversationId } : {}),
       sessionId: data.sessionId,
       symbols: data.symbols,
       userCurrency: this.request.user.settings.settings.baseCurrency,

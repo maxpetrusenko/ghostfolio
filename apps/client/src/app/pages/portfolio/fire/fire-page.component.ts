@@ -10,6 +10,7 @@ import { GfFireCalculatorComponent } from '@ghostfolio/ui/fire-calculator';
 import { GfPremiumIndicatorComponent } from '@ghostfolio/ui/premium-indicator';
 import { DataService } from '@ghostfolio/ui/services';
 import { GfValueComponent } from '@ghostfolio/ui/value';
+import { GfFireAiChatPanelComponent } from './ai-chat-panel/gf-fire-ai-chat-panel.component';
 
 import { CommonModule, NgStyle } from '@angular/common';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
@@ -26,6 +27,7 @@ import { takeUntil } from 'rxjs/operators';
     CommonModule,
     FormsModule,
     GfFireCalculatorComponent,
+    GfFireAiChatPanelComponent,
     GfPremiumIndicatorComponent,
     GfValueComponent,
     NgStyle,
@@ -40,6 +42,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
   public deviceType: string;
   public fireWealth: FireWealth;
   public hasImpersonationId: boolean;
+  public hasPermissionToReadAiPrompt: boolean;
   public hasPermissionToUpdateUserSettings: boolean;
   public isLoading = false;
   public projectedTotalAmount: number;
@@ -116,6 +119,11 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
                   this.user.permissions,
                   permissions.updateUserSettings
                 );
+
+          this.hasPermissionToReadAiPrompt = hasPermission(
+            this.user.permissions,
+            permissions.readAiPrompt
+          );
 
           this.safeWithdrawalRateControl.setValue(
             this.user.settings.safeWithdrawalRate,

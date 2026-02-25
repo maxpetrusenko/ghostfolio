@@ -72,14 +72,14 @@ Updated: 2026-02-24
    Mistake: Chat success updated only local message state and did not trigger parent analysis data refresh.
    Rule: Emit a chat-success event from embedded AI panels and let parent containers refresh dependent UI state explicitly.
 
-18. Context: Short follow-up prompts after tool-backed answers (`why?`, `explain that`)
-   Mistake: Planner emitted no tools, so policy route fell back to generic capability replies and broke conversational continuity.
-   Rule: Detect short contextual follow-ups and reuse previous successful tool context when planner output is empty, with regression tests for both with-context and no-context paths.
+18. Context: Short conversational follow-ups ("why?", "what about that?") after a tool-backed answer
+   Mistake: Follow-up turns with no explicit tool keywords fell back to generic capability text instead of preserving session context.
+   Rule: Detect short follow-up prompts and, when prior turn tools exist, reuse prior successful tools from session memory before policy gating.
 
-19. Context: Multi-turn finance analysis quality in stateless LLM providers
-   Mistake: Prompt path carried only compressed recent context, which reduced follow-up coherence for deeper analysis requests.
-   Rule: Pass full session turn history as structured messages on each model call, and keep deterministic tests that assert prior user and assistant turns are included.
+19. Context: Multi-file refactors using patch workflows
+   Mistake: Patch operations were routed through shell commands instead of the dedicated patch tool.
+   Rule: For every file edit, use the dedicated patch tool directly and keep shell commands read-only.
 
-20. Context: News follow-up requests ("more about this headline")
-   Mistake: Router treated follow-up as generic finance intent and over-called portfolio/fundamentals tools because article-content retrieval was missing.
-   Rule: Add a dedicated news-expansion intent and article-content tool, persist headline links in memory, and resolve follow-up targets before any fallback routing.
+20. Context: Ticker-specific investment questions ("should I invest in NVIDIA?")
+   Mistake: Investment keyword routing defaulted to portfolio concentration tools even when the query intent was external market research.
+   Rule: For ticker-targeted advice/research intents, prioritize market context tools (quote, fundamentals, news, history) and only add portfolio tools when the query explicitly references portfolio/account context.

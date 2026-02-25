@@ -19,6 +19,7 @@ describe('AiController', () => {
 
   beforeEach(async () => {
     aiService = {
+      run: jest.fn(),
       chat: jest.fn(),
       getPrompt: jest.fn()
     };
@@ -67,11 +68,12 @@ describe('AiController', () => {
   it('passes validated chat payload and user context to ai service', async () => {
     const dto: AiChatDto = {
       query: 'Analyze my portfolio',
+      conversationId: 'chat-conversation-1',
       sessionId: 'chat-session-1',
       symbols: ['AAPL']
     };
 
-    aiService.chat.mockResolvedValue({
+    aiService.run.mockResolvedValue({
       answer: 'ok',
       citations: [],
       confidence: { band: 'medium', score: 0.7 },
@@ -82,9 +84,10 @@ describe('AiController', () => {
 
     await controller.chat(dto);
 
-    expect(aiService.chat).toHaveBeenCalledWith({
+    expect(aiService.run).toHaveBeenCalledWith({
       languageCode: 'en',
       query: dto.query,
+      conversationId: dto.conversationId,
       sessionId: dto.sessionId,
       symbols: dto.symbols,
       userCurrency: 'USD',

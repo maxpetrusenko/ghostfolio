@@ -674,21 +674,39 @@ export class DataService {
 
   public postAiChat({
     query,
+    conversationId,
     sessionId,
     symbols,
-    model
+    model,
+    nextResponsePreference
   }: {
     query: string;
+    conversationId?: string;
     sessionId?: string;
     symbols?: string[];
     model?: string;
+    nextResponsePreference?: string;
   }) {
-    return this.http.post<AiAgentChatResponse>('/api/v1/ai/chat', {
+    const payload: {
+      conversationId?: string;
+      model?: string;
+      nextResponsePreference?: string;
+      query: string;
+      sessionId?: string;
+      symbols?: string[];
+    } = {
       query,
+      conversationId,
       sessionId,
       symbols,
       model
-    });
+    };
+
+    if (nextResponsePreference?.trim()) {
+      payload.nextResponsePreference = nextResponsePreference.trim();
+    }
+
+    return this.http.post<AiAgentChatResponse>('/api/v1/ai/chat', payload);
   }
 
   public postAiChatFeedback({
