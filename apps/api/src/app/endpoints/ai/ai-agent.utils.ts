@@ -153,6 +153,29 @@ const COMPANY_ALIAS_PATTERNS = Object.entries(COMPANY_NAME_SYMBOL_ALIASES).map(
     };
   }
 );
+const SYMBOL_TO_COMPANY_ALIASES = Object.entries(COMPANY_NAME_SYMBOL_ALIASES).reduce(
+  (result, [alias, symbol]) => {
+    if (!result[symbol]) {
+      result[symbol] = [];
+    }
+
+    result[symbol].push(alias);
+
+    return result;
+  },
+  {} as Record<string, string[]>
+);
+const KNOWN_TICKER_SYMBOLS = new Set(
+  Object.values(COMPANY_NAME_SYMBOL_ALIASES).map((symbol) => {
+    return symbol.toUpperCase();
+  })
+);
+const KNOWN_SINGLE_WORD_COMPANY_ALIASES = Object.keys(
+  COMPANY_NAME_SYMBOL_ALIASES
+).filter((alias) => {
+  return /^[a-z][a-z0-9.-]{2,}$/.test(alias) && !alias.includes(' ');
+});
+const TOKEN_QUERY_PATTERN = /[A-Za-z0-9.]{2,12}/g;
 
 const INVESTMENT_INTENT_KEYWORDS = [
   'add',
@@ -225,6 +248,11 @@ const ASSET_FUNDAMENTALS_INTENT_FRAGMENTS = [
 const FINANCIAL_NEWS_QUERY_PATTERNS = [
   /\b(?:financial\s+news|market\s+news|news\s+headlines?)\b/,
   /\b(?:why\s+did|what\s+happened\s+to)\b/
+];
+const NEWS_EXPANSION_QUERY_PATTERNS = [
+  /\b(?:more\s+about|tell\s+me\s+more\s+about|expand\s+on|details?\s+on|read\s+more\s+about)\b/,
+  /\b(?:this|that|first|second|third)\s+(?:headline|article|story)\b/,
+  /\bheadline\s*(?:#|number\s*)?\d+\b/
 ];
 const REBALANCE_CALCULATOR_QUERY_PATTERNS = [
   /\b(?:calculate\s+rebalance|rebalance\s+plan|target\s+allocation)\b/,
@@ -302,6 +330,238 @@ function normalizeIntentQuery(query: string) {
     .replace(/[^a-z0-9\s]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function levenshteinDistance(a: string, b: string) {
+  if (a === b) {
+    return 0;
+  }
+
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const matrix: number[][] = Array.from({ length: rows }, () => {
+    return Array(cols).fill(0);
+  });
+
+  for (let row = 0; row < rows; row++) {
+    matrix[row][0] = row;
+  }
+
+  for (let col = 0; col < cols; col++) {
+    matrix[0][col] = col;
+  }
+
+  for (let row = 1; row < rows; row++) {
+    for (let col = 1; col < cols; col++) {
+      const substitutionCost = a[row - 1] === b[col - 1] ? 0 : 1;
+      matrix[row][col] = Math.min(
+        matrix[row - 1][col] + 1,
+        matrix[row][col - 1] + 1,
+        matrix[row - 1][col - 1] + substitutionCost
+      );
+    }
+  }
+
+  return matrix[rows - 1][cols - 1];
+}
+
+function normalizeSymbolForDistance(value: string) {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function toTitleCase(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => {
+      return `${part[0].toUpperCase()}${part.slice(1)}`;
+    })
+    .join(' ');
+}
+
+function getPrimaryCompanyNameForSymbol(symbol: string) {
+  const aliases = SYMBOL_TO_COMPANY_ALIASES[symbol] ?? [];
+  const preferredAlias = aliases.find((alias) => {
+    return /^[a-z][a-z]+(?:\s+[a-z][a-z]+)*$/.test(alias);
+  });
+
+  if (preferredAlias) {
+    return toTitleCase(preferredAlias);
+  }
+
+  return symbol;
+}
+
+export interface TickerClarificationSuggestion {
+  companyName: string;
+  input: string;
+  symbol: string;
+}
+
+function findClosestSymbolCandidate(input: string) {
+  const normalizedInput = normalizeSymbolForDistance(input);
+
+  if (!normalizedInput || KNOWN_TICKER_SYMBOLS.has(input.toUpperCase())) {
+    return undefined;
+  }
+
+  let bestMatch: { distance: number; symbol: string } | undefined;
+
+  for (const candidateSymbol of KNOWN_TICKER_SYMBOLS) {
+    const normalizedCandidate = normalizeSymbolForDistance(candidateSymbol);
+
+    if (!normalizedCandidate) {
+      continue;
+    }
+
+    const distance = levenshteinDistance(normalizedInput, normalizedCandidate);
+
+    if (
+      !bestMatch ||
+      distance < bestMatch.distance ||
+      (distance === bestMatch.distance && candidateSymbol < bestMatch.symbol)
+    ) {
+      bestMatch = {
+        distance,
+        symbol: candidateSymbol
+      };
+    }
+  }
+
+  if (!bestMatch) {
+    return undefined;
+  }
+
+  const maxDistance = normalizedInput.length <= 4 ? 1 : 2;
+
+  return bestMatch.distance <= maxDistance ? bestMatch.symbol : undefined;
+}
+
+function findClosestCompanyAliasCandidate(input: string) {
+  const normalizedInput = input.toLowerCase();
+
+  if (
+    normalizedInput.length < 4 ||
+    COMPANY_NAME_SYMBOL_ALIASES[normalizedInput] !== undefined
+  ) {
+    return undefined;
+  }
+
+  let bestMatch: { alias: string; distance: number } | undefined;
+
+  for (const alias of KNOWN_SINGLE_WORD_COMPANY_ALIASES) {
+    if (alias[0] !== normalizedInput[0]) {
+      continue;
+    }
+
+    if (Math.abs(alias.length - normalizedInput.length) > 2) {
+      continue;
+    }
+
+    const distance = levenshteinDistance(normalizedInput, alias);
+
+    if (
+      !bestMatch ||
+      distance < bestMatch.distance ||
+      (distance === bestMatch.distance && alias < bestMatch.alias)
+    ) {
+      bestMatch = {
+        alias,
+        distance
+      };
+    }
+  }
+
+  if (!bestMatch) {
+    return undefined;
+  }
+
+  const maxDistance = 2;
+
+  return bestMatch.distance <= maxDistance
+    ? COMPANY_NAME_SYMBOL_ALIASES[bestMatch.alias]
+    : undefined;
+}
+
+export function getTickerClarificationSuggestion({
+  query,
+  unresolvedSymbols = []
+}: {
+  query: string;
+  unresolvedSymbols?: string[];
+}): TickerClarificationSuggestion | undefined {
+  const hasTickerIntent =
+    /\b(?:asset|company|equity|fundamental|news|price|quote|shares?|stock|symbol|ticker|valuation)\b/i.test(
+      query
+    );
+
+  if (unresolvedSymbols.length === 0 && !hasTickerIntent) {
+    return undefined;
+  }
+
+  const normalizedQuery = normalizeIntentQuery(query);
+  const rawTokens = query.match(TOKEN_QUERY_PATTERN) ?? [];
+  const queryTokens = (normalizedQuery.match(TOKEN_QUERY_PATTERN) ?? []).filter(
+    (token) => {
+      return !SYMBOL_STOP_WORDS.has(token.toUpperCase());
+    }
+  );
+  const hasExactKnownSymbolToken = queryTokens.some((token) => {
+    return KNOWN_TICKER_SYMBOLS.has(token.toUpperCase());
+  });
+  const hasExactKnownCompanyAlias = queryTokens.some((token) => {
+    return COMPANY_NAME_SYMBOL_ALIASES[token.toLowerCase()] !== undefined;
+  });
+
+  if (
+    unresolvedSymbols.length === 0 &&
+    (hasExactKnownSymbolToken || hasExactKnownCompanyAlias)
+  ) {
+    return undefined;
+  }
+
+  const explicitTickerCandidates = rawTokens
+    .map((token) => token.replace(/^\$/, ''))
+    .filter((token) => {
+      return /^[A-Z0-9.]{2,12}$/.test(token);
+    })
+    .map((token) => token.toUpperCase());
+  const symbolCandidates = [
+    ...unresolvedSymbols.map((symbol) => symbol.toUpperCase()),
+    ...explicitTickerCandidates
+  ];
+
+  for (const candidate of symbolCandidates) {
+    const suggestedSymbol = findClosestSymbolCandidate(candidate);
+
+    if (suggestedSymbol) {
+      return {
+        companyName: getPrimaryCompanyNameForSymbol(suggestedSymbol),
+        input: candidate,
+        symbol: suggestedSymbol
+      };
+    }
+  }
+
+  for (const token of queryTokens) {
+    const suggestedSymbol = findClosestCompanyAliasCandidate(token);
+
+    if (suggestedSymbol) {
+      return {
+        companyName: getPrimaryCompanyNameForSymbol(suggestedSymbol),
+        input: token,
+        symbol: suggestedSymbol
+      };
+    }
+  }
+
+  return undefined;
+}
+
+export function formatTickerClarificationSuggestion(
+  suggestion: TickerClarificationSuggestion
+) {
+  return `I could not confidently resolve "${suggestion.input}". Did you mean ${suggestion.companyName} (${suggestion.symbol})?`;
 }
 
 function getAnswerQualitySignals({
@@ -548,6 +808,11 @@ export function determineToolPlan({
       return pattern.test(normalizedQuery);
     }
   );
+  const hasNewsExpansionIntent = NEWS_EXPANSION_QUERY_PATTERNS.some(
+    (pattern) => {
+      return pattern.test(normalizedQuery);
+    }
+  );
   const hasRebalanceCalculatorIntent = REBALANCE_CALCULATOR_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
@@ -640,6 +905,10 @@ export function determineToolPlan({
 
   if (hasFinancialNewsIntent) {
     selectedTools.add('get_financial_news');
+  }
+
+  if (hasNewsExpansionIntent) {
+    selectedTools.add('get_article_content');
   }
 
   if (hasRebalanceCalculatorIntent) {

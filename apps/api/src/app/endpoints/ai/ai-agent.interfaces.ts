@@ -11,6 +11,7 @@ export type AiAgentToolName =
   | 'get_live_quote'
   | 'get_asset_fundamentals'
   | 'get_financial_news'
+  | 'get_article_content'
   | 'calculate_rebalance_plan'
   | 'simulate_trade_impact'
   | 'transaction_categorize'

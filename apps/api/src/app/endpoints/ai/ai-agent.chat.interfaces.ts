@@ -5,6 +5,11 @@ import { AiAgentToolCall } from './ai-agent.interfaces';
 export interface AiAgentMemoryState {
   turns: {
     answer: string;
+    newsItems?: {
+      link: string;
+      symbol: string;
+      title: string;
+    }[];
     query: string;
     timestamp: string;
     toolCalls: Pick<AiAgentToolCall, 'status' | 'tool'>[];

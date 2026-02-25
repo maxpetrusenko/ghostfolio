@@ -45,7 +45,7 @@ const RECOMMENDATION_SUPPORTING_SECTIONS = [
 ];
 const MINIMUM_RECOMMENDATION_WORDS = 45;
 const FUNDAMENTALS_INTENT_PATTERN =
-  /\b(?:fundamentals?|valuation|market\s*cap|p\/?e|dividend|earnings|balance\s*sheet|tesla\s+stock|company\s+analysis)\b/i;
+  /\b(?:fundamentals?|valuation|market\s*cap|p\/?e|dividend|earnings|balance\s*sheet|company\s+analysis)\b/i;
 const FUNDAMENTALS_INTENT_FRAGMENTS = [
   'fundament',
   'valuat',
@@ -410,6 +410,7 @@ export function resolvePreferenceUpdate({
 }
 
 export async function buildAnswer({
+  articleContentSummary,
   assetFundamentalsSummary,
   complianceCheckSummary,
   financialNewsSummary,
@@ -429,6 +430,7 @@ export async function buildAnswer({
   userPreferences,
   userCurrency
 }: {
+  articleContentSummary?: string;
   assetFundamentalsSummary?: string;
   complianceCheckSummary?: string;
   financialNewsSummary?: string;
@@ -575,6 +577,10 @@ export async function buildAnswer({
 
   if (financialNewsSummary) {
     fallbackSections.push(financialNewsSummary);
+  }
+
+  if (articleContentSummary) {
+    fallbackSections.push(articleContentSummary);
   }
 
   if (recentTransactionsSummary) {

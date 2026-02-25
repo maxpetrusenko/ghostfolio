@@ -60,6 +60,7 @@ const FOLLOW_UP_CONTEXTUAL_QUERY_PATTERNS = [
 ];
 const READ_ONLY_TOOLS = new Set<AiAgentToolName>([
   'get_asset_fundamentals',
+  'get_article_content',
   'get_current_holdings',
   'get_financial_news',
   'get_live_quote',

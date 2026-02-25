@@ -297,6 +297,45 @@ describe('AiService', () => {
     expect(generateTextSpy).not.toHaveBeenCalled();
   });
 
+  it('adds ticker clarification hint when market lookup cannot resolve a close symbol typo', async () => {
+    dataProviderService.getQuotes.mockResolvedValue({});
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'price for tsle',
+      sessionId: 'session-symbol-clarify-tools',
+      userCurrency: 'USD',
+      userId: 'user-symbol-clarify-tools'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'market_data_lookup'
+        })
+      ])
+    );
+    expect(result.answer).toContain('Did you mean Tesla (TSLA)?');
+  });
+
+  it('adds ticker clarification hint on direct fallback for company-name typos', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'tell me about tesal stock',
+      sessionId: 'session-symbol-clarify-direct',
+      userCurrency: 'USD',
+      userId: 'user-symbol-clarify-direct'
+    });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.answer).toContain('Did you mean Tesla (TSLA)?');
+  });
+
   it('uses portfolio data for "how much money i have?" queries', async () => {
     portfolioService.getDetails.mockResolvedValue({
       holdings: {
@@ -517,6 +556,90 @@ describe('AiService', () => {
 
     expect(result.toolCalls).toEqual([]);
     expect(result.answer).toContain('I can explain the previous result');
+  });
+
+  it('maps news-expansion follow-ups to article-content tool using prior headline context', async () => {
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-news-expansion-session-news-expansion') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer: 'News catalysts (latest): 1) TSLA: Tesla expands factory',
+              newsItems: [
+                {
+                  link: 'https://example.com/news/tesla-expands-factory',
+                  symbol: 'TSLA',
+                  title: 'Tesla expands factory'
+                }
+              ],
+              query: 'Show financial news for TSLA',
+              timestamp: '2026-02-24T18:40:00.000Z',
+              toolCalls: [{ status: 'success', tool: 'get_financial_news' }]
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: jest
+        .fn()
+        .mockResolvedValue(
+          '<html><body><article>Tesla announced expansion plans with expected production gains.</article></body></html>'
+        )
+    }) as unknown as typeof fetch;
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'more about first headline',
+      sessionId: 'session-news-expansion',
+      userCurrency: 'USD',
+      userId: 'user-news-expansion'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_article_content'
+        })
+      ])
+    );
+    expect(result.toolCalls).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tool: 'portfolio_analysis'
+        })
+      ])
+    );
+    expect(result.answer).toContain('Article detail (TSLA): Tesla expands factory');
+    expect(result.answer).toContain('Tesla announced expansion plans');
+  });
+
+  it('returns article-target clarification when news expansion is requested without prior headline context', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'more about that headline',
+      sessionId: 'session-news-expansion-no-context',
+      userCurrency: 'USD',
+      userId: 'user-news-expansion-no-context'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_article_content'
+        })
+      ])
+    );
+    expect(result.answer).toContain('I need a headline or URL first');
   });
 
   it('passes full chat history to LLM message payload on tool-routed turns', async () => {

@@ -3,6 +3,8 @@ import {
   determineToolPlan,
   evaluateAnswerQuality,
   extractSymbolsFromQuery,
+  formatTickerClarificationSuggestion,
+  getTickerClarificationSuggestion,
   isGeneratedAnswerReliable
 } from './ai-agent.utils';
 import {
@@ -55,6 +57,35 @@ describe('AiAgentUtils', () => {
     const symbols = extractSymbolsFromQuery('compare spy qqq and schd');
 
     expect(symbols).toEqual(expect.arrayContaining(['SPY', 'QQQ', 'SCHD']));
+  });
+
+  it('suggests ticker clarification for close symbol typos', () => {
+    const suggestion = getTickerClarificationSuggestion({
+      query: 'price for tsle'
+    });
+
+    expect(suggestion).toEqual(
+      expect.objectContaining({
+        companyName: 'Tesla',
+        symbol: 'TSLA'
+      })
+    );
+    expect(formatTickerClarificationSuggestion(suggestion!)).toContain(
+      'Did you mean Tesla (TSLA)?'
+    );
+  });
+
+  it('suggests ticker clarification for close company-name typos', () => {
+    const suggestion = getTickerClarificationSuggestion({
+      query: 'fundamentals on tesal stock'
+    });
+
+    expect(suggestion).toEqual(
+      expect.objectContaining({
+        companyName: 'Tesla',
+        symbol: 'TSLA'
+      })
+    );
   });
 
   it('selects portfolio and risk tools for risk query', () => {
@@ -265,6 +296,14 @@ describe('AiAgentUtils', () => {
         query: 'Show financial news for TSLA'
       })
     ).toEqual(['market_data_lookup', 'get_financial_news']);
+  });
+
+  it('selects article-content tool for news expansion follow-up prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'more about first headline'
+      })
+    ).toEqual(['get_article_content']);
   });
 
   it('selects transaction categorization tool for transaction pattern prompts', () => {

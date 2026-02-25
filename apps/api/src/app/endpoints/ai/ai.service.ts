@@ -22,6 +22,7 @@ import {
   AiAgentToolName,
   AiAgentToolCall
 } from './ai-agent.interfaces';
+import { AiAgentMemoryState } from './ai-agent.chat.interfaces';
 import {
   AI_AGENT_MEMORY_MAX_TURNS,
   buildAnswer,
@@ -51,7 +52,9 @@ import { AiObservabilityService } from './ai-observability.service';
 import {
   calculateConfidence,
   determineToolPlan,
-  evaluateAnswerQuality
+  evaluateAnswerQuality,
+  formatTickerClarificationSuggestion,
+  getTickerClarificationSuggestion
 } from './ai-agent.utils';
 import {
   applyToolExecutionPolicy,
@@ -77,6 +80,7 @@ const ORDER_TOOL_TAKE_BY_NAME: Partial<Record<AiAgentToolName, number>> = {
   transaction_categorize: 50,
   compliance_check: 100
 };
+const ARTICLE_URL_PATTERN = /https?:\/\/[^\s)]+/i;
 type OrderActivity = Awaited<
   ReturnType<OrderService['getOrders']>
 >['activities'][number];
@@ -394,12 +398,21 @@ export class AiService {
       let rebalancePlan: ReturnType<typeof runRebalancePlan>;
       let stressTest: ReturnType<typeof runStressTest>;
       let assetFundamentalsSummary: string | undefined;
+      let articleContentSummary: string | undefined;
       let complianceCheckSummary: string | undefined;
       let financialNewsSummary: string | undefined;
+      let latestNewsItems:
+        | {
+            link: string;
+            symbol: string;
+            title: string;
+          }[]
+        | undefined;
       let recentTransactionsSummary: string | undefined;
       let taxEstimateSummary: string | undefined;
       let tradeImpactSummary: string | undefined;
       let transactionCategorizationSummary: string | undefined;
+      let symbolClarificationHint: string | undefined;
 
       const shouldUsePortfolioContextForSymbols =
         policyDecision.toolsToExecute.some((toolName) => {
@@ -554,6 +567,26 @@ export class AiService {
 
         return financialNewsBySymbolsCache.get(cacheKey)!;
       };
+      const updateSymbolClarificationHint = ({
+        unresolvedSymbols
+      }: {
+        unresolvedSymbols: string[];
+      }) => {
+        if (symbolClarificationHint || unresolvedSymbols.length === 0) {
+          return;
+        }
+
+        const suggestion = getTickerClarificationSuggestion({
+          query: normalizedQuery,
+          unresolvedSymbols
+        });
+
+        if (!suggestion) {
+          return;
+        }
+
+        symbolClarificationHint = `${formatTickerClarificationSuggestion(suggestion)} If yes, I can run quotes, fundamentals, and news for ${suggestion.symbol}.`;
+      };
 
       const toolExecutionStartedAt = Date.now();
       const toolOutcomes = await Promise.all(
@@ -670,6 +703,15 @@ export class AiService {
               const requestedSymbols = await getResolvedSymbols();
               const currentMarketData = await getMarketDataBySymbols(requestedSymbols);
               const topQuote = currentMarketData.quotes[0];
+              const resolvedSymbolSet = new Set(
+                currentMarketData.quotes.map(({ symbol }) => symbol.toUpperCase())
+              );
+              const unresolvedSymbols = requestedSymbols.filter((symbol) => {
+                return !resolvedSymbolSet.has(symbol.toUpperCase());
+              });
+              updateSymbolClarificationHint({
+                unresolvedSymbols
+              });
 
               return {
                 citations:
@@ -693,6 +735,15 @@ export class AiService {
               const requestedSymbols = await getResolvedSymbols();
               const currentMarketData = await getMarketDataBySymbols(requestedSymbols);
               const topQuote = currentMarketData.quotes[0];
+              const resolvedSymbolSet = new Set(
+                currentMarketData.quotes.map(({ symbol }) => symbol.toUpperCase())
+              );
+              const unresolvedSymbols = requestedSymbols.filter((symbol) => {
+                return !resolvedSymbolSet.has(symbol.toUpperCase());
+              });
+              updateSymbolClarificationHint({
+                unresolvedSymbols
+              });
 
               return {
                 citations:
@@ -720,6 +771,15 @@ export class AiService {
               const topProfile = profileSymbols[0]
                 ? profilesBySymbol[profileSymbols[0]]
                 : undefined;
+              const resolvedProfileSymbolSet = new Set(
+                profileSymbols.map((symbol) => symbol.toUpperCase())
+              );
+              const unresolvedSymbols = requestedSymbols.filter((symbol) => {
+                return !resolvedProfileSymbolSet.has(symbol.toUpperCase());
+              });
+              updateSymbolClarificationHint({
+                unresolvedSymbols
+              });
 
               assetFundamentalsSummary = this.buildAssetFundamentalsSummary({
                 portfolioAnalysis: analysis,
@@ -749,14 +809,16 @@ export class AiService {
             } else if (toolName === 'get_financial_news') {
               const requestedSymbols = await getResolvedSymbols();
               const headlines = await getFinancialNewsBySymbols(requestedSymbols);
+              latestNewsItems = headlines;
 
               financialNewsSummary =
                 headlines.length > 0
                   ? [
                       'News catalysts (latest):',
-                      ...headlines.slice(0, 5).map(({ symbol, title }) => {
-                        return `- ${symbol}: ${title}`;
+                      ...headlines.slice(0, 5).map(({ link, symbol, title }, index) => {
+                        return `${index + 1}) ${symbol}: ${title} (${link})`;
                       }),
+                      'Ask a follow-up like "more about 1" or "more about <headline>" to expand a specific article.',
                       'Use headlines as catalyst context and confirm with filings, earnings transcripts, and guidance changes before acting.'
                     ].join('\n')
                   : 'Financial news lookup returned no headlines for the requested symbols.';
@@ -775,6 +837,67 @@ export class AiService {
                 toolCall: {
                   input: { symbols: requestedSymbols },
                   outputSummary: `${headlines.length} financial headlines resolved`,
+                  status: 'success' as const,
+                  tool: toolName
+                }
+              };
+            } else if (toolName === 'get_article_content') {
+              const recentNewsItems = this.getRecentNewsItemsFromMemory({
+                memory
+              });
+              const articleTarget = this.resolveNewsArticleTarget({
+                query: normalizedQuery,
+                recentNewsItems
+              });
+
+              if (!articleTarget) {
+                articleContentSummary =
+                  recentNewsItems.length > 0
+                    ? 'Article detail: I found recent headlines, but I need the exact target. Ask "more about 1" or quote part of a headline.'
+                    : 'Article detail: I need a headline or URL first. Ask for market news, then ask "more about 1".';
+
+                return {
+                  citations: [],
+                  toolCall: {
+                    input: { query: normalizedQuery },
+                    outputSummary: 'article target not resolved',
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              }
+
+              const articleBody = await this.fetchArticleContent({
+                url: articleTarget.link
+              });
+              const contentPreview =
+                articleBody.length > 0
+                  ? articleBody
+                      .slice(0, 1_000)
+                      .replace(/\s+/g, ' ')
+                      .trim()
+                  : 'No article body was extracted from the provided URL.';
+              articleContentSummary = [
+                `Article detail (${articleTarget.symbol}): ${articleTarget.title}`,
+                `Source: ${articleTarget.link}`,
+                `Extract: ${contentPreview}`,
+                'If you want, ask "summarize this article for portfolio impact" to get a decision-focused breakdown.'
+              ].join('\n');
+
+              return {
+                citations: [
+                  {
+                    confidence: articleBody.length > 0 ? 0.78 : 0.62,
+                    snippet: `${articleTarget.title}`,
+                    source: toolName
+                  }
+                ],
+                toolCall: {
+                  input: { url: articleTarget.link },
+                  outputSummary:
+                    articleBody.length > 0
+                      ? 'article content extracted'
+                      : 'article URL resolved but content extraction returned empty',
                   status: 'success' as const,
                   tool: toolName
                 }
@@ -1112,9 +1235,23 @@ export class AiService {
         }
       }
 
+      if (
+        !symbolClarificationHint &&
+        (policyDecision.route === 'direct' || policyDecision.route === 'clarify')
+      ) {
+        const suggestion = getTickerClarificationSuggestion({
+          query: normalizedQuery
+        });
+
+        if (suggestion) {
+          symbolClarificationHint = `${formatTickerClarificationSuggestion(suggestion)} If yes, I can continue with that symbol.`;
+        }
+      }
+
       if (policyDecision.route === 'tools') {
         const llmGenerationStartedAt = Date.now();
         answer = await buildAnswer({
+          articleContentSummary,
           assetFundamentalsSummary,
           complianceCheckSummary,
           financialNewsSummary,
@@ -1144,6 +1281,35 @@ export class AiService {
           userCurrency
         });
         llmGenerationInMs = Date.now() - llmGenerationStartedAt;
+      }
+
+      if (!symbolClarificationHint && policyDecision.route === 'tools') {
+        const executedSymbolIntelligenceTool = policyDecision.toolsToExecute.some(
+          (toolName) => {
+            return [
+              'market_data_lookup',
+              'get_live_quote',
+              'get_asset_fundamentals',
+              'get_financial_news'
+            ].includes(toolName);
+          }
+        );
+
+        if (executedSymbolIntelligenceTool) {
+          const suggestion = getTickerClarificationSuggestion({
+            query: normalizedQuery
+          });
+
+          if (suggestion) {
+            symbolClarificationHint = `${formatTickerClarificationSuggestion(suggestion)} If yes, I can run quotes, fundamentals, and news for ${suggestion.symbol}.`;
+          }
+        }
+      }
+
+      if (symbolClarificationHint) {
+        if (!answer.includes(symbolClarificationHint)) {
+          answer = [answer, symbolClarificationHint].filter(Boolean).join('\n\n');
+        }
       }
 
       verification.push({
@@ -1188,6 +1354,9 @@ export class AiService {
         ...memory.turns,
         {
           answer,
+          ...(latestNewsItems && latestNewsItems.length > 0
+            ? { newsItems: latestNewsItems.slice(0, 5) }
+            : {}),
           query: normalizedQuery,
           timestamp: new Date().toISOString(),
           toolCalls: toolCalls.map(({ status, tool }) => {
@@ -1467,6 +1636,130 @@ export class AiService {
     );
 
     return headlinesBySymbol.flat().slice(0, 5);
+  }
+
+  private getRecentNewsItemsFromMemory({
+    memory
+  }: {
+    memory: AiAgentMemoryState;
+  }) {
+    for (const turn of [...memory.turns].reverse()) {
+      if (turn.newsItems && turn.newsItems.length > 0) {
+        return turn.newsItems;
+      }
+    }
+
+    return [] as {
+      link: string;
+      symbol: string;
+      title: string;
+    }[];
+  }
+
+  private resolveNewsArticleTarget({
+    query,
+    recentNewsItems
+  }: {
+    query: string;
+    recentNewsItems: {
+      link: string;
+      symbol: string;
+      title: string;
+    }[];
+  }) {
+    const directUrlMatch = query.match(ARTICLE_URL_PATTERN);
+
+    if (directUrlMatch) {
+      const matchingItem = recentNewsItems.find(({ link }) => {
+        return link === directUrlMatch[0];
+      });
+
+      return (
+        matchingItem ?? {
+          link: directUrlMatch[0],
+          symbol: 'NEWS',
+          title: 'Linked article'
+        }
+      );
+    }
+
+    if (recentNewsItems.length === 0) {
+      return undefined;
+    }
+
+    const normalizedQuery = query.toLowerCase();
+    const indexMatch = normalizedQuery.match(
+      /\b(?:headline|article|story)\s*(?:#|number\s*)?(\d+)\b/
+    ) ??
+      normalizedQuery.match(/\b(?:about|on)\s+(\d+)\b/) ??
+      normalizedQuery.match(/\b(?:first|second|third)\b/);
+    const ordinalToIndex: Record<string, number> = {
+      first: 0,
+      second: 1,
+      third: 2
+    };
+
+    if (indexMatch) {
+      const parsedIndex = Number.parseInt(indexMatch[1], 10);
+      const indexFromNumber = Number.isFinite(parsedIndex) ? parsedIndex - 1 : -1;
+      const indexFromOrdinal =
+        typeof indexMatch[0] === 'string' ? ordinalToIndex[indexMatch[0]] : undefined;
+      const resolvedIndex =
+        indexFromOrdinal !== undefined ? indexFromOrdinal : indexFromNumber;
+
+      if (resolvedIndex >= 0 && resolvedIndex < recentNewsItems.length) {
+        return recentNewsItems[resolvedIndex];
+      }
+    }
+
+    const topicMatch = normalizedQuery.match(
+      /(?:about|on)\s+(.+?)(?:$|\?|!|\.)/
+    );
+    const topic = topicMatch?.[1]?.trim();
+
+    if (topic) {
+      const matchedByTopic = recentNewsItems.find(({ symbol, title }) => {
+        return (
+          title.toLowerCase().includes(topic) ||
+          symbol.toLowerCase() === topic
+        );
+      });
+
+      if (matchedByTopic) {
+        return matchedByTopic;
+      }
+    }
+
+    return recentNewsItems[0];
+  }
+
+  private async fetchArticleContent({
+    url
+  }: {
+    url: string;
+  }) {
+    try {
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        return '';
+      }
+
+      const html = await response.text();
+      const withoutScripts = html
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+      const plainText = this.decodeXmlEntities(
+        withoutScripts
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      );
+
+      return plainText;
+    } catch {
+      return '';
+    }
   }
 
   private buildAssetFundamentalsSummary({

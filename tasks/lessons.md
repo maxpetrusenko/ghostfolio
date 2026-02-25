@@ -79,3 +79,7 @@ Updated: 2026-02-24
 19. Context: Multi-turn finance analysis quality in stateless LLM providers
    Mistake: Prompt path carried only compressed recent context, which reduced follow-up coherence for deeper analysis requests.
    Rule: Pass full session turn history as structured messages on each model call, and keep deterministic tests that assert prior user and assistant turns are included.
+
+20. Context: News follow-up requests ("more about this headline")
+   Mistake: Router treated follow-up as generic finance intent and over-called portfolio/fundamentals tools because article-content retrieval was missing.
+   Rule: Add a dedicated news-expansion intent and article-content tool, persist headline links in memory, and resolve follow-up targets before any fallback routing.

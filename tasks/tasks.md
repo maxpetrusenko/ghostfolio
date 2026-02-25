@@ -486,3 +486,18 @@ Last updated: 2026-02-24
 - `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.chat.helpers.spec.ts --runInBand` (45/45 tests passed)
 - `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts --runInBand` (90/90 tests passed)
 - `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (26/26 tests passed)
+
+## Session Plan (2026-02-24, News Expansion Intent + Article Tool)
+
+- [x] Add explicit `get_article_content` tool and route mapping for news-expansion follow-ups.
+- [x] Persist structured news context (`title`, `link`, `symbol`) in memory turns for follow-up resolution.
+- [x] Implement article-target resolution (`first headline`, numbered headline, URL, topic match) and article-body extraction.
+- [x] Keep news replies structured with links and explicit follow-up hints.
+- [x] Add typo clarification hints for unresolved ticker/company inputs.
+- [x] Run focused AI backend verification and capture outcomes.
+
+### Verification (2026-02-24, News Expansion Intent + Article Tool)
+
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts --runInBand` (93/93 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai.service.spec.ts --runInBand` (30/30 tests passed)
+- `npx nx run api:test --skip-nx-cache --testFile=apps/api/src/app/endpoints/ai/ai-agent.chat.helpers.spec.ts --runInBand` (45/45 tests passed)
