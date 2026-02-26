@@ -1,0 +1,77 @@
+name: Railway smoke check
+
+on:
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      RAILWAY_API_KEY: ${{ secrets.RAILWAY_API_KEY }}
+      RAILWAY_PROJECT_NAME: ${{ vars.RAILWAY_PROJECT_NAME || 'ghostfolio-ai-mvp' }}
+      RAILWAY_ENVIRONMENT_NAME: ${{ vars.RAILWAY_ENVIRONMENT_NAME || 'production' }}
+      RAILWAY_SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME || 'ghostfolio-api' }}
+      RAILWAY_APP_URL: ${{ vars.RAILWAY_APP_URL }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve app URL from Railway
+        run: |
+          if [[ -n "${RAILWAY_API_KEY}" ]]; then
+            payload='{"query":"query { projects { edges { node { name environments { edges { node { name serviceInstances { edges { node { serviceName domains { customDomains { domain } serviceDomains { domain } } } } } } } } } } } }"}'
+            response="$(curl -sS \
+              -H "Authorization: Bearer ${RAILWAY_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "${payload}" \
+              "https://backboard.railway.app/graphql/v2")"
+
+            domain="$(echo "${response}" | jq -r \
+              --arg project "${RAILWAY_PROJECT_NAME}" \
+              --arg environment "${RAILWAY_ENVIRONMENT_NAME}" \
+              --arg service "${RAILWAY_SERVICE_NAME}" \
+              '
+              .data.projects.edges[]?.node
+              | select(.name == $project)
+              | .environments.edges[]?.node
+              | select(.name == $environment)
+              | .serviceInstances.edges[]?.node
+              | select(.serviceName == $service)
+              | (
+                  .domains.customDomains[0].domain //
+                  .domains.serviceDomains[0].domain //
+                  empty
+                )
+              ' | head -n1)"
+
+            if [[ -n "${domain}" ]]; then
+              echo "APP_URL=https://${domain}" >> "${GITHUB_ENV}"
+              exit 0
+            fi
+          fi
+
+          if [[ -n "${RAILWAY_APP_URL}" ]]; then
+            echo "APP_URL=${RAILWAY_APP_URL}" >> "${GITHUB_ENV}"
+            exit 0
+          fi
+
+          echo "Unable to resolve app URL."
+          echo "Set secret RAILWAY_API_KEY or fallback variable RAILWAY_APP_URL."
+          exit 1
+
+      - name: Validate resolved app URL
+        run: |
+          if [[ -z "${APP_URL:-}" ]]; then
+            echo "APP_URL is empty"
+            exit 1
+          fi
+
+      - name: Run deployment smoke checks
+        run: bash tools/railway/smoke-health.sh "${APP_URL}"

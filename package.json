@@ -44,6 +44,7 @@
     "prisma": "prisma",
     "replace-placeholders-in-build": "node ./replace.build.mjs",
     "railway:check": "npx dotenv-cli -e .env -- bash tools/railway/check-token.sh",
+    "railway:smoke": "bash tools/railway/smoke-health.sh",
     "railway:setup": "npx dotenv-cli -e .env -- bash tools/railway/setup-project.sh",
     "start": "node dist/apps/api/main",
     "start:client": "nx run client:copy-assets && nx run client:serve --configuration=development-en --hmr -o",
