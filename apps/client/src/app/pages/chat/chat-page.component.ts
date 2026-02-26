@@ -11,8 +11,10 @@ import { DataService } from '@ghostfolio/ui/services';
 import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
+  ChangeDetectorRef,
   Component,
   ElementRef,
+  NgZone,
   OnDestroy,
   OnInit,
   ViewChild
@@ -145,7 +147,9 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
   public constructor(
     private readonly aiChatConversationsService: AiChatConversationsService,
+    private readonly changeDetectorRef: ChangeDetectorRef,
     private readonly dataService: DataService,
+    private readonly ngZone: NgZone,
     private readonly userService: UserService
   ) {}
 
@@ -153,32 +157,38 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     this.userService.stateChanged
       .pipe(takeUntil(this.unsubscribeSubject))
       .subscribe((state) => {
-        this.hasPermissionToReadAiPrompt = hasPermission(
-          state?.user?.permissions,
-          permissions.readAiPrompt
-        );
+        this.runInAngular(() => {
+          this.hasPermissionToReadAiPrompt = hasPermission(
+            state?.user?.permissions,
+            permissions.readAiPrompt
+          );
+        });
       });
 
     this.aiChatConversationsService
       .getConversations()
       .pipe(takeUntil(this.unsubscribeSubject))
       .subscribe((conversations) => {
-        this.conversations = conversations;
+        this.runInAngular(() => {
+          this.conversations = conversations;
+        });
       });
 
     this.aiChatConversationsService
       .getCurrentConversation()
       .pipe(takeUntil(this.unsubscribeSubject))
       .subscribe((conversation) => {
-        this.currentConversation = conversation;
-        this.activeResponseDetails = undefined;
-        this.shouldAutoScrollToBottom = true;
-        this.showNewMessageButton = false;
-        this.renderedAssistantMessageMap = new WeakMap<
-          AiChatMessage,
-          RenderedAssistantMessage
-        >();
-        this.scrollToBottom(true);
+        this.runInAngular(() => {
+          this.currentConversation = conversation;
+          this.activeResponseDetails = undefined;
+          this.shouldAutoScrollToBottom = true;
+          this.showNewMessageButton = false;
+          this.renderedAssistantMessageMap = new WeakMap<
+            AiChatMessage,
+            RenderedAssistantMessage
+          >();
+          this.scrollToBottom(true);
+        });
       });
 
     if (
@@ -210,8 +220,10 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
         : (callback: FrameRequestCallback) => setTimeout(callback, 0);
 
     schedule(() => {
-      element.scrollTop = element.scrollHeight;
-      this.showNewMessageButton = false;
+      this.runInAngular(() => {
+        element.scrollTop = element.scrollHeight;
+        this.showNewMessageButton = false;
+      });
     });
 
     this.shouldAutoScrollToBottom = true;
@@ -586,23 +598,25 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       return;
     }
 
-    this.aiChatConversationsService.appendUserMessage({
-      content: normalizedQuery,
-      conversationId: conversation.id
-    });
-    this.shouldAutoScrollToBottom = true;
+    this.runInAngular(() => {
+      this.aiChatConversationsService.appendUserMessage({
+        content: normalizedQuery,
+        conversationId: conversation.id
+      });
+      this.shouldAutoScrollToBottom = true;
 
-    this.pendingSubmissionQueue.push({
-      conversationId: conversation.id,
-      query: normalizedQuery,
-      requestedModelId: this.selectedModelId,
-      sessionId: conversation.sessionId
-    });
+      this.pendingSubmissionQueue.push({
+        conversationId: conversation.id,
+        query: normalizedQuery,
+        requestedModelId: this.selectedModelId,
+        sessionId: conversation.sessionId
+      });
 
-    this.errorMessage = undefined;
-    this.query = '';
-    this.scrollToBottom();
-    this.processSubmissionQueue();
+      this.errorMessage = undefined;
+      this.query = '';
+      this.scrollToBottom();
+      this.processSubmissionQueue();
+    });
   }
 
   private processSubmissionQueue() {
@@ -616,8 +630,10 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       return;
     }
 
-    this.isSubmitting = true;
-    this.activeSubmission = submission;
+    this.runInAngular(() => {
+      this.isSubmitting = true;
+      this.activeSubmission = submission;
+    });
 
     this.dataService
       .postAiChat({
@@ -631,39 +647,52 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       })
       .pipe(
         finalize(() => {
-          this.isSubmitting = false;
-          this.activeSubmission = undefined;
-          this.scrollToBottom();
-          this.processSubmissionQueue();
+          this.runInAngular(() => {
+            this.isSubmitting = false;
+            this.activeSubmission = undefined;
+            this.scrollToBottom();
+            this.processSubmissionQueue();
+          });
         }),
         takeUntil(this.unsubscribeSubject)
       )
       .subscribe({
         next: (response) => {
-          this.aiChatConversationsService.setConversationSessionId({
-            conversationId: submission.conversationId,
-            sessionId: response.memory.sessionId
+          this.runInAngular(() => {
+            this.aiChatConversationsService.setConversationSessionId({
+              conversationId: submission.conversationId,
+              sessionId: response.memory.sessionId
+            });
+            this.aiChatConversationsService.appendAssistantMessage({
+              content: response.answer,
+              conversationId: submission.conversationId,
+              feedback: {
+                isSubmitting: false
+              },
+              response
+            });
+            this.scrollToBottom();
           });
-          this.aiChatConversationsService.appendAssistantMessage({
-            content: response.answer,
-            conversationId: submission.conversationId,
-            feedback: {
-              isSubmitting: false
-            },
-            response
-          });
-          this.scrollToBottom();
         },
         error: () => {
-          this.errorMessage = $localize`AI request failed. Check your model quota and permissions.`;
+          this.runInAngular(() => {
+            this.errorMessage = $localize`AI request failed. Check your model quota and permissions.`;
 
-          this.aiChatConversationsService.appendAssistantMessage({
-            content: $localize`Request failed. Please retry.`,
-            conversationId: submission.conversationId
+            this.aiChatConversationsService.appendAssistantMessage({
+              content: $localize`Request failed. Please retry.`,
+              conversationId: submission.conversationId
+            });
+            this.scrollToBottom();
           });
-          this.scrollToBottom();
         }
       });
+  }
+
+  private runInAngular(updater: () => void) {
+    this.ngZone.run(() => {
+      updater();
+      this.changeDetectorRef.markForCheck();
+    });
   }
 
   public onSubmitFromKeyboard(event: KeyboardEvent) {
