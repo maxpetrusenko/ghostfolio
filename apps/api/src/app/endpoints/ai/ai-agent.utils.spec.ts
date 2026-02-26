@@ -37,6 +37,10 @@ describe('AiAgentUtils', () => {
     ]);
   });
 
+  it('extracts ticker symbol from freshness-style company updates', () => {
+    expect(extractSymbolsFromQuery('whats new for tesla')).toEqual(['TSLA']);
+  });
+
   it('does not map common words to symbols without finance context', () => {
     expect(
       extractSymbolsFromQuery('I bought an apple and read a blocked app note.')
@@ -72,6 +76,22 @@ describe('AiAgentUtils', () => {
         symbols: ['NVDA']
       })
     ).toEqual(['market_data_lookup']);
+  });
+
+  it('routes simple symbol allocation lookup to portfolio analysis only', () => {
+    expect(
+      determineToolPlan({
+        query: 'msft allocation?'
+      })
+    ).toEqual(['portfolio_analysis']);
+  });
+
+  it('selects current holdings tool for top stocks prompt phrasing', () => {
+    expect(
+      determineToolPlan({
+        query: 'top 5 stocks now?'
+      })
+    ).toEqual(['get_current_holdings']);
   });
 
   it('selects portfolio analysis for portfolio value query wording', () => {
@@ -239,18 +259,12 @@ describe('AiAgentUtils', () => {
     ).toEqual(['price_history']);
   });
 
-  it('selects FIRE analysis tools for retirement-path queries', () => {
+  it('selects FIRE analysis tool for retirement-path queries', () => {
     expect(
       determineToolPlan({
         query: 'Am I on track for early retirement?'
       })
-    ).toEqual([
-      'portfolio_analysis',
-      'get_portfolio_summary',
-      'risk_assessment',
-      'stress_test',
-      'fire_analysis'
-    ]);
+    ).toEqual(['fire_analysis']);
   });
 
   it('routes age-related FIRE prompts to retirement analysis', () => {
@@ -258,13 +272,7 @@ describe('AiAgentUtils', () => {
       determineToolPlan({
         query: "I'm getting old, am I close to retirement age?"
       })
-    ).toEqual([
-      'portfolio_analysis',
-      'get_portfolio_summary',
-      'risk_assessment',
-      'stress_test',
-      'fire_analysis'
-    ]);
+    ).toEqual(['fire_analysis']);
   });
 
   it('selects recommendation tools for ambiguous action phrasing', () => {
@@ -359,6 +367,22 @@ describe('AiAgentUtils', () => {
     expect(
       determineToolPlan({
         query: 'apple news this year?'
+      })
+    ).toEqual(['get_financial_news']);
+  });
+
+  it('selects financial news tool for freshness-style company prompts', () => {
+    expect(
+      determineToolPlan({
+        query: 'whats new for tesla'
+      })
+    ).toEqual(['get_financial_news']);
+  });
+
+  it('selects financial news tool for update phrasing with symbol', () => {
+    expect(
+      determineToolPlan({
+        query: 'update me on nvda'
       })
     ).toEqual(['get_financial_news']);
   });

@@ -1,94 +1,207 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1800" viewBox="0 0 1600 1800">
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="3200" viewBox="0 0 2400 3200">
   <defs>
     <style>
-      .title { font: 700 28px Arial, sans-serif; fill: #0f172a; }
-      .node { fill: #f8fafc; stroke: #334155; stroke-width: 2; rx: 12; ry: 12; }
-      .node2 { fill: #eef2ff; stroke: #3730a3; stroke-width: 2; rx: 12; ry: 12; }
-      .node3 { fill: #ecfeff; stroke: #0e7490; stroke-width: 2; rx: 12; ry: 12; }
-      .node4 { fill: #fef9c3; stroke: #a16207; stroke-width: 2; rx: 12; ry: 12; }
+      .title { font: 700 34px Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 600 20px Arial, sans-serif; fill: #1e293b; }
+      .box { fill: #f8fafc; stroke: #334155; stroke-width: 2; rx: 14; ry: 14; }
+      .boxPlan { fill: #eef2ff; stroke: #3730a3; stroke-width: 2; rx: 14; ry: 14; }
+      .boxPolicy { fill: #ecfeff; stroke: #0e7490; stroke-width: 2; rx: 14; ry: 14; }
+      .boxRun { fill: #fef9c3; stroke: #a16207; stroke-width: 2; rx: 14; ry: 14; }
+      .boxTools { fill: #f5f3ff; stroke: #6d28d9; stroke-width: 2; rx: 14; ry: 14; }
       .text { font: 15px Arial, sans-serif; fill: #111827; }
       .small { font: 13px Arial, sans-serif; fill: #1f2937; }
-      .arrow { stroke: #475569; stroke-width: 2.5; fill: none; marker-end: url(#m); }
+      .mini { font: 12px Arial, sans-serif; fill: #334155; }
+      .arrow { stroke: #475569; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .thinArrow { stroke: #64748b; stroke-width: 1.8; fill: none; marker-end: url(#arrowSmall); }
     </style>
-    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto">
       <path d="M0,0 L10,5 L0,10 Z" fill="#475569"/>
+    </marker>
+    <marker id="arrowSmall" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/>
     </marker>
   </defs>
 
-  <text x="40" y="50" class="title">Ghostfolio AI Intent + Gating Flow</text>
+  <text x="40" y="55" class="title">Ghostfolio AI Chat Bot: Full Intent Routing and Tool Selection Logic</text>
+  <text x="40" y="88" class="subtitle">Runtime source: ai.service.ts + ai-agent.utils.ts + ai-agent.policy.utils.ts</text>
 
-  <rect x="40" y="90" width="480" height="90" class="node"/>
-  <text x="60" y="125" class="text">1) Input Query</text>
-  <text x="60" y="150" class="small">normalize + extract symbols + detect follow-up</text>
+  <!-- Main pipeline -->
+  <rect x="40" y="130" width="1020" height="170" class="box"/>
+  <text x="60" y="165" class="text">1) Input and Memory Load (ai.service.chat)</text>
+  <text x="60" y="192" class="small">- Query normalization, session resolution, user preference load</text>
+  <text x="60" y="216" class="small">- Previous turn successful tool calls collected from memory</text>
+  <text x="60" y="240" class="small">- Symbol extraction pipeline available (ticker regex + company alias mapping)</text>
+  <text x="60" y="264" class="mini">Files: ai.service.ts:658+, ai-agent.utils.ts:560+</text>
 
-  <rect x="40" y="230" width="480" height="230" class="node2"/>
-  <text x="60" y="265" class="text">2) Planner: determineToolPlan()</text>
-  <text x="60" y="295" class="small">Portfolio/Risk/FIRE</text>
-  <text x="60" y="320" class="small">Transactions/Tax/Compliance</text>
-  <text x="60" y="345" class="small">Accounts/FX/Benchmarks/Activity</text>
-  <text x="60" y="370" class="small">Actions: create_account, create_order</text>
-  <text x="60" y="405" class="small">Market precedence:</text>
-  <text x="80" y="430" class="small">symbol_lookup &gt; price_history &gt; fundamentals &gt; news &gt; live_quote &gt; market_lookup</text>
+  <rect x="40" y="340" width="1020" height="390" class="boxPlan"/>
+  <text x="60" y="375" class="text">2) Planner: determineToolPlan(query, symbols)</text>
+  <text x="60" y="402" class="small">Core categories detected with regex + keyword fragments</text>
+  <text x="60" y="426" class="small">- Portfolio baseline: portfolio/holding/allocation/performance/return -> portfolio_analysis</text>
+  <text x="60" y="450" class="small">- Risk: risk/concentration/diversif -> portfolio_analysis + risk_assessment</text>
+  <text x="60" y="474" class="small">- FIRE: retirement/fire/safe withdrawal -> portfolio_analysis + summary + risk + stress + fire_analysis</text>
+  <text x="60" y="498" class="small">- Rebalance/investment: rebalanc/trim/overweight/underweight -> rebalance stack</text>
+  <text x="60" y="522" class="small">- Market tier precedence: symbol_lookup > price_history > fundamentals > news > live_quote > market_data_lookup</text>
+  <text x="60" y="546" class="small">- Tax/compliance/transaction/account/FX/benchmark/activity/demo/seed/account-create/order-create intents</text>
+  <text x="60" y="570" class="small">- Seed/top-up guard: seed intent suppresses market-tier fallback for same turn</text>
+  <text x="60" y="594" class="small">- Identity privacy query ("who am i") returns no planned tools</text>
+  <text x="60" y="618" class="mini">Output: plannedTools[] candidate set (deduplicated later)</text>
+  <text x="60" y="642" class="mini">File: ai-agent.utils.ts:580-942</text>
 
-  <rect x="40" y="500" width="480" height="140" class="node3"/>
-  <text x="60" y="535" class="text">3) Follow-up Reuse (if no planned tools)</text>
-  <text x="60" y="565" class="small">Reuse previous successful tools</text>
-  <text x="60" y="590" class="small">Freshness breaker: now/today/latest/current/updated</text>
-  <text x="60" y="615" class="small">freshness tools only: market_lookup, live_quote, news, price_history</text>
+  <rect x="40" y="770" width="1020" height="190" class="box"/>
+  <text x="60" y="805" class="text">3) Follow-up Reuse Layer (only when planner returned no tools)</text>
+  <text x="60" y="832" class="small">Conditions: inferredPlannedTools.length===0 AND isFollowUpQuery(query) AND previousSuccessfulTools.length&gt;0</text>
+  <text x="60" y="856" class="small">Freshness words: now/today/latest/current/updated/update -> reuse only freshness-safe tools</text>
+  <text x="60" y="880" class="small">Freshness-safe tools: get_financial_news, get_live_quote, market_data_lookup, price_history</text>
+  <text x="60" y="904" class="mini">File: ai.service.ts:677-692</text>
 
-  <rect x="40" y="680" width="480" height="210" class="node2"/>
-  <text x="60" y="715" class="text">4) Policy: applyToolExecutionPolicy()</text>
-  <text x="60" y="745" class="small">direct: greetings/capability/arithmetic/unauthorized</text>
-  <text x="60" y="770" class="small">clarify: no tools, missing params, blocked action</text>
-  <text x="60" y="795" class="small">tools: execute filtered list</text>
-  <text x="60" y="830" class="small">Action keywords: buy/create/invest/make/open/order/place/rebalanc/sell/trim</text>
-  <text x="60" y="855" class="small">Rebalance gate: target + funding + tax context required</text>
+  <rect x="40" y="1000" width="1020" height="560" class="boxPolicy"/>
+  <text x="60" y="1035" class="text">4) Policy Gate: applyToolExecutionPolicy(plannedTools, query)</text>
+  <text x="60" y="1062" class="small">A) Forced direct route</text>
+  <text x="80" y="1086" class="small">- unauthorized_access: other-user portfolio/account data requests</text>
+  <text x="80" y="1110" class="small">- no_tool_query: greetings, capability prompts, simple arithmetic</text>
+  <text x="60" y="1140" class="small">B) Empty planner path</text>
+  <text x="80" y="1164" class="small">- finance/action/follow-up style with no tools -> clarify + blockReason=unknown</text>
+  <text x="80" y="1188" class="small">- non-finance empty -> direct + blockReason=no_tool_query</text>
+  <text x="60" y="1218" class="small">C) Tool filtering and blocking</text>
+  <text x="80" y="1242" class="small">- enforce maxToolCallsPerRequest</text>
+  <text x="80" y="1266" class="small">- action/read-only allowlists based on action intent keywords</text>
+  <text x="80" y="1290" class="small">- rebalance details gate: target + funding + tax context required (for "rebalance me")</text>
+  <text x="80" y="1314" class="small">- create_order details gate: reject vague order wording without amount details</text>
+  <text x="80" y="1338" class="small">- seed_funds details gate: require numeric amount when seed/top-up intent present</text>
+  <text x="60" y="1368" class="small">D) Final route</text>
+  <text x="80" y="1392" class="small">- tools: one or more tools survive gating</text>
+  <text x="80" y="1416" class="small">- clarify: tools removed or missing required details</text>
+  <text x="80" y="1440" class="small">- direct: no-tool prompt classes</text>
+  <text x="60" y="1470" class="mini">File: ai-agent.policy.utils.ts:562-763</text>
+  <text x="60" y="1494" class="mini">Clarify reply generator: ai-agent.policy.utils.ts:765-832</text>
 
-  <rect x="40" y="940" width="480" height="120" class="node4"/>
-  <text x="60" y="975" class="text">5) Route</text>
-  <text x="60" y="1005" class="small">direct | clarify | tools</text>
-  <text x="60" y="1030" class="small">If tools: execute tool handlers in ai.service.ts</text>
+  <rect x="40" y="1600" width="1020" height="410" class="boxRun"/>
+  <text x="60" y="1635" class="text">5) Route Execution (ai.service.chat)</text>
+  <text x="60" y="1662" class="small">direct/clarify:</text>
+  <text x="80" y="1686" class="small">- createPolicyRouteResponse() returns deterministic response text</text>
+  <text x="80" y="1710" class="small">- arithmetic direct queries return computed expression result</text>
+  <text x="60" y="1740" class="small">tools:</text>
+  <text x="80" y="1764" class="small">- execute each tool via registry limit checks</text>
+  <text x="80" y="1788" class="small">- collect toolCalls[], citations[], context summaries, action summaries</text>
+  <text x="80" y="1812" class="small">- buildAnswer() uses LLM with deterministic fallback summary</text>
+  <text x="60" y="1842" class="small">post-processing:</text>
+  <text x="80" y="1866" class="small">- verification checks: numerical/tool/citation/output/policy/quality</text>
+  <text x="80" y="1890" class="small">- confidence scoring</text>
+  <text x="80" y="1914" class="small">- low-confidence abstain guard: if route=tools and no successful tool evidence</text>
+  <text x="60" y="1940" class="mini">Files: ai.service.ts:915+, 2027+, 2131+</text>
 
-  <rect x="620" y="120" width="920" height="420" class="node"/>
-  <text x="640" y="155" class="text">Tool Execution Map (decision -&gt; runtime call)</text>
-  <text x="640" y="190" class="small">portfolio_analysis -&gt; portfolioService.getDetails()</text>
-  <text x="640" y="215" class="small">risk_assessment/rebalance_plan/stress_test -&gt; in-process calculators</text>
-  <text x="640" y="240" class="small">market_data_lookup/get_live_quote -&gt; dataProviderService.getQuotes()</text>
-  <text x="640" y="265" class="small">price_history -&gt; dataProviderService.getHistorical()</text>
-  <text x="640" y="290" class="small">get_asset_fundamentals -&gt; dataProviderService.getAssetProfiles()</text>
-  <text x="640" y="315" class="small">get_financial_news -&gt; aiAgentWebSearchService.searchStockNews()</text>
-  <text x="640" y="340" class="small">get_recent_transactions/activity_history/transaction_categorize/compliance_check -&gt; orderService.getOrders()</text>
-  <text x="640" y="365" class="small">tax_estimate -&gt; in-process parser + estimate/checklist</text>
-  <text x="640" y="390" class="small">account_overview -&gt; accountService.getAccounts()</text>
-  <text x="640" y="415" class="small">exchange_rate -&gt; exchangeRateDataService.toCurrency()</text>
-  <text x="640" y="440" class="small">market_benchmarks -&gt; benchmarkService.getBenchmarks()</text>
-  <text x="640" y="465" class="small">create_account -&gt; accountService.createAccount()</text>
-  <text x="640" y="490" class="small">create_order -&gt; accountService.getAccounts() + orderService.createOrder()</text>
-  <text x="640" y="515" class="small">symbol_lookup -&gt; in-process symbol extraction (current implementation)</text>
+  <!-- Arrows in pipeline -->
+  <path d="M550 300 L550 340" class="arrow"/>
+  <path d="M550 730 L550 770" class="arrow"/>
+  <path d="M550 960 L550 1000" class="arrow"/>
+  <path d="M550 1560 L550 1600" class="arrow"/>
 
-  <rect x="620" y="620" width="920" height="260" class="node3"/>
-  <text x="640" y="655" class="text">Clarify Reasons (policy block reasons)</text>
-  <text x="640" y="690" class="small">needs_confirmation: action tool requested without action wording</text>
-  <text x="640" y="715" class="small">needs_rebalance_details: rebalance missing target + funding + tax context</text>
-  <text x="640" y="740" class="small">needs_order_details: order missing amount/quantity details</text>
-  <text x="640" y="765" class="small">read_only: action tools stripped in non-action intent context</text>
-  <text x="640" y="790" class="small">unknown: finance-style request with no matched tools</text>
-  <text x="640" y="815" class="small">unauthorized_access: request for other users' data</text>
-  <text x="640" y="840" class="small">no_tool_query: greeting/capability/arithmetic route</text>
+  <!-- Tool matrix -->
+  <rect x="1120" y="130" width="1240" height="2060" class="boxTools"/>
+  <text x="1140" y="165" class="text">Tool Selection Matrix (keywords/fragments -> tool)</text>
+  <text x="1140" y="188" class="mini">Planner can select multiple tools; set semantics prevent duplicate tool calls.</text>
 
-  <rect x="620" y="940" width="920" height="180" class="node4"/>
-  <text x="640" y="975" class="text">Live Behavior Checklist</text>
-  <text x="640" y="1005" class="small">1) Planner chooses candidate tools.</text>
-  <text x="640" y="1030" class="small">2) Follow-up reuse may override empty planner output.</text>
-  <text x="640" y="1055" class="small">3) Policy strips/blocks tools and selects route.</text>
-  <text x="640" y="1080" class="small">4) ai.service executes remaining tools and builds answer.</text>
+  <!-- Column headers -->
+  <text x="1140" y="225" class="subtitle">Portfolio and Risk</text>
+  <text x="1140" y="255" class="small">portfolio|holding|allocation|performance|return -> portfolio_analysis</text>
+  <text x="1140" y="279" class="small">risk|concentration|diversif -> portfolio_analysis + risk_assessment</text>
+  <text x="1140" y="303" class="small">portfolio value phrasing (how much money/worth/balance) -> portfolio_analysis</text>
+  <text x="1140" y="327" class="small">summary/holdings/risk-metrics queries -> get_portfolio_summary/get_current_holdings/get_portfolio_risk_metrics</text>
 
-  <path d="M280 180 L280 230" class="arrow"/>
-  <path d="M280 460 L280 500" class="arrow"/>
-  <path d="M280 640 L280 680" class="arrow"/>
-  <path d="M280 890 L280 940" class="arrow"/>
+  <text x="1140" y="372" class="subtitle">FIRE and Scenario</text>
+  <text x="1140" y="402" class="small">fire|retire|safe withdrawal|financial independence -> fire bundle</text>
+  <text x="1140" y="426" class="small">crash|drawdown|shock|stress (+ typo variants) -> stress_test (+ portfolio/risk)</text>
+  <text x="1140" y="450" class="small">rebalance calculator patterns (60/40 etc.) -> calculate_rebalance_plan</text>
+  <text x="1140" y="474" class="small">simulate trade impact wording -> simulate_trade_impact (+ portfolio/risk/rebalance)</text>
 
-  <path d="M520 300 L620 300" class="arrow"/>
-  <path d="M520 780 L620 740" class="arrow"/>
-  <path d="M520 1000 L620 1000" class="arrow"/>
+  <text x="1140" y="519" class="subtitle">Ticker Research and Market Data</text>
+  <text x="1140" y="549" class="small">Decision/research intents with explicit ticker/company -> fundamentals + news + price_history</text>
+  <text x="1140" y="573" class="small">Historical-performance wording -> price_history</text>
+  <text x="1140" y="597" class="small">Direct news wording -> get_financial_news</text>
+  <text x="1140" y="621" class="small">Market tier precedence:</text>
+  <text x="1160" y="645" class="small">symbol_lookup > price_history > get_asset_fundamentals > get_financial_news > get_live_quote > market_data_lookup</text>
+  <text x="1140" y="669" class="small">Generic quote/price/ticker with symbol -> market_data_lookup</text>
+  <text x="1140" y="693" class="small">market context with symbol -> market_data_lookup</text>
+
+  <text x="1140" y="738" class="subtitle">Transactions, Tax, Compliance</text>
+  <text x="1140" y="768" class="small">recent transactions/trades/orders/history -> get_recent_transactions</text>
+  <text x="1140" y="792" class="small">categorize/classify/group transactions -> transaction_categorize</text>
+  <text x="1140" y="816" class="small">tax estimate/general tax checklist wording -> tax_estimate</text>
+  <text x="1140" y="840" class="small">compliance wording -> compliance_check</text>
+  <text x="1140" y="864" class="small">activity history wording -> activity_history</text>
+
+  <text x="1140" y="909" class="subtitle">Account, FX, Benchmarks, Demo</text>
+  <text x="1140" y="939" class="small">account overview/balance summary -> account_overview</text>
+  <text x="1140" y="963" class="small">exchange/conversion wording -> exchange_rate</text>
+  <text x="1140" y="987" class="small">benchmark/index compare wording -> market_benchmarks</text>
+  <text x="1140" y="1011" class="small">demo/sample/mock data wording -> demo_data</text>
+
+  <text x="1140" y="1056" class="subtitle">Action Tools</text>
+  <text x="1140" y="1086" class="small">create/open/add ... account -> create_account</text>
+  <text x="1140" y="1110" class="small">create/place/make ... order OR buy/sell + numeric amount -> create_order</text>
+  <text x="1140" y="1134" class="small">seed/top-up/add money/fund account/more money variants -> seed_funds</text>
+  <text x="1140" y="1158" class="small">Policy requires details before execution (amount/order fields/rebalance context)</text>
+
+  <!-- Policy branch detail -->
+  <rect x="1120" y="1220" width="1240" height="500" class="boxPolicy"/>
+  <text x="1140" y="1255" class="text">Policy Branch Detail: route + blockReason combinations</text>
+  <text x="1140" y="1282" class="small">direct + no_tool_query -> greeting/capability/arithmetic paths</text>
+  <text x="1140" y="1306" class="small">direct + unauthorized_access -> deny other-user data access</text>
+  <text x="1140" y="1330" class="small">clarify + unknown -> finance-like prompt with no safe tool plan</text>
+  <text x="1140" y="1354" class="small">clarify + needs_confirmation -> rebalance/action requested without action confirmation signal</text>
+  <text x="1140" y="1378" class="small">clarify + needs_order_details -> create_order missing amount/quantity details</text>
+  <text x="1140" y="1402" class="small">clarify + needs_seed_funds_details -> seed/top-up request missing amount</text>
+  <text x="1140" y="1426" class="small">clarify + needs_rebalance_details -> rebalance missing target/funding/tax context</text>
+  <text x="1140" y="1450" class="small">clarify + read_only/tool_rate_limit -> action tools stripped or capped</text>
+  <text x="1140" y="1474" class="small">tools + none/read_only/tool_rate_limit/... -> execute surviving tools only</text>
+  <text x="1140" y="1500" class="mini">Response text path: createPolicyRouteResponse()</text>
+  <text x="1140" y="1524" class="mini">Current default wording is uncertainty-first for low-confidence/ambiguous routes.</text>
+
+  <!-- Runtime call map -->
+  <rect x="1120" y="1760" width="1240" height="430" class="boxRun"/>
+  <text x="1140" y="1795" class="text">Runtime Tool Handler Map (tool -> executor)</text>
+  <text x="1140" y="1822" class="small">portfolio_analysis -> portfolioService.getDetails()</text>
+  <text x="1140" y="1846" class="small">risk_assessment/rebalance_plan/stress_test/fire_analysis -> in-process calculators/helpers</text>
+  <text x="1140" y="1870" class="small">market_data_lookup/get_live_quote -> dataProviderService.getQuotes()</text>
+  <text x="1140" y="1894" class="small">price_history -> dataProviderService.getHistorical()</text>
+  <text x="1140" y="1918" class="small">get_asset_fundamentals -> dataProviderService.getAssetProfiles()</text>
+  <text x="1140" y="1942" class="small">get_financial_news -> aiAgentWebSearchService.searchStockNews()</text>
+  <text x="1140" y="1966" class="small">get_recent_transactions/activity_history/transaction_categorize/compliance_check -> orderService.getOrders()</text>
+  <text x="1140" y="1990" class="small">tax_estimate/exchange_rate/symbol_lookup/calculate_rebalance_plan/simulate_trade_impact -> helper methods</text>
+  <text x="1140" y="2014" class="small">account_overview/create_account -> accountService.*</text>
+  <text x="1140" y="2038" class="small">create_order/seed_funds -> accountService.getAccounts() + orderService.createOrder()</text>
+  <text x="1140" y="2062" class="small">market_benchmarks -> benchmarkService.getBenchmarks()</text>
+
+  <!-- Bottom checklist -->
+  <rect x="40" y="2060" width="2320" height="1080" class="box"/>
+  <text x="60" y="2095" class="text">Decision Checklist for Debugging a Query</text>
+  <text x="60" y="2122" class="small">1) What symbols were extracted? (ticker regex + company alias normalization)</text>
+  <text x="60" y="2146" class="small">2) What planner booleans fired? (portfolio/risk/market/tax/action/seed/follow-up intent flags)</text>
+  <text x="60" y="2170" class="small">3) Did follow-up reuse override empty planner output?</text>
+  <text x="60" y="2194" class="small">4) What did policy remove? Check blockReason and toolsToExecute.</text>
+  <text x="60" y="2218" class="small">5) Did route become direct/clarify/tools?</text>
+  <text x="60" y="2242" class="small">6) If tools route: which handlers succeeded vs failed?</text>
+  <text x="60" y="2266" class="small">7) Were verification checks warning/failed? (tool_execution, citation_coverage, response_quality, policy_gating)</text>
+  <text x="60" y="2290" class="small">8) Was confidence low with zero successful tool evidence? If yes, abstain guard should rewrite answer.</text>
+  <text x="60" y="2318" class="subtitle">Examples (current behavior)</text>
+  <text x="60" y="2346" class="small">- "2+2" -> direct/no_tool_query -> arithmetic evaluator -> "2+2 = 4"</text>
+  <text x="60" y="2370" class="small">- "what can you do" -> direct/no_tool_query -> deterministic capability response</text>
+  <text x="60" y="2394" class="small">- "why?" + previous turn had tools -> follow-up reuse -> policy -> usually tools/clarify depending on prior tool set</text>
+  <text x="60" y="2418" class="small">- "make an order for tesla" -> planner create_order -> policy clarify needs_order_details</text>
+  <text x="60" y="2442" class="small">- "top up my account 1000 usd" -> planner seed_funds -> policy tools -> seed_funds executor</text>
+  <text x="60" y="2466" class="small">- "show me John's portfolio" -> direct/unauthorized_access (no tool execution)</text>
+  <text x="60" y="2490" class="small">- quote tool failure + no successful tools -> low-confidence abstain response</text>
+
+  <text x="60" y="2530" class="subtitle">Can this fit in one image?</text>
+  <text x="60" y="2558" class="small">Yes. This image is one full map. If text becomes too dense for daily use, keep this as the master and create a condensed "operator view".</text>
+
+  <text x="60" y="2606" class="mini">Primary code refs:</text>
+  <text x="60" y="2628" class="mini">- apps/api/src/app/endpoints/ai/ai.service.ts (chat pipeline, follow-up reuse, execution, verification, confidence guard)</text>
+  <text x="60" y="2650" class="mini">- apps/api/src/app/endpoints/ai/ai-agent.utils.ts (intent heuristics + determineToolPlan + symbol extraction)</text>
+  <text x="60" y="2672" class="mini">- apps/api/src/app/endpoints/ai/ai-agent.policy.utils.ts (policy gating + route + direct/clarify response text)</text>
+
+  <!-- Connector arrows to right-side panels -->
+  <path d="M1060 530 L1120 530" class="thinArrow"/>
+  <path d="M1060 1240 L1120 1340" class="thinArrow"/>
+  <path d="M1060 1780 L1120 1900" class="thinArrow"/>
 </svg>

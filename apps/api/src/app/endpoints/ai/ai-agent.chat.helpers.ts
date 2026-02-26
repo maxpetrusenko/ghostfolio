@@ -33,7 +33,7 @@ const STRICT_RESPONSE_TEMPLATE_TRIGGER_PATTERN =
 const PREFERENCE_RECALL_PATTERN =
   /\b(?:what do you remember about me|show (?:my )?preferences?|what are my preferences?|which preferences (?:do|did) you (?:remember|save))\b/i;
 const RECOMMENDATION_INTENT_PATTERN =
-  /\b(?:how do i|what should i do|help me|fix|reduce|diversif|deconcentrat|rebalance|recommend|what can i do)\b/i;
+  /\b(?:how do i|what should i do|where should i|help me|fix|reduce|diversif|deconcentrat|rebalance|recommend|what can i do|invest|allocate|allocation plan|next allocation)\b/i;
 const RECOMMENDATION_REQUIRED_SECTIONS = [/option 1/i, /option 2/i];
 const RECOMMENDATION_SUPPORTING_SECTIONS = [
   /summary:/i,
@@ -56,6 +56,8 @@ const FUNDAMENTALS_INTENT_FRAGMENTS = [
 ];
 const DECISION_ANALYSIS_INTENT_PATTERN =
   /\b(?:should i|buy|sell|hold|compare|pros\s+and\s+cons|investment\s+thesis|where\s+should\s+i\s+invest)\b/i;
+const NEWS_BRIEF_INTENT_PATTERN =
+  /\b(?:news|headline|headlines|catalyst|catalysts|latest|recap|what happened|market update)\b/i;
 
 export const AI_AGENT_MEMORY_MAX_TURNS = 10;
 
@@ -159,6 +161,62 @@ function isFundamentalsIntentQuery(normalizedQuery: string) {
       return normalizedQuery.includes(fragment);
     })
   );
+}
+
+function isNewsBriefIntentQuery(normalizedQuery: string) {
+  return NEWS_BRIEF_INTENT_PATTERN.test(normalizedQuery);
+}
+
+function buildNewsBriefFallback({
+  assetFundamentalsSummary,
+  financialNewsSummary,
+  marketData
+}: {
+  assetFundamentalsSummary?: string;
+  financialNewsSummary?: string;
+  marketData?: MarketDataLookupResult;
+}) {
+  const lines: string[] = ['News brief:'];
+  const symbolCoverageLines = (financialNewsSummary ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /\([A-Z0-9]{1,6}(?:\.[A-Z0-9]{1,4})?\)/.test(line))
+    .slice(0, 2);
+  const headlineLines = (financialNewsSummary ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .slice(0, 5);
+
+  if (symbolCoverageLines.length > 0) {
+    lines.push(`Coverage: ${symbolCoverageLines.join(', ')}.`);
+  }
+
+  if (headlineLines.length > 0) {
+    lines.push(...headlineLines);
+  } else if (financialNewsSummary) {
+    lines.push(truncateToWordLimit(financialNewsSummary, 100));
+  }
+
+  if (marketData?.quotes?.length) {
+    const snapshot = marketData.quotes
+      .slice(0, 3)
+      .map(({ currency, marketPrice, symbol }) => {
+        return `${symbol} ${marketPrice.toFixed(2)} ${currency}`;
+      })
+      .join(', ');
+    lines.push(`Market snapshot: ${snapshot}.`);
+  }
+
+  if (assetFundamentalsSummary) {
+    lines.push(truncateToWordLimit(assetFundamentalsSummary, 50));
+  }
+
+  lines.push(
+    'Watch next: earnings date, guidance revisions, and valuation sensitivity to rate changes.'
+  );
+
+  return lines.join('\n');
 }
 
 function extractTargetConcentration(query: string) {
@@ -707,6 +765,7 @@ export async function buildAnswer({
   });
   const hasRecommendationIntent = isRecommendationIntentQuery(query);
   const hasFundamentalsIntent = isFundamentalsIntentQuery(normalizedQuery);
+  const hasNewsBriefIntent = isNewsBriefIntentQuery(normalizedQuery);
   const hasDecisionAnalysisIntent =
     DECISION_ANALYSIS_INTENT_PATTERN.test(normalizedQuery);
   const shouldUseDetailedAnalysisPrompt =
@@ -791,6 +850,18 @@ export async function buildAnswer({
       fallbackSections.push(
         `Largest long allocations: ${topLongHoldingsSummary}.`
       );
+
+      // Add helpful note when user requested more holdings than exist
+      const requestedTopMatch = normalizedQuery.match(/\btop\s+(\d+)\b/);
+      if (requestedTopMatch) {
+        const requestedCount = parseInt(requestedTopMatch[1], 10);
+        const actualCount = longHoldings.length;
+        if (requestedCount > actualCount && actualCount > 0) {
+          fallbackSections.push(
+            `Note: Your portfolio has ${actualCount} holding${actualCount > 1 ? 's' : ''}. Consider diversifying to reach ${requestedCount}+ positions for better risk distribution.`
+          );
+        }
+      }
 
       if (hasInvestmentIntent) {
         const topLongShare =
@@ -955,6 +1026,26 @@ export async function buildAnswer({
           `Use at least 140 words unless user preference is concise.`,
           getResponseInstruction({ userPreferences })
         ].join('\n')
+      : hasNewsBriefIntent
+        ? [
+            `You are a neutral financial assistant.`,
+            `User currency: ${userCurrency}`,
+            `Language code: ${languageCode}`,
+            `Query: ${query}`,
+            `Session turns available: ${memory.turns.length}`,
+            `Recent session context:`,
+            recentSessionContext,
+            `Context summary:`,
+            fallbackAnswer,
+            `Task: produce a concise, information-dense market news brief.`,
+            `Output sections (in order):`,
+            `1) Headline recap (3-5 bullets)`,
+            `2) Market snapshot (prices/moves from context)`,
+            `3) Why it matters (2-3 bullets)`,
+            `4) What to watch next (max 3 bullets)`,
+            `Ground every point in the provided context and avoid speculation.`,
+            getResponseInstruction({ userPreferences })
+          ].join('\n')
       : [
           `You are a neutral financial assistant.`,
           `User currency: ${userCurrency}`,
@@ -1019,6 +1110,14 @@ export async function buildAnswer({
     if (recommendationFallback) {
       return recommendationFallback;
     }
+  }
+
+  if (hasNewsBriefIntent && financialNewsSummary) {
+    return buildNewsBriefFallback({
+      assetFundamentalsSummary,
+      financialNewsSummary,
+      marketData
+    });
   }
 
   return fallbackAnswer;
@@ -1107,17 +1206,48 @@ export function resolveSymbols({
   query: string;
   symbols?: string[];
 }) {
+  const topHoldingsCountPattern =
+    /\btop\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:stock|stocks|holding|holdings|position|positions)\b/i;
+  const topHoldingsMatch = topHoldingsCountPattern.exec(query);
+  const wordToCount: Record<string, number> = {
+    eight: 8,
+    five: 5,
+    four: 4,
+    nine: 9,
+    one: 1,
+    seven: 7,
+    six: 6,
+    ten: 10,
+    three: 3,
+    two: 2
+  };
   const explicitSymbols =
     symbols?.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean) ?? [];
   const extractedSymbols = extractSymbolsFromQuery(query);
 
   const directSymbols = [...explicitSymbols, ...extractedSymbols];
+  const requestedTopHoldingsCount = (() => {
+    const rawCount = topHoldingsMatch?.[1]?.toLowerCase();
+
+    if (!rawCount) {
+      return 3;
+    }
+
+    const parsedCount = Number.parseInt(rawCount, 10);
+
+    if (Number.isFinite(parsedCount)) {
+      return Math.min(Math.max(parsedCount, 1), 10);
+    }
+
+    return wordToCount[rawCount] ?? 3;
+  })();
 
   // Only derive symbols from portfolio if no symbols were explicitly requested
   const derivedSymbols =
     directSymbols.length === 0
-      ? (portfolioAnalysis?.holdings.slice(0, 3).map(({ symbol }) => symbol) ??
-        [])
+      ? (portfolioAnalysis?.holdings
+          .slice(0, requestedTopHoldingsCount)
+          .map(({ symbol }) => symbol) ?? [])
       : [];
 
   return Array.from(new Set([...directSymbols, ...derivedSymbols]));

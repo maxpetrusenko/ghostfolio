@@ -3,7 +3,20 @@ import { AiAgentChatMessage } from './ai-agent.interfaces';
 const DEFAULT_GLM_MODEL = 'glm-5';
 const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.5';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
-const DEFAULT_REQUEST_TIMEOUT_IN_MS = 15_000;
+export const DEFAULT_REQUEST_TIMEOUT_FALLBACK_IN_MS = 1_500;
+
+export function getRequestTimeoutInMs() {
+  const parsed = Number.parseInt(
+    process.env.AI_AGENT_LLM_TIMEOUT_IN_MS ?? '',
+    10
+  );
+
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_REQUEST_TIMEOUT_FALLBACK_IN_MS;
+}
+
+const DEFAULT_REQUEST_TIMEOUT_IN_MS = getRequestTimeoutInMs();
 
 function extractTextFromResponsePayload(payload: unknown) {
   const firstChoice = (payload as { choices?: unknown[] })?.choices?.[0] as

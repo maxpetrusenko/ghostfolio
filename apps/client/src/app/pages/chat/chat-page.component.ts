@@ -414,22 +414,18 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
         /^(direct answer|key numbers|recommended actions|risks|assumptions|notes|follow-up question|summary)\b/i.test(
           lowerLine
         );
-      const isActionLine =
+      const isActionSignal =
         lowerLine.startsWith('action') ||
         lowerLine.startsWith('recommend') ||
-        /^\d+[.)]/.test(line) ||
-        lowerLine.startsWith('-');
+        /^\d+[.)]/.test(line);
+      const shouldExtractAction =
+        (hasStructuredHeader && lowerLine.startsWith('-')) || isActionSignal;
 
-      if (
-        lowerLine.startsWith('action') ||
-        lowerLine.startsWith('recommend') ||
-        /^\d+[.)]/.test(line) ||
-        lowerLine.startsWith('-')
-      ) {
+      if (shouldExtractAction) {
         actions.push(line.replace(/^[-\d.)\s]+/, '').trim());
       }
 
-      if (isSectionHeader || (hasStructuredHeader && isActionLine)) {
+      if (isSectionHeader || shouldExtractAction) {
         continue;
       }
 

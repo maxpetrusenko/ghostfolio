@@ -227,7 +227,9 @@ const PORTFOLIO_SUMMARY_QUERY_PATTERNS = [
 ];
 const CURRENT_HOLDINGS_QUERY_PATTERNS = [
   /\b(?:current\s+holdings|current\s+positions|what\s+do\s+i\s+own)\b/,
-  /\b(?:show|list)\b.*\b(?:holdings|positions)\b/
+  /\b(?:show|list)\b.*\b(?:holdings|positions)\b/,
+  /\btop\s+(?:\d{1,2}\s+)?(?:stocks?|holdings?|positions?)\b/,
+  /\btop\s+holdings?\b/
 ];
 const PORTFOLIO_RISK_METRICS_QUERY_PATTERNS = [
   /\b(?:risk\s+metrics|risk\s+summary)\b/,
@@ -257,7 +259,8 @@ const ASSET_FUNDAMENTALS_INTENT_FRAGMENTS = [
 ];
 const FINANCIAL_NEWS_QUERY_PATTERNS = [
   /\b(?:financial\s+news|market\s+news|news\s+headlines?)\b/,
-  /\b(?:why\s+did|what\s+happened\s+to)\b/
+  /\b(?:why\s+did|what\s+happened\s+to)\b/,
+  /\b(?:what'?s\s+new|whats\s+new|what'?s\s+happening|whats\s+happening|update\s+me|tell\s+me\s+about|latest\s+on|any\s+news\s+(?:for|about))\b/
 ];
 const REBALANCE_CALCULATOR_QUERY_PATTERNS = [
   /\b(?:calculate\s+rebalance|rebalance\s+plan|target\s+allocation)\b/,
@@ -282,7 +285,7 @@ const TAX_GENERAL_QUERY_PATTERNS = [
   /\b(?:what do i need|tell me|help me|guide to|explain)\b.*\b(?:tax|taxes|taxation)\b/i
 ];
 const COMPANY_ALIAS_CONTEXT_PATTERNS = [
-  /\b(?:about|asset|analy[sz]e|analysis|company|deep\s*dive|earnings?|fundamental|fundamentals|learn|market|news|overview|price|quote|research|stock|ticker|thesis|valuation|portfolio|holding|investment|invest|buy|sell|trade|dividend|rebalance|compare)\b/
+  /\b(?:about|asset|analy[sz]e|analysis|company|deep\s*dive|earnings?|fundamental|fundamentals|learn|market|news|overview|price|quote|research|stock|ticker|thesis|valuation|portfolio|holding|investment|invest|buy|sell|trade|dividend|rebalance|compare|new|update|latest|what'?s|happening)\b/
 ];
 const COMPLIANCE_CHECK_QUERY_PATTERNS = [
   /\b(?:compliance|regulat(?:ion|ory)|policy)\b.*\b(?:check|review|scan)\b/,
@@ -318,12 +321,13 @@ const DEMO_DATA_QUERY_PATTERNS = [
 ];
 const SEED_FUNDS_QUERY_PATTERNS = [
   /\b(?:seed(?:\s+my)?\s+(?:account|money|funds|data))\b/,
-  /\b(?:add|load)\s+(?:test\s+)?(?:money|funds|cash|capital)\b/,
+  /\b(?:load)\s+(?:test\s+)?(?:money|funds|cash|capital)\b/,
+  /\b(?:add)\s+test\s+(?:money|funds|cash|capital)\b/,
+  /\b(?:add|load)\s+test\s+data\b/,
   /\b(?:top[\s-]?up)\b/,
   /\b(?:fund|funding)\s+(?:my\s+)?account\b/,
   /\b(?:add|put|inject)\s+more\s+money\b/,
-  /\b(?:add|put)\s+(?:money|cash|capital)\s+(?:into|in)\s+(?:my\s+)?account\b/,
-  /\b(?:quick\s+check)\b/
+  /\b(?:add|put)\s+(?:money|cash|capital)\s+(?:into|in)\s+(?:my\s+)?account\b/
 ];
 const CREATE_ACCOUNT_QUERY_PATTERNS = [/\b(?:create|open|add)\b.*\baccount\b/];
 const CREATE_ORDER_QUERY_PATTERNS = [
@@ -742,6 +746,12 @@ export function determineToolPlan({
       (symbol) => !(hasFireIntent && symbol === 'FIRE')
     ) &&
     extractedSymbols.length > 0;
+  const hasSimpleAllocationLookupIntent =
+    /(?:^|\s)allocation\??\s*$/.test(normalizedQuery) &&
+    extractedSymbols.length <= 1 &&
+    !/\b(?:rebalanc|trim|buy|sell|invest|target|plan|reduce|increase)\b/.test(
+      normalizedQuery
+    );
   const hasTickerDecisionIntent =
     hasExplicitNonFireSymbol && (hasDecisionAnalysisIntent || hasResearchIntent);
   const hasDecisionValuationIntent =
@@ -796,10 +806,6 @@ export function determineToolPlan({
   }
 
   if (hasFireIntent) {
-    selectedTools.add('portfolio_analysis');
-    selectedTools.add('get_portfolio_summary');
-    selectedTools.add('risk_assessment');
-    selectedTools.add('stress_test');
     selectedTools.add('fire_analysis');
   }
 
@@ -807,6 +813,7 @@ export function determineToolPlan({
     (hasRebalanceIntent ||
       (hasInvestmentIntent &&
         (!hasTickerDecisionIntent || hasPortfolioContextIntent))) &&
+    !hasSimpleAllocationLookupIntent &&
     !hasDemoDataIntent &&
     !hasSeedFundsIntent
   ) {
@@ -849,6 +856,7 @@ export function determineToolPlan({
     normalizedQuery.includes('ticker') ||
     (!hasSymbolLookupIntent &&
       hasExplicitNonFireSymbol &&
+      !hasSimpleAllocationLookupIntent &&
       !hasTickerDecisionIntent &&
       !hasDirectFinancialNewsIntent);
   const hasMarketTierCandidate =

@@ -28,6 +28,7 @@ function createResponse() {
 }
 
 describe('AiObservabilityService', () => {
+  let redisCacheService: { set: jest.Mock };
   const originalLangChainApiKey = process.env.LANGCHAIN_API_KEY;
   const originalLangChainTracingV2 = process.env.LANGCHAIN_TRACING_V2;
   const originalLangSmithApiKey = process.env.LANGSMITH_API_KEY;
@@ -35,6 +36,9 @@ describe('AiObservabilityService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    redisCacheService = {
+      set: jest.fn().mockResolvedValue(undefined)
+    };
     delete process.env.LANGCHAIN_API_KEY;
     delete process.env.LANGCHAIN_TRACING_V2;
     delete process.env.LANGSMITH_API_KEY;
@@ -71,7 +75,7 @@ describe('AiObservabilityService', () => {
     process.env.LANGSMITH_TRACING = 'true';
     process.env.LANGSMITH_API_KEY = '<INSERT_LANGSMITH_API_KEY>';
 
-    const subject = new AiObservabilityService();
+    const subject = new AiObservabilityService(redisCacheService as never);
 
     const snapshot = await subject.captureChatSuccess({
       durationInMs: 42,
@@ -90,8 +94,15 @@ describe('AiObservabilityService', () => {
     expect(snapshot.latencyInMs).toBe(42);
     expect(snapshot.tokenEstimate.total).toBeGreaterThan(0);
     expect(snapshot.traceId).toBeDefined();
+    expect(snapshot.costEstimateUsd).toBeGreaterThan(0);
+    expect(snapshot.toolStepMetrics).toEqual([]);
     expect(mockClientConstructor).not.toHaveBeenCalled();
     expect(mockRunTreeConstructor).not.toHaveBeenCalled();
+    expect(redisCacheService.set).toHaveBeenCalledWith(
+      expect.stringMatching(/^ai:observability:chat:user-1:[0-9a-f-]+$/),
+      expect.stringContaining('"costEstimateUsd"'),
+      30 * 24 * 60 * 60 * 1000
+    );
   });
 
   it('returns immediately even when LangSmith run posting hangs', async () => {
@@ -109,7 +120,7 @@ describe('AiObservabilityService', () => {
       };
     });
 
-    const subject = new AiObservabilityService();
+    const subject = new AiObservabilityService(redisCacheService as never);
 
     const result = await Promise.race([
       subject.captureChatSuccess({
@@ -146,7 +157,7 @@ describe('AiObservabilityService', () => {
     };
     mockRunTreeConstructor.mockReturnValue(runTree);
 
-    const subject = new AiObservabilityService();
+    const subject = new AiObservabilityService(redisCacheService as never);
 
     await subject.recordLlmInvocation({
       durationInMs: 23,

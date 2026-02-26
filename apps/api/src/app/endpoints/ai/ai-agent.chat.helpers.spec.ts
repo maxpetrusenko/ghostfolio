@@ -5,6 +5,7 @@ import {
   createPreferenceSummaryResponse,
   getUserPreferences,
   isPreferenceRecallQuery,
+  resolveSymbols,
   resolvePreferenceUpdate
 } from './ai-agent.chat.helpers';
 
@@ -54,6 +55,96 @@ describe('AiAgentChatHelpers', () => {
 
     expect(Date.now() - startedAt).toBeLessThan(700);
     expect(answer).toContain('Largest long allocations:');
+  });
+
+  it('resolves top N holdings for fundamentals queries that request top stocks', () => {
+    const symbols = resolveSymbols({
+      portfolioAnalysis: {
+        allocationSum: 1,
+        holdings: [
+          {
+            allocationInPercentage: 0.3,
+            dataSource: DataSource.YAHOO,
+            symbol: 'AAPL',
+            valueInBaseCurrency: 3000
+          },
+          {
+            allocationInPercentage: 0.2,
+            dataSource: DataSource.YAHOO,
+            symbol: 'MSFT',
+            valueInBaseCurrency: 2000
+          },
+          {
+            allocationInPercentage: 0.15,
+            dataSource: DataSource.YAHOO,
+            symbol: 'NVDA',
+            valueInBaseCurrency: 1500
+          },
+          {
+            allocationInPercentage: 0.14,
+            dataSource: DataSource.YAHOO,
+            symbol: 'AMZN',
+            valueInBaseCurrency: 1400
+          },
+          {
+            allocationInPercentage: 0.12,
+            dataSource: DataSource.YAHOO,
+            symbol: 'GOOGL',
+            valueInBaseCurrency: 1200
+          },
+          {
+            allocationInPercentage: 0.09,
+            dataSource: DataSource.YAHOO,
+            symbol: 'META',
+            valueInBaseCurrency: 900
+          }
+        ],
+        holdingsCount: 6,
+        totalValueInBaseCurrency: 10000
+      },
+      query: 'fundamentals on top 5 stocks'
+    });
+
+    expect(symbols).toEqual(['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL']);
+  });
+
+  it('keeps default derived symbol count at three when top count is not specified', () => {
+    const symbols = resolveSymbols({
+      portfolioAnalysis: {
+        allocationSum: 1,
+        holdings: [
+          {
+            allocationInPercentage: 0.4,
+            dataSource: DataSource.YAHOO,
+            symbol: 'AAPL',
+            valueInBaseCurrency: 4000
+          },
+          {
+            allocationInPercentage: 0.35,
+            dataSource: DataSource.YAHOO,
+            symbol: 'MSFT',
+            valueInBaseCurrency: 3500
+          },
+          {
+            allocationInPercentage: 0.25,
+            dataSource: DataSource.YAHOO,
+            symbol: 'NVDA',
+            valueInBaseCurrency: 2500
+          },
+          {
+            allocationInPercentage: 0.1,
+            dataSource: DataSource.YAHOO,
+            symbol: 'AVGO',
+            valueInBaseCurrency: 1000
+          }
+        ],
+        holdingsCount: 4,
+        totalValueInBaseCurrency: 11000
+      },
+      query: 'fundamentals on top stocks'
+    });
+
+    expect(symbols).toEqual(['AAPL', 'MSFT', 'NVDA']);
   });
 
   it('keeps generated response when answer passes reliability gate', async () => {
@@ -745,6 +836,66 @@ describe('AiAgentChatHelpers', () => {
     expect(answer).not.toContain(
       'Portfolio context is available. Ask about holdings, risk concentration, or symbol prices for deeper analysis.'
     );
+  });
+
+  it('uses news-brief prompt structure for news-focused queries', async () => {
+    const generateText = jest.fn().mockResolvedValue({
+      text: 'Headline recap: NVDA launches new data-center roadmap with strong demand guidance.'
+    });
+
+    await buildAnswer({
+      financialNewsSummary: [
+        'News catalysts (latest):',
+        '- NVDA reports stronger demand from cloud customers.'
+      ].join('\n'),
+      generateText,
+      languageCode: 'en',
+      memory: { turns: [] },
+      query: 'latest nvidia news recap',
+      userCurrency: 'USD'
+    });
+
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Task: produce a concise, information-dense market news brief.')
+      })
+    );
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Headline recap (3-5 bullets)')
+      })
+    );
+  });
+
+  it('returns deterministic news brief fallback when llm generation fails', async () => {
+    const answer = await buildAnswer({
+      financialNewsSummary: [
+        'News catalysts (latest):',
+        '- NVDA raises data-center guidance.',
+        '- Analysts revised earnings estimates upward.'
+      ].join('\n'),
+      generateText: jest.fn().mockRejectedValue(new Error('offline')),
+      languageCode: 'en',
+      marketData: {
+        quotes: [
+          {
+            currency: 'USD',
+            marketPrice: 123.45,
+            marketState: 'REGULAR',
+            symbol: 'NVDA'
+          }
+        ],
+        symbolsRequested: ['NVDA']
+      },
+      memory: { turns: [] },
+      query: 'show me nvda headlines',
+      userCurrency: 'USD'
+    });
+
+    expect(answer).toContain('News brief:');
+    expect(answer).toContain('- NVDA raises data-center guidance.');
+    expect(answer).toContain('Market snapshot: NVDA 123.45 USD.');
+    expect(answer).toContain('Watch next:');
   });
 
   it('sanitizes malformed user preference payload fields', async () => {

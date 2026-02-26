@@ -1020,3 +1020,49 @@ All driven by the same RGR loop.
 **Document Status**: ✅ Complete with RGR + ADR + Framework Deep Dive
 **Last Updated**: 2026-02-23 3:15 PM EST (Added sections 1.5: Presearch ROI + 1.6: Framework Deep Dive)
 **Based On**: Ghostfolio codebase research + Matt Pocock's RGR research + External review feedback (9/10)
+
+---
+
+## 16) Presearch Refresh (2026-02-26) - Follow-Up Continuity
+
+- Problem: conversational follow-up prompts (for example, `should i split those?`) failed regex-only follow-up detection and returned generic clarification despite valid session context.
+- Root cause:
+  - Follow-up reuse path in `ai.service.ts` was gated only by `isFollowUpQuery(...)`.
+  - Memory stored raw `query/answer/tools` but lacked structured context for continuity scoring.
+- Decision:
+  - Add a score-based follow-up resolver combining standalone intent confidence, context-dependency confidence, and topic-continuity confidence.
+  - Persist lightweight structured turn context (entities, goal type, scope, tool hash) for continuity checks.
+  - Keep regex matching as fallback, not the primary signal.
+
+## 17) Presearch Refresh (2026-02-26) - Refusal Follow-Up Simplification
+
+- Problem: short turns like `why not?` after a prior domain refusal could still fall into generic clarification paths when refusal text varied.
+- Decision:
+  - Add a simple history-first resolver for short contextual follow-ups.
+  - Treat clear new finance requests as explicit topic shifts (`new intent`) instead of forcing follow-up mode.
+  - Detect prior domain refusals by semantic refusal/scope markers instead of one brittle exact phrase match.
+- Expected outcome:
+  - `refusal -> why not?` consistently explains finance-only scope.
+  - `refusal -> analyze my ETF allocation` routes as a fresh request.
+
+## 18) Presearch Refresh (2026-02-26) - Conversational Continuation Prompts
+
+- Problem: neutral continuation turns (for example, `anything else?`) after capability/identity replies were treated as low-confidence standalone requests.
+- Decision:
+  - Classify `anything else?`, `what else?`, and `else?` as short follow-up prompts.
+  - Resolve these prompts against the immediate prior assistant reply and return contextual next-step options when prior reply was capability/identity guidance.
+- Expected outcome:
+  - `who are you? -> anything else?` stays conversational and context-aware instead of returning generic insufficient-confidence text.
+
+## 19) Presearch Refresh (2026-02-26) - Conversational Acknowledgments and Freshness News Phrasing
+
+- Problem:
+  - conversational reactions like `oh wow that's a lot` could land on generic clarify messaging.
+  - freshness-style news phrasing (`whats new for tesla`, `update me on nvda`) under-triggered symbol-context and news-intent routing.
+- Decision:
+  - expand financial-news and company-alias context patterns with freshness/update phrasing.
+  - add a guarded acknowledgment response path for non-finance short reactions in both direct and clarify routes.
+  - keep a finance/symbol guard so acknowledgments do not suppress valid tool-eligible requests.
+- Expected outcome:
+  - conversational reactions return short friendly pivots.
+  - freshness-style company prompts route to `get_financial_news` with resolved symbols.

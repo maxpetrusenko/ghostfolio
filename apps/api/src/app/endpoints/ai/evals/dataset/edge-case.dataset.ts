@@ -141,7 +141,7 @@ export const EDGE_CASE_EVAL_CASES: AiAgentMvpEvalCase[] = [
   createEvalCase({
     category: 'edge_case',
     expected: {
-      answerIncludes: ['Largest long allocations:'],
+      answerIncludes: ['Portfolio snapshot:'],
       memoryTurnsAtLeast: 3,
       requiredTools: ['portfolio_analysis']
     },

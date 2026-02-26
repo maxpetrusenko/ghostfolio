@@ -1,5 +1,7 @@
 import { AiService } from '../ai.service';
 import { Client, RunTree } from 'langsmith';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 
 import {
   AiAgentMvpEvalCategory,
@@ -22,6 +24,82 @@ const EVAL_CATEGORIES: AiAgentMvpEvalCategory[] = [
   'adversarial',
   'multi_step'
 ];
+const DEFAULT_EVAL_HISTORY_PATH = resolve(
+  process.cwd(),
+  'tools/evals/finance-agent-evals/history/mvp-eval-history.json'
+);
+const MAX_EVAL_HISTORY_ENTRIES = 200;
+
+interface EvalHistoryEntry {
+  generatedAt: string;
+  hallucinationRate: number;
+  passRate: number;
+  passed: number;
+  total: number;
+  verificationAccuracy: number;
+}
+
+function resolveEvalHistoryPath() {
+  const configuredPath = process.env.AI_EVAL_HISTORY_PATH?.trim();
+
+  return configuredPath && configuredPath.length > 0
+    ? resolve(configuredPath)
+    : DEFAULT_EVAL_HISTORY_PATH;
+}
+
+async function readEvalHistory(path: string): Promise<EvalHistoryEntry[]> {
+  try {
+    const content = await readFile(path, 'utf8');
+    const parsed = JSON.parse(content) as EvalHistoryEntry[];
+
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function persistEvalHistoryRecord({
+  hallucinationRate,
+  passRate,
+  passed,
+  total,
+  verificationAccuracy
+}: {
+  hallucinationRate: number;
+  passRate: number;
+  passed: number;
+  total: number;
+  verificationAccuracy: number;
+}) {
+  const historyPath = resolveEvalHistoryPath();
+  const currentEntry: EvalHistoryEntry = {
+    generatedAt: new Date().toISOString(),
+    hallucinationRate: Number(hallucinationRate.toFixed(4)),
+    passRate: Number(passRate.toFixed(4)),
+    passed,
+    total,
+    verificationAccuracy: Number(verificationAccuracy.toFixed(4))
+  };
+  const history = await readEvalHistory(historyPath);
+  const previousEntry =
+    history.length > 0 ? history[history.length - 1] : undefined;
+  const regressionDetected = Boolean(
+    previousEntry && currentEntry.passRate < previousEntry.passRate
+  );
+  const nextHistory = [...history, currentEntry].slice(-MAX_EVAL_HISTORY_ENTRIES);
+
+  await mkdir(dirname(historyPath), {
+    recursive: true
+  });
+  await writeFile(historyPath, JSON.stringify(nextHistory, null, 2), 'utf8');
+
+  return {
+    currentEntry,
+    historyPath,
+    previousPassRate: previousEntry?.passRate,
+    regressionDetected
+  };
+}
 
 function getLangSmithApiKey() {
   return process.env.LANGSMITH_API_KEY || process.env.LANGCHAIN_API_KEY;
@@ -436,6 +514,16 @@ export async function runMvpEvalSuite({
     cases,
     results
   });
+  const {
+    previousPassRate,
+    regressionDetected
+  } = await persistEvalHistoryRecord({
+    hallucinationRate,
+    passRate,
+    passed,
+    total: cases.length,
+    verificationAccuracy
+  });
 
   await finalizeSuiteRun({
     categorySummaries,
@@ -450,6 +538,8 @@ export async function runMvpEvalSuite({
   return {
     passRate,
     passed,
+    previousPassRate,
+    regressionDetected,
     results,
     total: cases.length,
     categorySummaries,

@@ -3,7 +3,8 @@ import {
   applyToolExecutionPolicy,
   createPolicyRouteResponse,
   formatPolicyVerificationDetails,
-  isFollowUpQuery
+  isFollowUpQuery,
+  resolveFollowUpSignal
 } from './ai-agent.policy.utils';
 
 describe('AiAgentPolicyUtils', () => {
@@ -32,6 +33,38 @@ describe('AiAgentPolicyUtils', () => {
     expect(decision.blockReason).toBe('no_tool_query');
     expect(decision.toolsToExecute).toEqual([]);
     expect(response).toContain('How can I help with your finances today?');
+  });
+
+  it('returns conversational acknowledgment response for non-finance reaction', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: [],
+      query: 'cool thanks'
+    });
+
+    expect(decision.route).toBe('direct');
+    expect(
+      createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'cool thanks'
+      })
+    ).toContain('Glad that helps!');
+  });
+
+  it('returns conversational acknowledgment response on clarify follow-up reactions', () => {
+    const decision = applyToolExecutionPolicy({
+      followUpSignal: { isLikelyFollowUp: true },
+      plannedTools: [],
+      query: "oh wow that's a lot"
+    });
+
+    expect(decision.route).toBe('clarify');
+    expect(
+      createPolicyRouteResponse({
+        followUpSignal: { isLikelyFollowUp: true },
+        policyDecision: decision,
+        query: "oh wow that's a lot"
+      })
+    ).toContain('Glad that helps!');
   });
 
   it.each([
@@ -79,7 +112,9 @@ describe('AiAgentPolicyUtils', () => {
     ['(8 - 2) / 3', '(8 - 2) / 3 = 2'],
     ['what is 3*(2+4)?', '3*(2+4) = 18'],
     ['2 + (3 * (4 - 1))', '2 + (3 * (4 - 1)) = 11'],
-    ['10-3-2', '10-3-2 = 5']
+    ['10-3-2', '10-3-2 = 5'],
+    ['two plus 7', '2 + 7 = 9'],
+    ['what is ten minus three', '10 - 3 = 7']
   ])('returns arithmetic direct response for "%s"', (query, expected) => {
     const decision = applyToolExecutionPolicy({
       plannedTools: [],
@@ -166,10 +201,49 @@ describe('AiAgentPolicyUtils', () => {
 
   it('detects follow-up prompts without capturing full market-news questions', () => {
     expect(isFollowUpQuery('why?')).toBe(true);
+    expect(isFollowUpQuery('anything else?')).toBe(true);
+    expect(isFollowUpQuery('what else?')).toBe(true);
     expect(isFollowUpQuery('what about that?')).toBe(true);
     expect(isFollowUpQuery('what about that now?')).toBe(true);
     expect(isFollowUpQuery('why latest?')).toBe(true);
+    expect(isFollowUpQuery('should i split those?')).toBe(true);
     expect(isFollowUpQuery('why did tsla drop today?')).toBe(false);
+  });
+
+  it('scores contextual follow-up phrases as likely follow-ups when prior context exists', () => {
+    const signal = resolveFollowUpSignal({
+      inferredPlannedTools: [],
+      previousTurn: {
+        context: {
+          entities: ['usd'],
+          goalType: 'analyze',
+          primaryScope: 'portfolio'
+        },
+        query: 'let us talk about my portfolio allocation',
+        successfulTools: ['portfolio_analysis'],
+        timestamp: new Date().toISOString()
+      },
+      query: 'should i split those?'
+    });
+
+    expect(signal.isLikelyFollowUp).toBe(true);
+    expect(signal.contextDependencyConfidence).toBeGreaterThan(0.5);
+    expect(signal.topicContinuityConfidence).toBeGreaterThan(0.3);
+  });
+
+  it('keeps concrete standalone prompts out of follow-up mode', () => {
+    const signal = resolveFollowUpSignal({
+      inferredPlannedTools: ['market_data_lookup'],
+      previousTurn: {
+        query: 'show my portfolio',
+        successfulTools: ['portfolio_analysis'],
+        timestamp: new Date().toISOString()
+      },
+      query: 'Get latest quote and fundamentals for NVDA'
+    });
+
+    expect(signal.isLikelyFollowUp).toBe(false);
+    expect(signal.standaloneIntentConfidence).toBeGreaterThan(0.6);
   });
 
   it('routes money-value phrasing with empty planner output to clarify', () => {
@@ -211,6 +285,22 @@ describe('AiAgentPolicyUtils', () => {
     expect(
       createPolicyRouteResponse({ policyDecision: decision, query: 'Tell me a joke' })
     ).toContain('Insufficient confidence to provide a reliable answer');
+  });
+
+  it('returns strict domain refusal for health-related queries', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: [],
+      query: 'can you help me with health issues?'
+    });
+
+    expect(decision.route).toBe('direct');
+    expect(decision.blockReason).toBe('no_tool_query');
+    const response = createPolicyRouteResponse({
+      policyDecision: decision,
+      query: 'can you help me with health issues?'
+    });
+    expect(response).toContain('cannot help with medical issues');
+    expect(response).toContain('portfolio, tax, FIRE, and market');
   });
 
   it('deduplicates planned tools while preserving route decisions', () => {
@@ -372,6 +462,23 @@ describe('AiAgentPolicyUtils', () => {
         query: 'make an order for tesla'
       })
     ).toContain('please specify the amount');
+  });
+
+  it('treats order how-to prompts as missing-order-details clarification', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['create_order'],
+      query: 'How can I make an order?'
+    });
+
+    expect(decision.route).toBe('clarify');
+    expect(decision.blockReason).toBe('needs_order_details');
+    expect(decision.toolsToExecute).toEqual([]);
+    expect(
+      createPolicyRouteResponse({
+        policyDecision: decision,
+        query: 'How can I make an order?'
+      })
+    ).toContain('To create an order, please specify the amount');
   });
 
   it('requires amount details for seed-funds requests', () => {

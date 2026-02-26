@@ -1,6 +1,6 @@
 # Tasks
 
-Last updated: 2026-02-24
+Last updated: 2026-02-26
 
 ## Active Tickets
 
@@ -15,6 +15,7 @@ Last updated: 2026-02-24
 | T-007 | Observability wiring (LangSmith traces and metrics) | Complete | `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/ai-feedback.service.spec.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` | Local implementation |
 | T-008 | Deployment and submission bundle | Complete | `npm run test:ai` + Railway healthcheck + submission docs checklist | `2b6506de8` |
 | T-009 | Open source eval framework contribution | In Review | `@ghostfolio/finance-agent-evals` package scaffold + dataset export + smoke/pack checks | openai/evals PR #1625 + langchain PR #35421 |
+| T-020 | Conversational acknowledgments + freshness news routing | In Progress | `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts` | Local implementation |
 
 ## Notes
 
@@ -62,6 +63,33 @@ Last updated: 2026-02-24
 
 ## Active Tasks
 
+### Conversational Acknowledgments and Freshness News Routing
+
+**Status**: In Progress | **Priority**: High
+
+Tasks:
+
+- [x] Add freshness/news phrasing to symbol-context and news-intent routing patterns
+- [x] Add guarded conversational acknowledgment responses for direct route and clarify follow-up route
+- [x] Add regression tests in planner/policy/service layers for `whats new for tesla` and acknowledgment prompts
+- [x] Run targeted AI test suite and record results
+
+Success Criteria:
+
+- `whats new for tesla` routes to financial-news tooling with company-symbol resolution
+- `update me on nvda` routes to financial-news tooling
+- conversational reactions like `oh wow that's a lot` return friendly finance-pivot responses, not low-confidence boilerplate
+- no regression in existing no-tool greeting/capability behavior
+
+**Key Files**:
+
+- `apps/api/src/app/endpoints/ai/ai-agent.utils.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
+- `docs/tasks/tasks.md`
+
 ### AI Reliability Guardrails: No Portfolio Fallback on Low Confidence
 
 **Status**: Implemented (Pending Push/Deploy) | **Priority**: High
@@ -90,6 +118,32 @@ Success Criteria:
 - `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`
 - `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
 - `tasks/tasks.md`
+
+### Generalized Follow-Up Continuity Resolver
+
+**Status**: In Progress | **Priority**: High
+
+Tasks:
+
+- [x] Introduce score-based follow-up resolver (`standalone`, `context dependency`, `topic continuity`)
+- [x] Wire resolver into planner/policy routing instead of regex-only gate
+- [x] Persist structured turn context in memory (entities, goal type, scope, tool hash)
+- [x] Add regression tests for conversational pronoun follow-ups (e.g., `should i split those?`)
+- [ ] Validate in UI with realistic multi-turn chat sessions
+
+Success Criteria:
+
+- Conversational follow-ups can continue prior portfolio context without forcing rigid prompt templates
+- Concrete standalone prompts still route independently
+- No regression in existing clarify and tool-routing behavior
+
+**Key Files**:
+
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.chat.interfaces.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
 
 ### Portfolio Chat Page UI Pass: Bottom-Anchored Composer Layout
 
@@ -361,3 +415,103 @@ Modified files:
 - [ ] Test AI chat panel on FIRE page locally
 - [ ] Add FIRE-specific backend tools (optional enhancement)
 - [ ] Consider adding FIRE calculator context to AI queries
+
+## AI Gap Remediation Plan (2026-02-26)
+
+### Task G-001: Required Architecture Document Completion
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Populate `docs/ai_agents.md` with required architecture sections and implementation references
+- [x] Add acceptance checklist mapped to project requirements
+- [x] Add doc verification test to assert the architecture document is non-empty and section-complete
+
+### Task G-002: Fast Model Timeout Default Enforcement
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Lower default `AI_AGENT_LLM_TIMEOUT_IN_MS` fallback value to `1500`
+- [x] Add/update unit test to lock default timeout behavior
+- [x] Run targeted AI tests and performance checks
+
+### Task G-003: Response Cache Key Freshness
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Add portfolio-state version/hash to AI response cache key composition
+- [x] Add regression test proving cache miss after portfolio mutation context changes
+- [x] Run targeted AI tests/evals
+
+### Task G-004: Deterministic Coverage for Remaining Tools
+
+**Status**: Complete | **Priority**: Medium
+
+Tasks:
+
+- [x] Add deterministic templates for `activity_history`
+- [x] Add deterministic templates for `demo_data`
+- [x] Add regression tests and eval cases for deterministic routing/output
+
+### Task G-005: Observability Operationalization
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Persist exact token usage and estimated cost by request/tool step
+- [x] Persist historical eval results with regression detection signal
+- [x] Add test coverage for persisted telemetry payloads
+
+### Task G-006: Submission Artifacts Completion
+
+**Status**: In Progress (Awaiting External URLs) | **Priority**: Medium
+
+Tasks:
+
+- [x] Add explicit artifact doc with demo video link, social post link, and public AI deployment evidence
+- [x] Include timestamped endpoint verification sample
+- [x] Add a docs validation check for required submission fields
+- [ ] Populate real public URLs and verification timestamp from final deployment/demo/social assets
+
+### Task G-007: Human-in-the-Loop Escalation
+
+**Status**: Complete | **Priority**: Medium
+
+Tasks:
+
+- [x] Add explicit escalation criteria for low-confidence or verification conflict responses
+- [x] Add service-level behavior and metadata for escalation output
+- [x] Add adversarial eval case that expects escalation
+
+### Task G-008: Final Verification and Scorecard
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Run `npm run test:mvp-eval`
+- [x] Run `npm run test:ai:performance`
+- [x] Add before/after scorecard in `docs/tasks/tasks.md` with evidence links
+
+## Gap Scorecard (Before vs After)
+
+| Gap | Before | After | Evidence |
+| --- | --- | --- | --- |
+| G-001 Architecture doc (`docs/ai_agents.md`) | Missing (0 lines) | Completed with architecture mapping + tests | `docs/ai_agents.md`, `apps/api/src/app/endpoints/ai/ai-docs.spec.ts` |
+| G-002 Timeout default | 15_000ms fallback | 1_500ms fallback + provider tests | `apps/api/src/app/endpoints/ai/ai-llm.providers.ts`, `apps/api/src/app/endpoints/ai/ai-llm.providers.spec.ts` |
+| G-003 Response cache staleness | No portfolio version in key | Portfolio-state hash added to cache key | `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts` |
+| G-004 Deterministic tool coverage | Missing for `activity_history` and `demo_data` | Added deterministic single-tool answers + eval coverage | `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/evals/dataset/happy-path.dataset.ts` |
+| G-005 Token/cost + historical eval persistence | Partial/inferred only | Added cost estimate + tool-step telemetry persistence and eval history regression signal | `apps/api/src/app/endpoints/ai/ai-observability.service.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` |
+| G-006 Submission artifacts evidence | Not documented in repo | Scaffolded and validated; waiting real external URLs | `docs/submission.md`, `apps/api/src/app/endpoints/ai/ai-submission-docs.spec.ts` |
+| G-007 Human-in-the-loop escalation | 4/10 (not explicit) | Explicit escalation metadata + verification check + adversarial eval | `apps/api/src/app/endpoints/ai/ai-agent.interfaces.ts`, `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/evals/dataset/adversarial.dataset.ts` |
+
+Verification runs:
+
+- `npm run test:mvp-eval` (pass)
+- `npm run test:ai:performance` (pass, p95 single-tool ~4.11ms, multi-step ~95.79ms in test harness)

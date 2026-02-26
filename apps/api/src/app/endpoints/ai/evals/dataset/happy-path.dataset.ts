@@ -123,7 +123,7 @@ export const HAPPY_PATH_EVAL_CASES: AiAgentMvpEvalCase[] = [
   createEvalCase({
     category: 'happy_path',
     expected: {
-      answerIncludes: ['Next-step allocation'],
+      answerIncludes: ['Option 1 (new money first):'],
       requiredTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
       verificationChecks: [{ check: 'response_quality', status: 'passed' }]
     },
@@ -155,7 +155,7 @@ export const HAPPY_PATH_EVAL_CASES: AiAgentMvpEvalCase[] = [
   createEvalCase({
     category: 'happy_path',
     expected: {
-      answerIncludes: ['Next-step allocation'],
+      answerIncludes: ['Option 1 (new money first):'],
       requiredTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
       verificationChecks: [{ check: 'response_quality', status: 'passed' }]
     },
@@ -264,7 +264,7 @@ export const HAPPY_PATH_EVAL_CASES: AiAgentMvpEvalCase[] = [
   createEvalCase({
     category: 'happy_path',
     expected: {
-      answerIncludes: ['Next-step allocation'],
+      answerIncludes: ['Option 1 (new money first):'],
       requiredTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan'],
       verificationChecks: [{ check: 'response_quality', status: 'passed' }]
     },
@@ -315,5 +315,35 @@ export const HAPPY_PATH_EVAL_CASES: AiAgentMvpEvalCase[] = [
       query: 'make an order for tesla'
     },
     intent: 'order-clarify-missing-details'
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      answerIncludes: ['Activity history:'],
+      requiredTools: ['activity_history']
+    },
+    id: 'hp-025-activity-history-deterministic',
+    input: {
+      query: 'Show my recent activity history'
+    },
+    intent: 'activity-history-deterministic',
+    setup: {
+      llmThrows: true
+    }
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      answerIncludes: ['Demo data mode: sample flow includes'],
+      requiredTools: ['demo_data']
+    },
+    id: 'hp-026-demo-data-deterministic',
+    input: {
+      query: 'Show demo data mode summary'
+    },
+    intent: 'demo-data-deterministic',
+    setup: {
+      llmThrows: true
+    }
   })
 ];

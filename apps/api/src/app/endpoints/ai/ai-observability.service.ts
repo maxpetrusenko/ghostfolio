@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Client, RunTree } from 'langsmith';
 import { randomUUID } from 'node:crypto';
 
+import { RedisCacheService } from '@ghostfolio/api/app/redis-cache/redis-cache.service';
 import {
   AiAgentChatResponse,
   AiAgentObservabilitySnapshot
@@ -10,6 +11,9 @@ import {
 const OBSERVABILITY_LOG_LABEL = 'AiObservabilityService';
 const OBSERVABILITY_TIMEOUT_IN_MS = 750;
 const ENV_PLACEHOLDER_PATTERN = /^<[^>]+>$/;
+const AI_OBSERVABILITY_CACHE_TTL_IN_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_INPUT_COST_PER_1K_TOKENS = 0.00015;
+const DEFAULT_OUTPUT_COST_PER_1K_TOKENS = 0.0006;
 
 interface AiAgentPolicySnapshot {
   blockReason: string;
@@ -38,6 +42,10 @@ export class AiObservabilityService {
   private readonly logger = new Logger(OBSERVABILITY_LOG_LABEL);
   private hasWarnedInvalidLangSmithConfiguration = false;
   private langSmithClient?: Client;
+
+  public constructor(
+    private readonly redisCacheService?: RedisCacheService
+  ) {}
 
   private get langSmithApiKey() {
     return process.env.LANGSMITH_API_KEY || process.env.LANGCHAIN_API_KEY;
@@ -159,18 +167,88 @@ export class AiObservabilityService {
       })
     );
     const outputTokenEstimate = this.estimateTokenCount(response.answer);
+    const tokenEstimate = {
+      input: inputTokenEstimate,
+      output: outputTokenEstimate,
+      total: inputTokenEstimate + outputTokenEstimate
+    };
+    const toolStepMetrics = response.toolCalls.map(
+      ({ durationInMs, status, tool }) => {
+        return {
+          durationInMs,
+          status,
+          tool
+        };
+      }
+    );
+    const costEstimateUsd = this.estimateCostUsd(tokenEstimate);
 
     return {
+      costEstimateUsd,
       latencyBreakdownInMs,
       latencyInMs: durationInMs,
       llmInvocation: response.llmInvocation,
-      tokenEstimate: {
-        input: inputTokenEstimate,
-        output: outputTokenEstimate,
-        total: inputTokenEstimate + outputTokenEstimate
-      },
+      tokenEstimate,
+      toolStepMetrics,
       traceId
     };
+  }
+
+  private estimateCostUsd(tokenEstimate: {
+    input: number;
+    output: number;
+  }) {
+    const configuredInputRate = Number.parseFloat(
+      process.env.AI_AGENT_INPUT_COST_PER_1K_TOKENS ?? ''
+    );
+    const configuredOutputRate = Number.parseFloat(
+      process.env.AI_AGENT_OUTPUT_COST_PER_1K_TOKENS ?? ''
+    );
+    const inputRate = Number.isFinite(configuredInputRate)
+      ? configuredInputRate
+      : DEFAULT_INPUT_COST_PER_1K_TOKENS;
+    const outputRate = Number.isFinite(configuredOutputRate)
+      ? configuredOutputRate
+      : DEFAULT_OUTPUT_COST_PER_1K_TOKENS;
+
+    return Number(
+      (
+        (tokenEstimate.input / 1000) * inputRate +
+        (tokenEstimate.output / 1000) * outputRate
+      ).toFixed(6)
+    );
+  }
+
+  private async persistChatTelemetry({
+    snapshot,
+    userId
+  }: {
+    snapshot: AiAgentObservabilitySnapshot;
+    userId: string;
+  }) {
+    const traceId = snapshot.traceId;
+
+    if (!this.redisCacheService || !traceId) {
+      return;
+    }
+
+    const telemetryKey = `ai:observability:chat:${userId}:${traceId}`;
+
+    await this.redisCacheService.set(
+      telemetryKey,
+      JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        costEstimateUsd: snapshot.costEstimateUsd ?? 0,
+        latencyBreakdownInMs: snapshot.latencyBreakdownInMs,
+        latencyInMs: snapshot.latencyInMs,
+        llmInvocation: snapshot.llmInvocation,
+        tokenEstimate: snapshot.tokenEstimate,
+        toolStepMetrics: snapshot.toolStepMetrics,
+        traceId,
+        userId
+      }),
+      AI_OBSERVABILITY_CACHE_TTL_IN_MS
+    );
   }
 
   private async captureChatFailureTrace({
@@ -494,6 +572,11 @@ export class AiObservabilityService {
         userId
       }).catch(() => undefined);
     }
+
+    void this.persistChatTelemetry({
+      snapshot,
+      userId
+    }).catch(() => undefined);
 
     return snapshot;
   }

@@ -342,7 +342,14 @@ describe('AiService', () => {
     });
 
     expect(result.memory.turns).toBe(10);
-    const [, payload] = redisCacheService.set.mock.calls[0];
+    const memoryWriteCall = redisCacheService.set.mock.calls.find(([key]) => {
+      return (
+        typeof key === 'string' &&
+        key.startsWith('ai-agent-memory-user-memory-session-memory')
+      );
+    });
+    expect(memoryWriteCall).toBeDefined();
+    const [, payload] = memoryWriteCall as [string, string];
     const persistedMemory = JSON.parse(payload as string);
     expect(persistedMemory.turns).toHaveLength(10);
     expect(
@@ -382,6 +389,8 @@ describe('AiService', () => {
         })
       ])
     );
+    expect(result.confidence.band).toBe('medium');
+    expect(result.confidence.score).toBeGreaterThanOrEqual(0.7);
   });
 
   it('returns arithmetic response on direct no-tool arithmetic query', async () => {
@@ -399,6 +408,10 @@ describe('AiService', () => {
     expect(result.answer).toBe('2+2 = 4');
     expect(result.toolCalls).toEqual([]);
     expect(generateTextSpy).not.toHaveBeenCalled();
+    expect(result.confidence).toEqual({
+      band: 'high',
+      score: 0.95
+    });
   });
 
   it('uses portfolio data for "how much money i have?" queries', async () => {
@@ -610,6 +623,69 @@ describe('AiService', () => {
     expect(result.answer).not.toContain('I am Ghostfolio AI');
   });
 
+  it('reuses prior tool context for conversational pronoun follow-ups', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        USD: {
+          allocationInPercentage: 1,
+          dataSource: DataSource.MANUAL,
+          symbol: 'USD',
+          valueInBaseCurrency: 1000
+        }
+      }
+    });
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (
+        key ===
+        'ai-agent-memory-user-follow-up-pronoun-session-follow-up-pronoun'
+      ) {
+        return JSON.stringify({
+          turns: [
+            {
+              answer: 'Top holding is concentrated in USD.',
+              context: {
+                entities: ['usd'],
+                goalType: 'analyze',
+                primaryScope: 'portfolio'
+              },
+              query: 'lets talk about my portfolio',
+              timestamp: new Date().toISOString(),
+              toolCalls: [
+                { status: 'success', tool: 'portfolio_analysis' },
+                { status: 'success', tool: 'risk_assessment' }
+              ]
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'should i split those?',
+      sessionId: 'session-follow-up-pronoun',
+      userCurrency: 'USD',
+      userId: 'user-follow-up-pronoun'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'portfolio_analysis'
+        }),
+        expect.objectContaining({
+          status: 'success',
+          tool: 'risk_assessment'
+        })
+      ])
+    );
+    expect(result.answer).toContain('Total portfolio value: 1000.00 USD');
+  });
+
   it('uses freshness breaker to prefer live market/news tools for fresh follow-ups', async () => {
     dataProviderService.getQuotes.mockResolvedValue({});
     aiAgentWebSearchService.searchStockNews.mockResolvedValue({
@@ -661,6 +737,140 @@ describe('AiService', () => {
     );
   });
 
+  it('explains prior domain refusal when user asks why not', async () => {
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-follow-up-domain-refusal-session-domain-refusal') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer:
+                'I cannot help with medical issues. I can help with portfolio, tax, FIRE, and market questions.',
+              query: 'can you diagnose this symptom?',
+              timestamp: new Date().toISOString(),
+              toolCalls: []
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'why not?',
+      sessionId: 'session-domain-refusal',
+      userCurrency: 'USD',
+      userId: 'user-follow-up-domain-refusal'
+    });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.answer).toContain('limited to finance');
+    expect(result.verification).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'history_follow_up',
+          status: 'passed'
+        })
+      ])
+    );
+  });
+
+  it('does not treat clear new requests as follow-up-only after a refusal', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        VTI: {
+          allocationInPercentage: 0.7,
+          dataSource: DataSource.YAHOO,
+          symbol: 'VTI',
+          valueInBaseCurrency: 7000
+        },
+        VXUS: {
+          allocationInPercentage: 0.3,
+          dataSource: DataSource.YAHOO,
+          symbol: 'VXUS',
+          valueInBaseCurrency: 3000
+        }
+      }
+    });
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-new-intent-after-refusal-session-new-intent-after-refusal') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer:
+                'I cannot help with medical issues. I can help with portfolio, tax, FIRE, and market questions.',
+              query: 'can you diagnose this symptom?',
+              timestamp: new Date().toISOString(),
+              toolCalls: []
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'analyze my etf allocation',
+      sessionId: 'session-new-intent-after-refusal',
+      userCurrency: 'USD',
+      userId: 'user-new-intent-after-refusal'
+    });
+
+    expect(result.answer).not.toContain('limited to finance');
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'portfolio_analysis'
+        })
+      ])
+    );
+  });
+
+  it('treats "anything else?" as contextual continuation after identity reply', async () => {
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-follow-up-anything-else-session-anything-else') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer:
+                'I am Ghostfolio AI, your portfolio copilot for this account.\nTry one of these:\n- "Show me my portfolio allocation"',
+              query: 'who are you?',
+              timestamp: new Date().toISOString(),
+              toolCalls: []
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'anything else?',
+      sessionId: 'session-anything-else',
+      userCurrency: 'USD',
+      userId: 'user-follow-up-anything-else'
+    });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.answer).toContain('I can continue with your current chat context');
+    expect(result.answer).not.toContain('Insufficient confidence');
+    expect(result.verification).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'history_follow_up',
+          status: 'passed'
+        })
+      ])
+    );
+  });
+
   it('returns targeted clarification for short follow-up queries without prior context', async () => {
     redisCacheService.get.mockResolvedValue(undefined);
 
@@ -674,6 +884,80 @@ describe('AiService', () => {
 
     expect(result.toolCalls).toEqual([]);
     expect(result.answer).toContain('I can explain the previous result');
+  });
+
+  it('returns conversational acknowledgment for short non-finance reactions after context', async () => {
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-ack-reaction-session-ack-reaction') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer:
+                'Portfolio snapshot:\nTotal portfolio value: 10000.00 USD.\nLargest allocations: AAPL 40.00%, MSFT 35.00%, NVDA 25.00%.',
+              query: 'top 5 stocks now?',
+              timestamp: new Date().toISOString(),
+              toolCalls: [{ status: 'success', tool: 'get_current_holdings' }]
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: "oh wow that's a lot",
+      sessionId: 'session-ack-reaction',
+      userCurrency: 'USD',
+      userId: 'user-ack-reaction'
+    });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.answer).toContain('Glad that helps!');
+    expect(result.answer).not.toContain('Insufficient confidence');
+  });
+
+  it('uses llm history fallback for ambiguous non-portfolio follow-ups', async () => {
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai-agent-memory-user-clarify-math-session-clarify-math') {
+        return JSON.stringify({
+          turns: [
+            {
+              answer: '2+2 = 4',
+              query: '2+2=4?',
+              timestamp: new Date().toISOString(),
+              toolCalls: []
+            }
+          ]
+        });
+      }
+
+      return undefined;
+    });
+    jest.spyOn(subject, 'generateText').mockResolvedValue({
+      text: 'Do you want me to explain the math result?'
+    } as never);
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'this is weird',
+      sessionId: 'session-clarify-math',
+      userCurrency: 'USD',
+      userId: 'user-clarify-math'
+    });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.answer).toBe('Do you want me to explain the math result?');
+    expect(result.verification).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'clarify_llm_fallback',
+          status: 'passed'
+        })
+      ])
+    );
   });
 
   it('persists and recalls cross-session user preferences for the same user', async () => {
@@ -749,7 +1033,7 @@ describe('AiService', () => {
 
     const result = await subject.chat({
       languageCode: 'en',
-      query: 'Show my portfolio allocation',
+      query: 'Analyze my portfolio risk and suggest diversification actions',
       sessionId: 'session-pref-tools-2',
       userCurrency: 'USD',
       userId: 'user-pref-tools'
@@ -810,7 +1094,9 @@ describe('AiService', () => {
         })
       ])
     );
-    expect(portfolioService.getDetails).toHaveBeenCalledTimes(1);
+    expect(portfolioService.getDetails.mock.calls.length).toBeGreaterThanOrEqual(
+      1
+    );
   });
 
   it('returns deterministic diversification action guidance when generated output is unreliable', async () => {
@@ -897,11 +1183,21 @@ describe('AiService', () => {
         expect.objectContaining({
           check: 'confidence_guardrail',
           status: 'warning'
+        }),
+        expect.objectContaining({
+          check: 'human_in_the_loop',
+          status: 'warning'
         })
       ])
     );
     expect(result.answer).toContain(
       'Insufficient confidence to answer safely with the current evidence.'
+    );
+    expect(result.answer).toContain('Escalation:');
+    expect(result.escalation).toEqual(
+      expect.objectContaining({
+        required: true
+      })
     );
   });
 
@@ -937,10 +1233,52 @@ describe('AiService', () => {
         expect.objectContaining({
           check: 'confidence_guardrail',
           status: 'warning'
+        }),
+        expect.objectContaining({
+          check: 'human_in_the_loop',
+          status: 'warning'
         })
       ])
     );
     expect(result.confidence.band).toBe('low');
+    expect(result.answer).toContain('Escalation:');
+    expect(result.escalation).toEqual(
+      expect.objectContaining({
+        required: true
+      })
+    );
+  });
+
+  it('keeps fundamentals requests user-facing when portfolio lookup fails for top-N stock phrasing', async () => {
+    portfolioService.getDetails.mockRejectedValue(
+      new Error('portfolio service unavailable')
+    );
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'fundamentals on top 5 stock',
+      sessionId: 'session-top-five-fundamentals-fallback',
+      userCurrency: 'USD',
+      userId: 'user-top-five-fundamentals-fallback'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_asset_fundamentals'
+        })
+      ])
+    );
+    expect(result.answer).toContain(
+      'Fundamentals request completed with limited profile coverage.'
+    );
+    expect(result.answer).not.toContain(
+      'Insufficient confidence to answer safely with the current evidence.'
+    );
+    expect(result.answer).not.toContain('Escalation:');
   });
 
   it('flags numerical consistency warning when allocation sum exceeds tolerance', async () => {
@@ -1167,7 +1505,7 @@ describe('AiService', () => {
       ])
     );
     expect(typoFundamentalsResult.answer).toContain('Fundamental analysis:');
-    expect(typoFundamentalsResult.answer).toContain('Decision checklist:');
+    expect(typoFundamentalsResult.answer).toContain('Decision use:');
 
     const tradeImpactResult = await subject.chat({
       languageCode: 'en',
@@ -1382,6 +1720,60 @@ describe('AiService', () => {
     expect(result.answer).toContain('Activity history:');
   });
 
+  it('returns deterministic activity history summary for single-tool activity queries', async () => {
+    orderService.getOrders.mockResolvedValue({
+      activities: [
+        {
+          SymbolProfile: { symbol: 'AAPL' },
+          date: new Date('2026-02-20T00:00:00.000Z'),
+          symbolProfileId: 'symbol-profile-aapl',
+          type: 'BUY',
+          valueInBaseCurrency: 1200.5
+        }
+      ],
+      count: 1
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    const generateTextSpy = jest.spyOn(subject, 'generateText');
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Show my recent activity history',
+      sessionId: 'session-activity-deterministic',
+      userCurrency: 'USD',
+      userId: 'user-activity-deterministic'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'activity_history' })
+      ])
+    );
+    expect(result.answer).toContain('Activity history: 1 recent entries.');
+    expect(generateTextSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns deterministic demo data summary for single-tool demo queries', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+    const generateTextSpy = jest.spyOn(subject, 'generateText');
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Show demo data mode summary',
+      sessionId: 'session-demo-deterministic',
+      userCurrency: 'USD',
+      userId: 'user-demo-deterministic'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'demo_data' })
+      ])
+    );
+    expect(result.answer).toContain('Demo data mode: sample flow includes');
+    expect(generateTextSpy).not.toHaveBeenCalled();
+  });
+
   it('creates account and order for explicit action requests', async () => {
     accountService.createAccount.mockResolvedValue({
       balance: 500,
@@ -1580,6 +1972,26 @@ describe('AiService', () => {
     expect(orderService.createOrder).not.toHaveBeenCalled();
   });
 
+  it('returns order-details guidance for order how-to prompts without executing tools', async () => {
+    redisCacheService.get.mockResolvedValue(undefined);
+    const generateTextSpy = jest
+      .spyOn(subject, 'generateText')
+      .mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'How can I make an order?',
+      sessionId: 'session-create-order-howto',
+      userCurrency: 'USD',
+      userId: 'user-create-order-howto'
+    });
+
+    expect(result.answer).toContain('To create an order, please specify the amount');
+    expect(result.toolCalls).toEqual([]);
+    expect(orderService.createOrder).not.toHaveBeenCalled();
+    expect(generateTextSpy).not.toHaveBeenCalled();
+  });
+
   it('does not infer deductions from tax rate when only income is provided', async () => {
     redisCacheService.get.mockResolvedValue(undefined);
     jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
@@ -1661,9 +2073,53 @@ describe('AiService', () => {
         })
       ])
     );
-    expect(result.answer).toContain('News catalysts (latest):');
+    expect(result.answer).toContain('News brief:');
     expect(result.answer).toContain('Apple (AAPL)');
     expect(result.answer).toContain('Apple reports stronger quarter');
+  });
+
+  it('routes freshness-style company prompts to financial news tools', async () => {
+    dataProviderService.getAssetProfiles.mockResolvedValue({
+      TSLA: {
+        name: 'Tesla'
+      }
+    });
+    aiAgentWebSearchService.searchStockNews.mockResolvedValue({
+      results: [
+        {
+          link: 'https://example.com/tesla-news',
+          snippet: 'Tesla announced new delivery guidance.',
+          source: 'Tesla (TSLA)',
+          title: 'Tesla updates delivery outlook'
+        }
+      ],
+      success: true
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'whats new for tesla',
+      sessionId: 'session-tesla-news-freshness',
+      userCurrency: 'USD',
+      userId: 'user-tesla-news-freshness'
+    });
+
+    expect(aiAgentWebSearchService.searchStockNews).toHaveBeenCalledWith(
+      'TSLA',
+      'Tesla'
+    );
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_financial_news'
+        })
+      ])
+    );
+    expect(result.answer).toContain('News brief:');
+    expect(result.answer).toContain('Tesla (TSLA)');
   });
 
   it('routes ticker investment queries to market research tools without forcing portfolio context', async () => {
@@ -1732,7 +2188,7 @@ describe('AiService', () => {
     expect(result.answer).not.toContain('Total portfolio value:');
   });
 
-  it('routes FIRE retirement queries to portfolio and stress tools', async () => {
+  it('routes FIRE retirement queries to FIRE analysis tool', async () => {
     portfolioService.getDetails.mockResolvedValue({
       holdings: {
         SPY: {
@@ -1750,7 +2206,9 @@ describe('AiService', () => {
       }
     });
     redisCacheService.get.mockResolvedValue(undefined);
-    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+    const generateTextSpy = jest
+      .spyOn(subject, 'generateText')
+      .mockRejectedValue(new Error('offline'));
 
     const result = await subject.chat({
       languageCode: 'en',
@@ -1762,17 +2220,72 @@ describe('AiService', () => {
 
     expect(result.toolCalls).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ tool: 'portfolio_analysis' }),
-        expect.objectContaining({ tool: 'get_portfolio_summary' }),
-        expect.objectContaining({ tool: 'risk_assessment' }),
-        expect.objectContaining({ tool: 'stress_test' }),
         expect.objectContaining({ tool: 'fire_analysis' })
       ])
     );
     expect(result.toolCalls).toEqual(
       expect.not.arrayContaining([
+        expect.objectContaining({ tool: 'portfolio_analysis' }),
+        expect.objectContaining({ tool: 'get_portfolio_summary' }),
+        expect.objectContaining({ tool: 'risk_assessment' }),
+        expect.objectContaining({ tool: 'stress_test' }),
         expect.objectContaining({ tool: 'market_data_lookup' })
       ])
+    );
+    expect(generateTextSpy).not.toHaveBeenCalled();
+    expect(result.answer).toContain('FIRE quick check (rule-of-thumb):');
+    expect(result.answer).toContain('Portfolio value: 10000.00 USD across 2 holdings.');
+    expect(result.answer).toContain('4% withdrawal estimate: 400.00 USD/year');
+    expect(result.answer).toContain('Diversification: top holding SPY at 70.00%');
+  });
+
+  it('routes "top 5 stocks now" to current holdings tool instead of clarify refusal', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        AAPL: {
+          allocationInPercentage: 0.4,
+          dataSource: DataSource.YAHOO,
+          symbol: 'AAPL',
+          valueInBaseCurrency: 4000
+        },
+        MSFT: {
+          allocationInPercentage: 0.35,
+          dataSource: DataSource.YAHOO,
+          symbol: 'MSFT',
+          valueInBaseCurrency: 3500
+        },
+        NVDA: {
+          allocationInPercentage: 0.25,
+          dataSource: DataSource.YAHOO,
+          symbol: 'NVDA',
+          valueInBaseCurrency: 2500
+        }
+      }
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'top 5 stocks now?',
+      sessionId: 'session-top-five-stocks',
+      userCurrency: 'USD',
+      userId: 'user-top-five-stocks'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_current_holdings'
+        })
+      ])
+    );
+    expect(result.answer).not.toContain(
+      'Insufficient confidence to provide a reliable answer from this query alone.'
+    );
+    expect(result.answer).not.toContain(
+      'Insufficient confidence to answer safely with the current evidence.'
     );
   });
 
@@ -1801,6 +2314,75 @@ describe('AiService', () => {
       ])
     );
     expect(dataProviderService.getQuotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('includes portfolio state version in response cache key for portfolio-sensitive tool routes', async () => {
+    let holdingsState = {
+      AAPL: {
+        allocationInPercentage: 0.6,
+        dataSource: DataSource.YAHOO,
+        symbol: 'AAPL',
+        valueInBaseCurrency: 6000
+      },
+      MSFT: {
+        allocationInPercentage: 0.4,
+        dataSource: DataSource.YAHOO,
+        symbol: 'MSFT',
+        valueInBaseCurrency: 4000
+      }
+    };
+
+    portfolioService.getDetails.mockImplementation(async () => {
+      return {
+        holdings: holdingsState
+      };
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    await subject.chat({
+      languageCode: 'en',
+      query: 'Analyze my portfolio concentration risk',
+      sessionId: 'session-cache-version-1',
+      userCurrency: 'USD',
+      userId: 'user-cache-version'
+    });
+
+    holdingsState = {
+      AAPL: {
+        allocationInPercentage: 0.3,
+        dataSource: DataSource.YAHOO,
+        symbol: 'AAPL',
+        valueInBaseCurrency: 3000
+      },
+      MSFT: {
+        allocationInPercentage: 0.7,
+        dataSource: DataSource.YAHOO,
+        symbol: 'MSFT',
+        valueInBaseCurrency: 7000
+      }
+    };
+
+    await subject.chat({
+      languageCode: 'en',
+      query: 'Analyze my portfolio concentration risk',
+      sessionId: 'session-cache-version-2',
+      userCurrency: 'USD',
+      userId: 'user-cache-version'
+    });
+
+    const responseCacheKeys = redisCacheService.get.mock.calls
+      .map(([key]) => key as string)
+      .filter((key) => key.startsWith('ai:response:user-cache-version:'));
+
+    expect(responseCacheKeys).toHaveLength(2);
+    expect(responseCacheKeys[0]).not.toEqual(responseCacheKeys[1]);
+    expect(responseCacheKeys[0]).toMatch(
+      /^ai:response:user-cache-version:[^:]+:[^:]+:[^:]+$/
+    );
+    expect(responseCacheKeys[1]).toMatch(
+      /^ai:response:user-cache-version:[^:]+:[^:]+:[^:]+$/
+    );
   });
 
   it('injects next response preference into tool-to-LLM prompt', async () => {
@@ -2085,6 +2667,32 @@ describe('AiService', () => {
         responseText: 'openrouter-response'
       })
     );
+  });
+
+  it('does not chain providers in auto mode when fallback is disabled', async () => {
+    process.env.minimax_api_key = 'minimax-key';
+    process.env.minimax_model = 'MiniMax-M2.5';
+    delete process.env.AI_AGENT_LLM_ALLOW_FALLBACKS;
+
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      subject.generateText({
+        prompt: 'single-pass auto mode test'
+      })
+    ).rejects.toThrow('provider request failed with status 500');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.minimax.io/v1/chat/completions',
+      expect.any(Object)
+    );
+    expect(propertyService.getByKey).not.toHaveBeenCalled();
   });
 
   it('captures observability failure events when chat throws', async () => {

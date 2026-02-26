@@ -5,6 +5,18 @@ import { AiAgentToolCall } from './ai-agent.interfaces';
 export interface AiAgentMemoryState {
   turns: {
     answer: string;
+    context?: {
+      entities?: string[];
+      goalType?: 'act' | 'analyze' | 'compare' | 'explain' | 'lookup' | 'unknown';
+      primaryScope?:
+        | 'fire'
+        | 'market'
+        | 'portfolio'
+        | 'symbol'
+        | 'tax'
+        | 'unknown';
+      toolSummaryHash?: string;
+    };
     newsItems?: {
       link: string;
       symbol: string;

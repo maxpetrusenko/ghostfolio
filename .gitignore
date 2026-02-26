@@ -36,6 +36,7 @@ npm-debug.log
 /coverage
 /dist
 /libpeerconnection.log
+/tools/evals/finance-agent-evals/history/
 testem.log
 /typings
 

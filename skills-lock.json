@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "security-best-practices": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "computedHash": "c27616fb4e27999605b90b261dc729784420c8d77bd1a98748384ffaa5b35704"
+    },
+    "security-ownership-map": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "computedHash": "0eefbaabdbe0ccfc39555195b9a7f7c8369abe1b4dc969aabb2e5aec8c3705ab"
+    },
+    "security-threat-model": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "computedHash": "b3ad2dc0b2eee1f189680fdb8cf3b17853f12ab3403d389393f4237ebc6f9821"
+    }
+  }
+}

@@ -133,6 +133,8 @@ export interface AiAgentMvpEvalSuiteResult {
   hallucinationRate: number;
   passRate: number;
   passed: number;
+  previousPassRate?: number;
+  regressionDetected: boolean;
   results: AiAgentMvpEvalResult[];
   total: number;
   verificationAccuracy: number;

@@ -1,9 +1,15 @@
 import { DataSource } from '@prisma/client';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { AiService } from '../ai.service';
 
 import { AI_AGENT_MVP_EVAL_DATASET } from './mvp-eval.dataset';
-import { runMvpEvalSuite } from './mvp-eval.runner';
+import {
+  persistEvalHistoryRecord,
+  runMvpEvalSuite
+} from './mvp-eval.runner';
 import {
   AiAgentMvpEvalCase,
   AiAgentMvpEvalCategory
@@ -124,6 +130,7 @@ function createAiServiceForCase(evalCase: AiAgentMvpEvalCase) {
 }
 
 describe('AiAgentMvpEvalSuite', () => {
+  const originalEvalHistoryPath = process.env.AI_EVAL_HISTORY_PATH;
   const originalLangChainTracingV2 = process.env.LANGCHAIN_TRACING_V2;
   const originalLangSmithTracing = process.env.LANGSMITH_TRACING;
 
@@ -143,6 +150,12 @@ describe('AiAgentMvpEvalSuite', () => {
       delete process.env.LANGSMITH_TRACING;
     } else {
       process.env.LANGSMITH_TRACING = originalLangSmithTracing;
+    }
+
+    if (originalEvalHistoryPath === undefined) {
+      delete process.env.AI_EVAL_HISTORY_PATH;
+    } else {
+      process.env.AI_EVAL_HISTORY_PATH = originalEvalHistoryPath;
     }
   });
 
@@ -177,6 +190,7 @@ describe('AiAgentMvpEvalSuite', () => {
     });
 
     expect(suiteResult.passRate).toBeGreaterThanOrEqual(0.8);
+    expect(typeof suiteResult.regressionDetected).toBe('boolean');
     expect(suiteResult.categorySummaries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -206,5 +220,41 @@ describe('AiAgentMvpEvalSuite', () => {
           return `${id}: ${failures.join(' | ')}`;
         })
     ).toEqual([]);
+  });
+
+  it('persists eval history and reports regression signals', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'gf-ai-eval-history-'));
+    const historyPath = join(tempDir, 'mvp-history.json');
+    process.env.AI_EVAL_HISTORY_PATH = historyPath;
+
+    await persistEvalHistoryRecord({
+      hallucinationRate: 0.02,
+      passRate: 0.95,
+      passed: 19,
+      total: 20,
+      verificationAccuracy: 0.97
+    });
+
+    const secondWrite = await persistEvalHistoryRecord({
+      hallucinationRate: 0.03,
+      passRate: 0.9,
+      passed: 18,
+      total: 20,
+      verificationAccuracy: 0.95
+    });
+
+    const rawHistory = await readFile(historyPath, 'utf8');
+    const parsedHistory = JSON.parse(rawHistory) as Array<{ passRate: number }>;
+
+    expect(parsedHistory).toHaveLength(2);
+    expect(parsedHistory[0].passRate).toBeCloseTo(0.95, 4);
+    expect(parsedHistory[1].passRate).toBeCloseTo(0.9, 4);
+    expect(secondWrite.previousPassRate).toBeCloseTo(0.95, 4);
+    expect(secondWrite.regressionDetected).toBe(true);
+
+    await rm(tempDir, {
+      force: true,
+      recursive: true
+    });
   });
 });

@@ -1,6 +1,6 @@
 # Tasks
 
-Last updated: 2026-02-24
+Last updated: 2026-02-26
 
 ## Active Tickets
 
@@ -21,6 +21,8 @@ Last updated: 2026-02-24
 | T-013 | Cross-session user preference memory (persisted by user, independent of chat session) | Complete | `apps/api/src/app/endpoints/ai/ai-agent.chat.helpers.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `npm run test:ai`, `npx nx run api:lint` | Local implementation |
 | T-014 | Chat page icon-first UX (newest-first flow + shadcn-style Lucide action icons) | Complete | `npx nx run client:build:development-en`, `npx nx run client:lint`, `npx dotenv-cli -e .env.example -- npx jest apps/client/src/app/pages/portfolio/analysis/ai-chat-panel/ai-chat-panel.component.spec.ts --config apps/client/jest.config.ts` | Local implementation |
 | T-015 | Seed/top-up intent routing hardening (`seed`, `top up`, `more money`, account funding variants) | Complete | `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts` | Local implementation |
+| T-016 | Project skill lazy-loading router and offline library wiring | Complete | Config and docs validation | Local implementation |
+| T-020 | Conversational flow hardening (acknowledgments, news intent, symbol alias context) | Complete | `npm run test:ai` (255 tests pass) | Local implementation |
 
 ## Notes
 
@@ -44,3 +46,32 @@ Last updated: 2026-02-24
 - Direct arithmetic no-tool behavior fix (2026-02-24): simple arithmetic prompts now return computed answers (for example `2+2 = 4`) instead of generic capability guidance.
 - Cross-session preference memory (2026-02-24): AI now persists explicit user response-style preferences in Redis by `userId`, recalls them across different `sessionId`s, and applies them to later AI responses.
 - Chat page icon-first UX (2026-02-24): sidebar/composer/feedback controls now use Lucide icon buttons with tooltip/ARIA labels, and messages render newest-first at the top.
+
+## T-016 Plan (Skill Lazy-Load Hardening)
+
+- [x] Define project-local skill routing approach and offline library path.
+- [x] Create `skill-router` under `.codex/skills/` to load only selected skills.
+- [x] Update `ghostfolio-context` to announce loaded skills and potential later skills.
+- [x] Tighten `AGENTS.md` for no-skill-catalog behavior.
+- [x] Add project `.codex/config.toml` guardrails for low-context operation.
+- [x] Create offline skill index template at `../Projects/skills/index.md`.
+
+## T-017 Plan (skills.sh Migration + Security Gate)
+
+- [x] Switch skill retrieval source from `../Projects/skills/index.md` to project-local `skills.sh` installs under `.agents/skills`.
+- [x] Install security-focused skills via `skills.sh` for `codex` agent scope.
+- [x] Add security check workflow and report output for installed skills, including external scanner gate placeholders.
+
+## T-018 Plan (AI Chat Latency + News Brief Optimization)
+
+- [x] Profile AI chat execution path for serial/slow segments.
+- [x] Add hard timeout guard to external financial-news fetches.
+- [x] Add fast "news brief" response-style path for richer concise market updates.
+- [x] Run targeted AI backend tests for touched modules.
+
+## T-019 Plan (Local Skills Source + Balanced Router)
+
+- [x] Set single local skill source to `/Users/maxpetrusenko/Desktop/Projects/skills`.
+- [x] Update `skill-router` to use local index and balanced multi-skill selection.
+- [x] Update `ghostfolio-context` constraints to local source policy.
+- [x] Update index builder defaults and generate missing local `index.md`.

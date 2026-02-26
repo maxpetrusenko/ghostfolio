@@ -5,6 +5,18 @@ import { AiAgentStockNewsResult } from './ai-agent.web-search.helpers';
 const RESULT_LIMIT = 5;
 const YAHOO_FINANCIAL_NEWS_ENDPOINT =
   'https://feeds.finance.yahoo.com/rss/2.0/headline';
+const DEFAULT_NEWS_FETCH_TIMEOUT_IN_MS = 2_200;
+
+function getNewsFetchTimeoutInMs() {
+  const parsed = Number.parseInt(
+    process.env.AI_AGENT_NEWS_FETCH_TIMEOUT_IN_MS ?? '',
+    10
+  );
+
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_NEWS_FETCH_TIMEOUT_IN_MS;
+}
 
 @Injectable()
 export class AiAgentWebSearchService {
@@ -24,11 +36,25 @@ export class AiAgentWebSearchService {
     }
 
     try {
-      const response = await fetch(
-        `${YAHOO_FINANCIAL_NEWS_ENDPOINT}?s=${encodeURIComponent(
-          normalizedSymbol
-        )}&region=US&lang=en-US`
-      );
+      const abortController = new AbortController();
+      const timeoutId: NodeJS.Timeout = setTimeout(() => {
+        abortController.abort();
+      }, getNewsFetchTimeoutInMs());
+      timeoutId.unref?.();
+      let response: Awaited<ReturnType<typeof fetch>>;
+
+      try {
+        response = await fetch(
+          `${YAHOO_FINANCIAL_NEWS_ENDPOINT}?s=${encodeURIComponent(
+            normalizedSymbol
+          )}&region=US&lang=en-US`,
+          {
+            signal: abortController.signal
+          }
+        );
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         this.logger.warn(`Financial news request failed for ${normalizedSymbol}`);

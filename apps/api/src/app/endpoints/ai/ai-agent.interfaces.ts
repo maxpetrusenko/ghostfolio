@@ -48,6 +48,7 @@ export interface AiAgentVerificationCheck {
 }
 
 export interface AiAgentToolCall {
+  durationInMs?: number;
   input: Record<string, unknown>;
   outputSummary: string;
   status: 'success' | 'failed';
@@ -83,10 +84,16 @@ export interface AiAgentLatencyBreakdown {
 }
 
 export interface AiAgentObservabilitySnapshot {
+  costEstimateUsd?: number;
   latencyBreakdownInMs: AiAgentLatencyBreakdown;
   latencyInMs: number;
   llmInvocation?: AiAgentLlmInvocation;
   tokenEstimate: AiAgentTokenEstimate;
+  toolStepMetrics?: Array<{
+    durationInMs?: number;
+    status: 'success' | 'failed';
+    tool: AiAgentToolName;
+  }>;
   traceId?: string;
 }
 
@@ -116,6 +123,11 @@ export interface AiAgentChatResponse {
   citations: AiAgentCitation[];
   llmInvocation?: AiAgentLlmInvocation;
   confidence: AiAgentConfidence;
+  escalation?: {
+    reason: string;
+    required: boolean;
+    suggestedAction: string;
+  };
   memory: AiAgentMemorySnapshot;
   observability?: AiAgentObservabilitySnapshot;
   toolCalls: AiAgentToolCall[];
