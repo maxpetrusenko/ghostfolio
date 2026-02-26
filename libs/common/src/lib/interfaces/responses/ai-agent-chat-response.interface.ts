@@ -46,7 +46,6 @@ export interface AiAgentVerificationCheck {
 }
 
 export interface AiAgentToolCall {
-  durationInMs?: number;
   input: Record<string, unknown>;
   outputSummary: string;
   status: 'success' | 'failed';

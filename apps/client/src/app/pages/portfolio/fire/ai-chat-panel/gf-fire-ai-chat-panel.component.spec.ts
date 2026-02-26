@@ -32,7 +32,6 @@ function createChatResponse({
     provider: string;
   };
   toolCalls?: {
-    durationInMs?: number;
     input: Record<string, unknown>;
     outputSummary: string;
     status: 'failed' | 'success';
@@ -91,7 +90,6 @@ function createChatResponse({
     toolCalls:
       toolCalls ?? [
         {
-          durationInMs: 3200,
           input: {},
           outputSummary: 'FIRE analysis complete',
           status: 'success',
@@ -505,7 +503,6 @@ describe('GfFireAiChatPanelComponent', () => {
             },
             toolCalls: [
               {
-                durationInMs: 3200,
                 input: {},
                 outputSummary: 'Portfolio analyzed for FIRE',
                 status: 'success',
@@ -556,9 +553,8 @@ describe('GfFireAiChatPanelComponent', () => {
       expect(overlayText).toContain('gpt-4o-mini');
       expect(overlayText).toContain('Tools');
       expect(overlayText).toContain('portfolio_analysis');
-      expect(overlayText).toContain('duration: 3.2s');
-      expect(overlayText).toContain('Trace ID');
-      expect(overlayText).toContain('fire-trace-details');
+    expect(overlayText).toContain('Trace ID');
+    expect(overlayText).toContain('fire-trace-details');
     }));
 
     it('displays trace ID when available in observability', fakeAsync(() => {

@@ -1,7 +1,6 @@
 import { AiAgentChatResponse } from '@ghostfolio/common/interfaces';
 import { DataService } from '@ghostfolio/ui/services';
 
-import { HttpErrorResponse } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -256,15 +255,10 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
 
           this.changeDetectorRef.markForCheck();
         },
-        error: (error: unknown) => {
-          const backendErrorMessage = this.getRequestErrorMessage(error);
-          this.errorMessage = backendErrorMessage
-            ? $localize`AI request failed: ${backendErrorMessage}`
-            : $localize`AI request failed. Check your model quota and permissions.`;
+        error: () => {
+          this.errorMessage = $localize`AI request failed. Check your model quota and permissions.`;
           this.appendMessage({
-            content: backendErrorMessage
-              ? $localize`Request failed (${backendErrorMessage}). Please retry.`
-              : $localize`Request failed. Please retry.`,
+            content: $localize`Request failed. Please retry.`,
             createdAt: new Date(),
             id: this.nextMessageId++,
             role: 'assistant'
@@ -279,55 +273,8 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
     return role === 'assistant' ? this.assistantRoleLabel : this.userRoleLabel;
   }
 
-  public formatToolCallDuration(durationInMs?: number): string {
-    if (
-      durationInMs === undefined ||
-      !Number.isFinite(durationInMs) ||
-      durationInMs < 0
-    ) {
-      return 'n/a';
-    }
-
-    if (durationInMs >= 1000) {
-      return `${(durationInMs / 1000).toFixed(durationInMs >= 10000 ? 0 : 1)}s`;
-    }
-
-    return `${Math.round(durationInMs)}ms`;
-  }
-
   public get visibleMessages() {
     return [...this.chatMessages].reverse();
-  }
-
-  private getRequestErrorMessage(error: unknown) {
-    if (!(error instanceof HttpErrorResponse)) {
-      return undefined;
-    }
-
-    if (error.status === 0) {
-      return $localize`Unable to reach the API endpoint. Please verify the backend is running and reachable, then retry.`;
-    }
-
-    const serverMessage =
-      typeof error.error === 'string'
-        ? error.error
-        : typeof error.error?.message === 'string'
-          ? error.error.message
-          : undefined;
-
-    if (serverMessage?.trim()) {
-      return serverMessage.trim();
-    }
-
-    if (error.status && error.statusText) {
-      return `${error.status} ${error.statusText}`;
-    }
-
-    if (error.status) {
-      return `${error.status}`;
-    }
-
-    return error.message?.trim() || undefined;
   }
 
   private appendMessage(message: AiChatMessage) {
@@ -361,13 +308,7 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
 
       storage.setItem(
         this.STORAGE_KEY_MESSAGES,
-        JSON.stringify(
-          this.chatMessages
-            .slice(-this.MAX_STORED_MESSAGES)
-            .map((message) => {
-              return this.toStoredMessage(message);
-            })
-        )
+        JSON.stringify(this.chatMessages.slice(-this.MAX_STORED_MESSAGES))
       );
     } catch {}
   }
@@ -445,23 +386,6 @@ export class GfFireAiChatPanelComponent implements OnDestroy {
       id: storedMessage.id,
       response: storedMessage.response,
       role: storedMessage.role
-    };
-  }
-
-  private toStoredMessage(message: AiChatMessage): StoredAiChatMessage {
-    return {
-      content: message.content,
-      createdAt: message.createdAt.toISOString(),
-      feedback: message.feedback
-        ? {
-            comment: message.feedback.comment,
-            feedbackId: message.feedback.feedbackId,
-            isSubmitting: false,
-            rating: message.feedback.rating
-          }
-        : undefined,
-      id: message.id,
-      role: message.role
     };
   }
 

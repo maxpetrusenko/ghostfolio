@@ -32,7 +32,6 @@ function createChatResponse({
     provider: string;
   };
     toolCalls?: {
-    durationInMs?: number;
     input: Record<string, unknown>;
     outputSummary: string;
     status: 'failed' | 'success';
@@ -231,14 +230,12 @@ describe('GfAiChatPanelComponent', () => {
           },
           toolCalls: [
             {
-              durationInMs: 5000,
               input: {},
               outputSummary: '2 holdings analyzed',
               status: 'success',
               tool: 'portfolio_analysis'
             },
             {
-              durationInMs: 150,
               input: {},
               outputSummary: 'risk status checked',
               status: 'success',
@@ -308,8 +305,6 @@ describe('GfAiChatPanelComponent', () => {
     expect(overlayText).toContain('Trace ID');
     expect(overlayText).toContain('trace-details');
     expect(overlayText).toContain('2 holdings analyzed');
-    expect(overlayText).toContain('duration: 5.0s');
-    expect(overlayText).toContain('duration: 150ms');
     expect(overlayText).toContain('market_data_coverage');
   }));
 
