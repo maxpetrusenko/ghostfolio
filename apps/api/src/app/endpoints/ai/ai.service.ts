@@ -100,6 +100,18 @@ const ORDER_TOOL_TAKE_BY_NAME: Partial<Record<AiAgentToolName, number>> = {
 };
 const AI_TOOL_REGISTRY_MAX_CALLS_PER_REQUEST = 8;
 const AI_TOOL_REGISTRY_DEFAULT_MAX_CALLS_PER_TOOL = 1;
+const AI_PORTFOLIO_ANALYSIS_CACHE_TTL_IN_MS = 30_000;
+const AI_PORTFOLIO_ANALYSIS_CACHE_MAX_AGE_IN_MS = 120_000;
+const AI_RESPONSE_CACHE_TTL_IN_MS = 300_000;
+const AI_CACHE_BYPASS_PATTERN = /\b(?:now|today|latest|current|updated|update|refresh|real-time)\b/i;
+
+interface CachedPortfolioAnalysisPayload {
+  data: Awaited<ReturnType<typeof runPortfolioAnalysis>>;
+  updatedAt: string;
+}
+interface CachedResponsePayload {
+  answer: string;
+}
 interface RebalancePlanSimulationSummary {
   afterTopAllocation: number;
   afterTopSymbol: string;
@@ -109,6 +121,281 @@ interface RebalancePlanSimulationSummary {
   afterHhi: number;
   driftImprovement: number;
   tradeSummary: string;
+}
+
+function buildFireAnalysisAnswer({
+  annualWithdrawal,
+  holdingsCount,
+  hhi,
+  topAllocation,
+  topSymbol,
+  totalValueInBaseCurrency,
+  userCurrency
+}: {
+  annualWithdrawal: number;
+  holdingsCount: number;
+  hhi: number;
+  topAllocation: number;
+  topSymbol: string;
+  totalValueInBaseCurrency: number;
+  userCurrency: string;
+}) {
+  const monthlyWithdrawal = annualWithdrawal / 12;
+  const concentrationBand =
+    topAllocation >= 65
+      ? 'high concentration'
+      : topAllocation >= 40
+        ? 'moderate concentration'
+        : 'diversified concentration';
+  const hhiBand =
+    hhi >= 0.5 ? 'high concentration risk' : hhi >= 0.25 ? 'moderate concentration risk' : 'lower concentration risk';
+
+  return [
+    `FIRE quick check (rule-of-thumb):`,
+    `Portfolio value: ${totalValueInBaseCurrency.toFixed(2)} ${userCurrency} across ${holdingsCount} holdings.`,
+    `4% withdrawal estimate: ${annualWithdrawal.toFixed(2)} ${userCurrency}/year (~${monthlyWithdrawal.toFixed(2)} ${userCurrency}/month).`,
+    `Diversification: top holding ${topSymbol} at ${topAllocation.toFixed(2)}% (${concentrationBand}); HHI ${hhi.toFixed(3)} (${hhiBand}).`,
+    `How to read this: the 4% line is a planning baseline, not a guarantee.`,
+    `Next steps: define your target annual spending, compare it to the withdrawal estimate, and reduce single-position concentration before relying on FIRE projections.`
+  ].join('\n');
+}
+
+function buildNewsBriefFromSummary(financialNewsSummary?: string) {
+  const coverage = (financialNewsSummary ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /\([A-Z0-9]{1,6}(?:\.[A-Z0-9]{1,4})?\)/.test(line))
+    .slice(0, 2);
+  const headlines = (financialNewsSummary ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .slice(0, 5);
+
+  if (headlines.length === 0) {
+    return financialNewsSummary;
+  }
+
+  return [
+    'News brief:',
+    ...(coverage.length > 0 ? [`Coverage: ${coverage.join(', ')}.`] : []),
+    ...headlines,
+    'Watch next: earnings guidance, estimate revisions, and valuation sensitivity.'
+  ].join('\n');
+}
+
+function buildMarketSnapshotAnswer({
+  marketData,
+  userCurrency
+}: {
+  marketData?: Awaited<ReturnType<typeof runMarketDataLookup>>;
+  userCurrency: string;
+}) {
+  const quotes = marketData?.quotes ?? [];
+
+  if (quotes.length === 0) {
+    return undefined;
+  }
+
+  const lines = quotes.slice(0, 5).map(({ currency, marketPrice, symbol }) => {
+    return `- ${symbol}: ${marketPrice.toFixed(2)} ${currency}`;
+  });
+
+  return [
+    'Market snapshot:',
+    ...lines,
+    `Use these prices as a point-in-time reference (${userCurrency} base context).`
+  ].join('\n');
+}
+
+function buildPortfolioSnapshotAnswer({
+  portfolioAnalysis,
+  userCurrency
+}: {
+  portfolioAnalysis?: Awaited<ReturnType<typeof runPortfolioAnalysis>>;
+  userCurrency: string;
+}) {
+  if (!portfolioAnalysis) {
+    return undefined;
+  }
+
+  const top = portfolioAnalysis.holdings
+    .slice(0, 3)
+    .map(({ symbol, valueInBaseCurrency }) => {
+      const allocation =
+        portfolioAnalysis.totalValueInBaseCurrency > 0
+          ? (valueInBaseCurrency / portfolioAnalysis.totalValueInBaseCurrency) *
+            100
+          : 0;
+
+      return `${symbol} ${allocation.toFixed(2)}%`;
+    })
+    .join(', ');
+
+  return [
+    'Portfolio snapshot:',
+    `Total portfolio value: ${portfolioAnalysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}.`,
+    `Holdings: ${portfolioAnalysis.holdingsCount}.`,
+    `Largest allocations: ${top || 'n/a'}.`
+  ].join('\n');
+}
+
+function buildRiskSnapshotAnswer({
+  riskAssessment
+}: {
+  riskAssessment?: ReturnType<typeof runRiskAssessment>;
+}) {
+  if (!riskAssessment) {
+    return undefined;
+  }
+
+  return [
+    'Risk snapshot:',
+    `Top holding allocation: ${(riskAssessment.topHoldingAllocation * 100).toFixed(2)}%.`,
+    `HHI concentration score: ${riskAssessment.hhi.toFixed(3)} (${riskAssessment.concentrationBand}).`,
+    'Next step: reduce top concentration gradually with new cash or trims.'
+  ].join('\n');
+}
+
+function buildSingleToolDeterministicAnswer({
+  assetFundamentalsSummary,
+  financialNewsSummary,
+  fireAnalysisSummary,
+  marketData,
+  portfolioAnalysis,
+  priceHistorySummary,
+  recentTransactionsSummary,
+  rebalancePlanSummary,
+  riskAssessment,
+  stressTest,
+  toolName,
+  userCurrency
+}: {
+  assetFundamentalsSummary?: string;
+  financialNewsSummary?: string;
+  fireAnalysisSummary?: string;
+  marketData?: Awaited<ReturnType<typeof runMarketDataLookup>>;
+  portfolioAnalysis?: Awaited<ReturnType<typeof runPortfolioAnalysis>>;
+  priceHistorySummary?: string;
+  recentTransactionsSummary?: string;
+  rebalancePlanSummary?: string;
+  riskAssessment?: ReturnType<typeof runRiskAssessment>;
+  stressTest?: ReturnType<typeof runStressTest>;
+  toolName: AiAgentToolName;
+  userCurrency: string;
+}) {
+  if (toolName === 'fire_analysis') {
+    return fireAnalysisSummary;
+  }
+
+  if (toolName === 'get_financial_news') {
+    return buildNewsBriefFromSummary(financialNewsSummary);
+  }
+
+  if (toolName === 'market_data_lookup' || toolName === 'get_live_quote') {
+    return buildMarketSnapshotAnswer({ marketData, userCurrency });
+  }
+
+  if (toolName === 'price_history') {
+    return priceHistorySummary;
+  }
+
+  if (toolName === 'portfolio_analysis' || toolName === 'get_portfolio_summary') {
+    return buildPortfolioSnapshotAnswer({ portfolioAnalysis, userCurrency });
+  }
+
+  if (
+    toolName === 'risk_assessment' ||
+    toolName === 'get_portfolio_risk_metrics'
+  ) {
+    return buildRiskSnapshotAnswer({ riskAssessment });
+  }
+
+  if (toolName === 'get_recent_transactions') {
+    return recentTransactionsSummary;
+  }
+
+  if (toolName === 'get_asset_fundamentals') {
+    return assetFundamentalsSummary;
+  }
+
+  if (toolName === 'rebalance_plan' || toolName === 'calculate_rebalance_plan') {
+    return rebalancePlanSummary;
+  }
+
+  if (toolName === 'stress_test') {
+    if (!stressTest || !portfolioAnalysis) {
+      return undefined;
+    }
+    return [
+      'Stress test results:',
+      `Shock scenario: ${(stressTest.shockPercentage * 100).toFixed(0)}% market decline`,
+      `Estimated drawdown: ${stressTest.estimatedDrawdownInBaseCurrency.toFixed(2)} ${userCurrency}`,
+      `Current portfolio value: ${portfolioAnalysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}`,
+      `Projected value: ${(portfolioAnalysis.totalValueInBaseCurrency - stressTest.estimatedDrawdownInBaseCurrency).toFixed(2)} ${userCurrency}`,
+      'Note: Stress tests are hypothetical and do not capture all market risks.'
+    ].join('\n');
+  }
+
+  return undefined;
+}
+
+function buildMultiToolDeterministicAnswer({
+  portfolioAnalysis,
+  rebalancePlanSummary,
+  riskAssessment,
+  toolsToExecute,
+  userCurrency
+}: {
+  portfolioAnalysis?: Awaited<ReturnType<typeof runPortfolioAnalysis>>;
+  rebalancePlanSummary?: string;
+  riskAssessment?: ReturnType<typeof runRiskAssessment>;
+  toolsToExecute: AiAgentToolName[];
+  userCurrency: string;
+}): string | undefined {
+  const toolsSet = new Set(toolsToExecute);
+
+  const isPortfolioAndRisk =
+    toolsSet.has('portfolio_analysis') && toolsSet.has('risk_assessment');
+  const isPortfolioAndRebalance =
+    toolsSet.has('portfolio_analysis') &&
+    (toolsSet.has('rebalance_plan') || toolsSet.has('calculate_rebalance_plan'));
+  const isPortfolioAndRiskAndRebalance =
+    isPortfolioAndRisk &&
+    (toolsSet.has('rebalance_plan') || toolsSet.has('calculate_rebalance_plan'));
+
+  if (isPortfolioAndRiskAndRebalance && portfolioAnalysis && riskAssessment && rebalancePlanSummary) {
+    return [
+      'Portfolio analysis:',
+      buildPortfolioSnapshotAnswer({ portfolioAnalysis, userCurrency }) ?? '',
+      '',
+      buildRiskSnapshotAnswer({ riskAssessment }),
+      '',
+      `Rebalance plan: ${rebalancePlanSummary}`,
+      '',
+      'Next steps: Review concentration risk and consider gradual rebalancing to reduce drift.'
+    ].filter(Boolean).join('\n');
+  }
+
+  if (isPortfolioAndRisk && portfolioAnalysis && riskAssessment) {
+    return [
+      buildPortfolioSnapshotAnswer({ portfolioAnalysis, userCurrency }) ?? '',
+      '',
+      buildRiskSnapshotAnswer({ riskAssessment })
+    ].filter(Boolean).join('\n');
+  }
+
+  if (isPortfolioAndRebalance && portfolioAnalysis && rebalancePlanSummary) {
+    return [
+      buildPortfolioSnapshotAnswer({ portfolioAnalysis, userCurrency }) ?? '',
+      '',
+      `Rebalance plan: ${rebalancePlanSummary}`,
+      '',
+      'Next steps: Execute trims gradually and reallocate to underweight positions.'
+    ].filter(Boolean).join('\n');
+  }
+
+  return undefined;
 }
 
 function calculateHhi({
@@ -281,6 +568,7 @@ class AiToolRegistry {
     toolName: AiAgentToolName,
     executor: () => Promise<AiToolExecutionResult>
   ): Promise<AiToolExecutionResult> {
+    const executionStartedAt = Date.now();
     const maxToolCallsPerRequest =
       this.options?.maxToolCallsPerRequest ??
       AI_TOOL_REGISTRY_MAX_CALLS_PER_REQUEST;
@@ -290,6 +578,7 @@ class AiToolRegistry {
       return {
         citations: [],
         toolCall: {
+          durationInMs: Date.now() - executionStartedAt,
           input: {
             toolName
           },
@@ -309,6 +598,7 @@ class AiToolRegistry {
       return {
         citations: [],
         toolCall: {
+          durationInMs: Date.now() - executionStartedAt,
           input: {
             toolName
           },
@@ -322,7 +612,16 @@ class AiToolRegistry {
     this.executionsByTool.set(toolName, currentExecutions + 1);
     this.totalExecutions += 1;
 
-    return executor();
+    const result = await executor();
+
+    return {
+      ...result,
+      toolCall: {
+        ...result.toolCall,
+        durationInMs:
+          result.toolCall.durationInMs ?? Date.now() - executionStartedAt
+      }
+    };
   }
 }
 
@@ -349,19 +648,16 @@ export class AiService implements AgentKernel {
     signal,
     model,
     traceContext,
-    onLlmInvocation
+    onLlmInvocation,
+    useFormatterModel
   }: {
     prompt: string;
     signal?: AbortSignal;
     model?: string;
     onLlmInvocation?: (invocation: { model: string; provider: string }) => void;
-    traceContext?: {
-      query?: string;
-      sessionId?: string;
-      userId?: string;
-      traceId?: string;
-    };
-  }) {
+    traceContext?: { query: string; sessionId: string; traceId: string; userId: string };
+    useFormatterModel?: boolean;
+  }): Promise<{ text?: string }> {
     const zAiGlmApiKey =
       process.env.z_ai_glm_api_key ?? process.env.Z_AI_GLM_API_KEY;
     const zAiGlmModel =
@@ -371,9 +667,21 @@ export class AiService implements AgentKernel {
     const minimaxModel = process.env.minimax_model ?? process.env.MINIMAX_MODEL;
     const openAiApiKey =
       process.env.openai_api_key ?? process.env.OPENAI_API_KEY;
-    const openAiModel =
-      process.env.openai_model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
-    const normalizedModel = (model ?? 'auto').toLowerCase();
+    const formatterModel =
+      process.env.AI_AGENT_FORMATTER_MODEL ??
+      process.env.openai_model ??
+      process.env.OPENAI_MODEL ??
+      'gpt-4o-mini';
+    const openAiModel = useFormatterModel
+      ? formatterModel
+      : process.env.openai_model ??
+        process.env.OPENAI_MODEL ??
+        'gpt-4o-mini';
+    const allowProviderFallbacks =
+      useFormatterModel
+        ? false
+        : process.env.AI_AGENT_LLM_ALLOW_FALLBACKS === 'true';
+    const normalizedModel = (useFormatterModel ? 'openai' : model ?? 'auto').toLowerCase();
     const requestedModel = [
       'auto',
       'glm',
@@ -479,6 +787,88 @@ export class AiService implements AgentKernel {
       );
     };
 
+    const invokeOpenRouterWithTracing = async () => {
+      const openRouterApiKey = await this.propertyService.getByKey<string>(
+        PROPERTY_API_KEY_OPENROUTER
+      );
+      const openRouterModel = await this.propertyService.getByKey<string>(
+        PROPERTY_OPENROUTER_MODEL
+      );
+      if (!openRouterApiKey || !openRouterModel) {
+        throw new Error('OpenRouter is not configured');
+      }
+
+      const openRouterService = createOpenRouter({
+        apiKey: openRouterApiKey
+      });
+
+      return invokeProviderWithTracing({
+        model: openRouterModel,
+        provider: 'openrouter',
+        run: async () => {
+          const response = await generateText({
+            prompt,
+            abortSignal: signal,
+            model: openRouterService.chat(openRouterModel)
+          });
+
+          if (typeof response.text !== 'string') {
+            throw new Error('OpenRouter response does not contain text output');
+          }
+
+          return {
+            text: response.text
+          };
+        }
+      });
+    };
+
+    if (requestedModel === 'auto' && !allowProviderFallbacks) {
+      if (openAiApiKey) {
+        return invokeProviderWithTracing({
+          model: openAiModel,
+          provider: 'openai',
+          run: () =>
+            generateTextWithOpenAI({
+              apiKey: openAiApiKey,
+              model: openAiModel,
+              prompt,
+              signal
+            })
+        });
+      }
+
+      if (minimaxApiKey) {
+        return invokeProviderWithTracing({
+          model: minimaxModel ?? 'MiniMax-M2.5',
+          provider: 'minimax',
+          run: () =>
+            generateTextWithMinimax({
+              apiKey: minimaxApiKey,
+              model: minimaxModel,
+              prompt,
+              signal
+            })
+        });
+      }
+
+      if (zAiGlmApiKey) {
+        return invokeProviderWithTracing({
+          model: zAiGlmModel ?? 'glm-5',
+          provider: 'z_ai_glm',
+          run: () =>
+            generateTextWithZAiGlm({
+              apiKey: zAiGlmApiKey,
+              model: zAiGlmModel,
+              prompt,
+              signal
+            })
+        });
+      }
+
+      return invokeOpenRouterWithTracing();
+    }
+
     if (shouldTryOpenAi) {
       if (!openAiApiKey) {
         if (requestedModel === 'openai') {
@@ -567,42 +957,17 @@ export class AiService implements AgentKernel {
       }
     }
 
-    const openRouterApiKey = await this.propertyService.getByKey<string>(
-      PROPERTY_API_KEY_OPENROUTER
-    );
-    const openRouterModel = await this.propertyService.getByKey<string>(
-      PROPERTY_OPENROUTER_MODEL
-    );
-    if (!openRouterApiKey || !openRouterModel) {
+    try {
+      return await invokeOpenRouterWithTracing();
+    } catch (error) {
       throw new Error(
         providerErrors.length > 0
           ? `No AI provider configured (${providerErrors.join('; ')})`
-          : 'OpenRouter is not configured'
+          : error instanceof Error
+            ? error.message
+            : 'OpenRouter is not configured'
       );
     }
-
-    const openRouterService = createOpenRouter({
-      apiKey: openRouterApiKey
-    });
-    return invokeProviderWithTracing({
-      model: openRouterModel,
-      provider: 'openrouter',
-      run: async () => {
-        const response = await generateText({
-          prompt,
-          abortSignal: signal,
-          model: openRouterService.chat(openRouterModel)
-        });
-
-        if (typeof response.text !== 'string') {
-          throw new Error('OpenRouter response does not contain text output');
-        }
-
-        return {
-          text: response.text
-        };
-      }
-    });
   }
 
   public async run(request: AiAgentChatRequest): Promise<AiAgentChatResponse> {
@@ -697,6 +1062,61 @@ export class AiService implements AgentKernel {
           maxToolCallsPerRequest: AI_TOOL_REGISTRY_MAX_CALLS_PER_REQUEST
         }
       });
+
+      const shouldBypassResponseCache = AI_CACHE_BYPASS_PATTERN.test(normalizedQuery);
+      let responseCacheKey: string | undefined;
+      let cachedResponse: string | undefined;
+      const parseCachedResponse = (
+        rawValue: string | undefined
+      ): CachedResponsePayload | undefined => {
+        if (!rawValue) {
+          return undefined;
+        }
+
+        try {
+          const parsed = JSON.parse(rawValue) as CachedResponsePayload;
+
+          if (typeof parsed?.answer !== 'string' || parsed.answer.length === 0) {
+            return undefined;
+          }
+
+          return parsed;
+        } catch {
+          return undefined;
+        }
+      };
+
+      if (!shouldBypassResponseCache && policyDecision.route === 'tools') {
+        const toolsHash = policyDecision.toolsToExecute.sort().join(',');
+        const queryHash = Buffer.from(normalizedQuery).toString('base64').slice(0, 16);
+        responseCacheKey = `ai:response:${userId}:${queryHash}:${toolsHash}`;
+        try {
+          const cachedPayload = parseCachedResponse(
+            await this.redisCacheService.get(responseCacheKey)
+          );
+          cachedResponse = cachedPayload?.answer;
+          if (cachedResponse) {
+            return {
+              answer: cachedResponse,
+              citations: [],
+              confidence: { band: 'high', score: 0.9 },
+              memory: {
+                sessionId: resolvedSessionId,
+                turns: 0
+              },
+              toolCalls: [],
+              verification: [
+                {
+                  check: 'response_cache',
+                  details: 'Response served from cache',
+                  status: 'passed'
+                }
+              ]
+            } satisfies AiAgentChatResponse;
+          }
+        } catch {}
+      }
+
       const preferenceUpdate = resolvePreferenceUpdate({
         query: queryForTools,
         userPreferences
@@ -746,6 +1166,48 @@ export class AiService implements AgentKernel {
       let taxEstimateSummary: string | undefined;
       let tradeImpactSummary: string | undefined;
       let transactionCategorizationSummary: string | undefined;
+      const portfolioAnalysisCacheKey = `ai:portfolio-analysis:${userId}`;
+      let backgroundPortfolioRefreshPromise: Promise<void> | undefined;
+
+      const parseCachedPortfolioAnalysis = (
+        rawValue: string | undefined
+      ): CachedPortfolioAnalysisPayload | undefined => {
+        if (!rawValue) {
+          return undefined;
+        }
+
+        try {
+          const parsed = JSON.parse(rawValue) as CachedPortfolioAnalysisPayload;
+          const updatedAt = Date.parse(parsed.updatedAt);
+
+          if (
+            Number.isNaN(updatedAt) ||
+            !parsed?.data ||
+            Date.now() - updatedAt > AI_PORTFOLIO_ANALYSIS_CACHE_MAX_AGE_IN_MS
+          ) {
+            return undefined;
+          }
+
+          return parsed;
+        } catch {
+          return undefined;
+        }
+      };
+
+      const storePortfolioAnalysisCache = async (
+        analysis: Awaited<ReturnType<typeof runPortfolioAnalysis>>
+      ) => {
+        try {
+          await this.redisCacheService.set(
+            portfolioAnalysisCacheKey,
+            JSON.stringify({
+              data: analysis,
+              updatedAt: new Date().toISOString()
+            } satisfies CachedPortfolioAnalysisPayload),
+            AI_PORTFOLIO_ANALYSIS_CACHE_TTL_IN_MS
+          );
+        } catch {}
+      };
 
       const shouldUsePortfolioContextForSymbols =
         policyDecision.toolsToExecute.some((toolName) => {
@@ -781,13 +1243,47 @@ export class AiService implements AgentKernel {
         portfolioAnalysisPromise ??= runPortfolioAnalysis({
           portfolioService: this.portfolioService,
           userId
-        }).then((analysis) => {
-          portfolioAnalysis = analysis;
+        })
+          .then(async (analysis) => {
+            portfolioAnalysis = analysis;
+            await storePortfolioAnalysisCache(analysis);
 
-          return analysis;
-        });
+            return analysis;
+          });
 
         return portfolioAnalysisPromise;
+      };
+
+      const getPortfolioAnalysisWithCache = async () => {
+        if (portfolioAnalysis) {
+          return portfolioAnalysis;
+        }
+
+        try {
+          const cached = parseCachedPortfolioAnalysis(
+            await this.redisCacheService.get(portfolioAnalysisCacheKey)
+          );
+
+          if (cached?.data) {
+            portfolioAnalysis = cached.data;
+
+            if (!backgroundPortfolioRefreshPromise) {
+              backgroundPortfolioRefreshPromise = runPortfolioAnalysis({
+                portfolioService: this.portfolioService,
+                userId
+              })
+                .then(async (freshAnalysis) => {
+                  portfolioAnalysis = freshAnalysis;
+                  await storePortfolioAnalysisCache(freshAnalysis);
+                })
+                .catch(() => undefined);
+            }
+
+            return cached.data;
+          }
+        } catch {}
+
+        return getPortfolioAnalysis();
       };
 
       const getResolvedSymbols = async () => {
@@ -916,7 +1412,7 @@ export class AiService implements AgentKernel {
           return toolExecutionRegistry.executeTool(toolName, async () => {
             try {
               if (toolName === 'portfolio_analysis') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
                 const topAllocation = analysis.holdings
                   .slice(0, 3)
                   .map(({ symbol, valueInBaseCurrency }) => {
@@ -951,7 +1447,7 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'get_portfolio_summary') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
 
                 return {
                   citations: [
@@ -969,7 +1465,7 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'get_current_holdings') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
                 const holdingsSummary = analysis.holdings
                   .slice(0, 3)
                   .map(({ allocationInPercentage, symbol }) => {
@@ -996,7 +1492,7 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'risk_assessment') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
                 const currentRiskAssessment = runRiskAssessment({
                   portfolioAnalysis: analysis
                 });
@@ -1022,7 +1518,7 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'get_portfolio_risk_metrics') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
                 const currentRiskAssessment = runRiskAssessment({
                   portfolioAnalysis: analysis
                 });
@@ -1765,7 +2261,7 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'rebalance_plan') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
                 const currentRebalancePlan = runRebalancePlan({
                   portfolioAnalysis: analysis
                 });
@@ -1806,7 +2302,7 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'stress_test') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
                 const currentStressTest = runStressTest({
                   portfolioAnalysis: analysis
                 });
@@ -1830,7 +2326,7 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'fire_analysis') {
-                const analysis = await getPortfolioAnalysis();
+                const analysis = await getPortfolioAnalysisWithCache();
                 const currentRiskAssessment = runRiskAssessment({
                   portfolioAnalysis: analysis
                 });
@@ -1848,11 +2344,16 @@ export class AiService implements AgentKernel {
                       100
                     : 0;
                 const safeWithdrawal = analysis.totalValueInBaseCurrency * 0.04;
-                fireAnalysisSummary = [
-                  `FIRE analysis snapshot: ${analysis.holdingsCount} holdings, ${analysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}.`,
-                  `Top holding concentration: ${topAllocation.toFixed(2)}% with HHI ${currentRiskAssessment.hhi.toFixed(3)}.`,
-                  `Assumption-based safe-withdrawal proxy: ${safeWithdrawal.toFixed(2)} ${userCurrency}/year (4% rule).`
-                ].join(' | ');
+                const topSymbol = topHolding?.symbol ?? 'N/A';
+                fireAnalysisSummary = buildFireAnalysisAnswer({
+                  annualWithdrawal: safeWithdrawal,
+                  holdingsCount: analysis.holdingsCount,
+                  hhi: currentRiskAssessment.hhi,
+                  topAllocation,
+                  topSymbol,
+                  totalValueInBaseCurrency: analysis.totalValueInBaseCurrency,
+                  userCurrency
+                });
 
                 return {
                   citations: [
@@ -1866,7 +2367,7 @@ export class AiService implements AgentKernel {
                     input: {
                       safeWithdrawalRatePercent: 4
                     },
-                    outputSummary: fireAnalysisSummary,
+                    outputSummary: `fire_analysis: holdings=${analysis.holdingsCount}, total=${analysis.totalValueInBaseCurrency.toFixed(2)} ${userCurrency}, top=${topSymbol} ${topAllocation.toFixed(2)}%, hhi=${currentRiskAssessment.hhi.toFixed(3)}, withdrawal=${safeWithdrawal.toFixed(2)} ${userCurrency}/year`,
                     status: 'success' as const,
                     tool: toolName
                   }
@@ -2024,10 +2525,13 @@ export class AiService implements AgentKernel {
             : 'passed'
       });
 
-      let answer = createPolicyRouteResponse({
-        policyDecision,
-        query: queryForTools
-      });
+      let answer =
+        policyDecision.route === 'tools'
+          ? ''
+          : createPolicyRouteResponse({
+              policyDecision,
+              query: queryForTools
+            });
 
       if (
         policyDecision.route === 'direct' &&
@@ -2043,56 +2547,105 @@ export class AiService implements AgentKernel {
       }
 
       if (policyDecision.route === 'tools') {
-        const llmGenerationStartedAt = Date.now();
-        answer = await buildAnswer({
-        additionalContextSummaries: [
-            ...actionExecutionSummaries,
-            accountOverviewSummary,
-            activityHistorySummary,
-            benchmarkSummary,
-            demoDataSummary,
-            exchangeRateSummary,
-            priceHistorySummary,
-            symbolLookupSummary
-          ].filter((summary): summary is string => Boolean(summary)),
-          assetFundamentalsSummary,
-          complianceCheckSummary,
-          financialNewsSummary,
-          generateText: (options) =>
-            this.generateText({
-              ...options,
-              model,
-              onLlmInvocation: ({ model: invocationModel, provider }) => {
-                llmInvocation = {
-                  model: invocationModel,
-                  provider
-                };
-              },
-              traceContext: {
-                query: queryForPrompt,
-                sessionId: resolvedSessionId,
-                traceId,
-                userId
-              }
-            }),
-          languageCode,
-          marketData,
-          memory,
-          portfolioAnalysis,
-          query: queryForPrompt,
-          recentTransactionsSummary,
-          fireAnalysisSummary,
-          rebalancePlanSummary,
-          rebalancePlan,
-          riskAssessment,
-          stressTest,
-          taxEstimateSummary,
-          tradeImpactSummary,
-          transactionCategorizationSummary,
-          userPreferences: effectiveUserPreferences,
-          userCurrency
-        });
-        llmGenerationInMs = Date.now() - llmGenerationStartedAt;
+        const isSingleToolRoute = policyDecision.toolsToExecute.length === 1;
+        const singleToolName = isSingleToolRoute
+          ? policyDecision.toolsToExecute[0]
+          : undefined;
+        const singleToolDeterministicAnswer =
+          singleToolName !== undefined
+            ? buildSingleToolDeterministicAnswer({
+                assetFundamentalsSummary,
+                financialNewsSummary,
+                fireAnalysisSummary,
+                marketData,
+                portfolioAnalysis,
+                priceHistorySummary,
+                recentTransactionsSummary,
+                rebalancePlanSummary,
+                riskAssessment,
+                stressTest,
+                toolName: singleToolName,
+                userCurrency
+              })
+            : undefined;
+        const multiToolDeterministicAnswer =
+          !singleToolDeterministicAnswer &&
+          policyDecision.toolsToExecute.length > 1
+            ? buildMultiToolDeterministicAnswer({
+                portfolioAnalysis,
+                rebalancePlanSummary,
+                riskAssessment,
+                toolsToExecute: policyDecision.toolsToExecute,
+                userCurrency
+              })
+            : undefined;
+        const isFireOnlyRoute =
+          policyDecision.toolsToExecute.length === 1 &&
+          policyDecision.toolsToExecute[0] === 'fire_analysis';
+
+        const deterministicAnswer = isFireOnlyRoute
+          ? fireAnalysisSummary
+          : singleToolDeterministicAnswer ?? multiToolDeterministicAnswer;
+
+        if (isFireOnlyRoute && deterministicAnswer?.trim().length) {
+          answer = deterministicAnswer;
+        } else {
+          const llmGenerationStartedAt = Date.now();
+          answer = await buildAnswer({
+              additionalContextSummaries: [
+                ...actionExecutionSummaries,
+                accountOverviewSummary,
+                activityHistorySummary,
+                benchmarkSummary,
+                demoDataSummary,
+                exchangeRateSummary,
+                priceHistorySummary,
+                symbolLookupSummary
+              ].filter((summary): summary is string => Boolean(summary)),
+              assetFundamentalsSummary,
+              complianceCheckSummary,
+              financialNewsSummary,
+              generateText: (options) =>
+                this.generateText({
+                  ...options,
+                  model,
+                  useFormatterModel: true,
+                  onLlmInvocation: ({ model: invocationModel, provider }) => {
+                    llmInvocation = {
+                      model: invocationModel,
+                      provider
+                    };
+                  },
+                  traceContext: {
+                    query: queryForPrompt,
+                    sessionId: resolvedSessionId,
+                    traceId,
+                    userId
+                  }
+                }),
+            languageCode,
+            marketData,
+            memory,
+            portfolioAnalysis,
+            query: queryForPrompt,
+            recentTransactionsSummary,
+            fireAnalysisSummary,
+            rebalancePlanSummary,
+            rebalancePlan,
+            riskAssessment,
+            stressTest,
+            taxEstimateSummary,
+            tradeImpactSummary,
+            transactionCategorizationSummary,
+            userPreferences: effectiveUserPreferences,
+            userCurrency
+          });
+          llmGenerationInMs = Date.now() - llmGenerationStartedAt;
+
+          if (!answer?.trim() && deterministicAnswer?.trim().length) {
+            answer = deterministicAnswer;
+          }
+        }
       }
 
       verification.push({
@@ -2128,10 +2681,28 @@ export class AiService implements AgentKernel {
             : 'warning'
       });
 
-      const confidence = calculateConfidence({
+      let confidence = calculateConfidence({
         toolCalls,
         verification
       });
+      const isDirectNoToolResponse =
+        policyDecision.route === 'direct' &&
+        policyDecision.blockReason === 'no_tool_query' &&
+        toolCalls.length === 0;
+      const isDeterministicArithmeticResponse =
+        isDirectNoToolResponse && /^\s*[-+*/().\d\s]+=\s*-?\d/.test(answer);
+
+      if (isDeterministicArithmeticResponse) {
+        confidence = {
+          band: 'high',
+          score: 0.95
+        };
+      } else if (isDirectNoToolResponse && confidence.band === 'low') {
+        confidence = {
+          band: 'medium',
+          score: 0.72
+        };
+      }
       const successfulToolCalls = toolCalls.filter(({ status }) => {
         return status === 'success';
       }).length;
@@ -2187,6 +2758,18 @@ export class AiService implements AgentKernel {
         });
       }
       memoryWriteInMs = Date.now() - memoryWriteStartedAt;
+
+      if (responseCacheKey && answer.length > 0 && confidence.band !== 'low') {
+        try {
+          await this.redisCacheService.set(
+            responseCacheKey,
+            JSON.stringify({
+              answer
+            } satisfies CachedResponsePayload),
+            AI_RESPONSE_CACHE_TTL_IN_MS
+          );
+        } catch {}
+      }
 
       const response: AiAgentChatResponse = {
         answer,

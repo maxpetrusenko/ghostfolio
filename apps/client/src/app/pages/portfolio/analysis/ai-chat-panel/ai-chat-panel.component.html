@@ -76,7 +76,7 @@
                 getRoleLabel(message.role)
               }}</span>
               <span class="ml-2 timestamp">{{
-                message.createdAt | date: 'shortTime'
+                message.createdAt | date: 'mediumTime'
               }}</span>
 
               @if (message.role === 'assistant' && message.response) {
@@ -87,7 +87,7 @@
                   mat-icon-button
                   type="button"
                   [matMenuTriggerFor]="responseDetailsMenu"
-                  (click)="onOpenResponseDetails(message.response)"
+                  (click)="onOpenResponseDetails(message)"
                 >
                   <svg
                     aria-hidden="true"
@@ -179,30 +179,47 @@
           (click)="$event.stopPropagation()"
         >
           @if (activeResponseDetails; as details) {
-            <div class="response-details-section">
-              <strong i18n>Confidence</strong>:
-              {{ details.confidence.score * 100 | number: '1.0-0' }}% ({{
-                details.confidence.band
-              }})
-            </div>
-
-            @if (details.llmInvocation) {
+            @if (details.clientRoundTripInMs !== undefined) {
               <div class="response-details-section">
-                <strong i18n>LLM</strong>:
-                <span class="ml-1">{{ details.llmInvocation.provider }}</span>
-                <span class="ml-1">({{ details.llmInvocation.model }})</span>
+                <strong i18n>Client Round Trip</strong>:
+                <span class="ml-1"
+                  >{{ formatToolCallDuration(details.clientRoundTripInMs) }}</span
+                >
               </div>
             }
 
-            @if (details.toolCalls.length > 0) {
+            @if (details.response; as response) {
+            <div class="response-details-section">
+              <strong i18n>Confidence</strong>:
+              {{ response.confidence.score * 100 | number: '1.0-0' }}% ({{
+                response.confidence.band
+              }})
+            </div>
+
+            @if (response.llmInvocation) {
+              <div class="response-details-section">
+                <strong i18n>LLM</strong>:
+                <span class="ml-1">{{ response.llmInvocation.provider }}</span>
+                <span class="ml-1">({{ response.llmInvocation.model }})</span>
+              </div>
+            }
+
+            @if (response.toolCalls.length > 0) {
               <div class="response-details-section">
                 <strong i18n>Tools</strong>
                 <ul class="mb-0 pl-3 response-details-list">
-                  @for (toolCall of details.toolCalls; track $index) {
+                  @for (toolCall of response.toolCalls; track $index) {
                     <li>
                       <span class="font-weight-bold">{{ toolCall.tool }}</span>
                       -
                       {{ toolCall.status }}
+                      @if (toolCall.durationInMs !== undefined) {
+                        <span class="ml-1 text-muted">
+                          (duration: {{
+                            formatToolCallDuration(toolCall.durationInMs)
+                          }})
+                        </span>
+                      }
                       <div>
                         <span class="text-muted" i18n>Input</span>:
                         {{ toolCall.input | json }}
@@ -217,11 +234,11 @@
               </div>
             }
 
-            @if (details.citations.length > 0) {
+            @if (response.citations.length > 0) {
               <div class="response-details-section">
                 <strong i18n>Citations</strong>
                 <ul class="mb-0 pl-3 response-details-list">
-                  @for (citation of details.citations; track $index) {
+                  @for (citation of response.citations; track $index) {
                     <li>
                       <span class="font-weight-bold">{{
                         citation.source
@@ -234,11 +251,11 @@
               </div>
             }
 
-            @if (details.verification.length > 0) {
+            @if (response.verification.length > 0) {
               <div class="response-details-section">
                 <strong i18n>Verification</strong>
                 <ul class="mb-0 pl-3 response-details-list">
-                  @for (check of details.verification; track $index) {
+                  @for (check of response.verification; track $index) {
                     <li>
                       <span class="text-capitalize">{{ check.status }}</span>
                       -
@@ -250,24 +267,25 @@
               </div>
             }
 
-            @if (details.observability) {
+            @if (response.observability) {
               <div class="response-details-section">
                 <strong i18n>Observability</strong>:
                 <span class="ml-1"
-                  >{{ details.observability.latencyInMs }}ms, ~{{
-                    details.observability.tokenEstimate.total
+                  >{{ response.observability.latencyInMs }}ms, ~{{
+                    response.observability.tokenEstimate.total
                   }}
                   tokens</span
                 >
-                @if (details.observability.traceId) {
+                @if (response.observability.traceId) {
                   <div class="response-details-trace">
                     <strong i18n>Trace ID</strong>:
                     <span class="ml-1">{{
-                      details.observability.traceId
+                      response.observability.traceId
                     }}</span>
                   </div>
                 }
               </div>
+            }
             }
           } @else {
             <span class="text-muted" i18n>No response details available.</span>

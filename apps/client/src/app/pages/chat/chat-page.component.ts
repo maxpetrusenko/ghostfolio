@@ -8,11 +8,14 @@ import { AiAgentChatResponse } from '@ghostfolio/common/interfaces';
 import { hasPermission, permissions } from '@ghostfolio/common/permissions';
 import { DataService } from '@ghostfolio/ui/services';
 
+import { HttpErrorResponse } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
+  ChangeDetectorRef,
   Component,
   ElementRef,
+  NgZone,
   OnDestroy,
   OnInit,
   ViewChild
@@ -110,7 +113,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
     }
   ];
   public query = '';
-  public selectedModelId = 'chatgpt';
+  public selectedModelId = 'auto';
   public readonly icons = {
     info: Info,
     messageSquare: MessageSquare,
@@ -145,7 +148,9 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
   public constructor(
     private readonly aiChatConversationsService: AiChatConversationsService,
+    private readonly changeDetectorRef: ChangeDetectorRef,
     private readonly dataService: DataService,
+    private readonly ngZone: NgZone,
     private readonly userService: UserService
   ) {}
 
@@ -164,6 +169,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
       .pipe(takeUntil(this.unsubscribeSubject))
       .subscribe((conversations) => {
         this.conversations = conversations;
+        this.markViewForUpdate();
       });
 
     this.aiChatConversationsService
@@ -179,6 +185,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
           RenderedAssistantMessage
         >();
         this.scrollToBottom(true);
+        this.markViewForUpdate();
       });
 
     if (
@@ -235,7 +242,13 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public get visibleMessages() {
-    return this.currentConversation?.messages ?? [];
+    return [...(this.currentConversation?.messages ?? [])];
+  }
+
+  private markViewForUpdate() {
+    this.ngZone.run(() => {
+      this.changeDetectorRef.markForCheck();
+    });
   }
 
   public getAssistantRenderedMessage(message: AiChatMessage) {
@@ -285,6 +298,22 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
   public getRoleLabel(role: AiChatMessage['role']) {
     return role === 'assistant' ? this.assistantRoleLabel : this.userRoleLabel;
+  }
+
+  public formatToolCallDuration(durationInMs?: number): string {
+    if (
+      durationInMs === undefined ||
+      !Number.isFinite(durationInMs) ||
+      durationInMs < 0
+    ) {
+      return 'n/a';
+    }
+
+    if (durationInMs >= 1000) {
+      return `${(durationInMs / 1000).toFixed(durationInMs >= 10000 ? 0 : 1)}s`;
+    }
+
+    return `${Math.round(durationInMs)}ms`;
   }
 
   public onDeleteConversation(event: Event, conversationId: string) {
@@ -447,6 +476,45 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
         }) ||
         ''
     };
+  }
+
+  private getModelLabel(modelId: string) {
+    return (
+      this.modelOptions.find(({ id }) => {
+        return id === modelId;
+      })?.label ?? modelId
+    );
+  }
+
+  private getRequestErrorMessage(error: unknown) {
+    if (!(error instanceof HttpErrorResponse)) {
+      return undefined;
+    }
+
+    if (error.status === 0) {
+      return $localize`Unable to reach the API endpoint. Please verify the backend is running and reachable, then retry.`;
+    }
+
+    const serverMessage =
+      typeof error.error === 'string'
+        ? error.error
+        : typeof error.error?.message === 'string'
+          ? error.error.message
+          : undefined;
+
+    if (serverMessage?.trim()) {
+      return serverMessage.trim();
+    }
+
+    if (error.status && error.statusText) {
+      return `${error.status} ${error.statusText}`;
+    }
+
+    if (error.status) {
+      return `${error.status}`;
+    }
+
+    return error.message?.trim() || undefined;
   }
 
   public onOpenResponseDetails(response?: AiAgentChatResponse) {
@@ -638,12 +706,14 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
           this.isSubmitting = false;
           this.activeSubmission = undefined;
           this.scrollToBottom();
+          this.markViewForUpdate();
           this.processSubmissionQueue();
         }),
         takeUntil(this.unsubscribeSubject)
       )
       .subscribe({
         next: (response) => {
+          this.errorMessage = undefined;
           this.aiChatConversationsService.setConversationSessionId({
             conversationId: submission.conversationId,
             sessionId: response.memory.sessionId
@@ -657,15 +727,41 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
             response
           });
           this.scrollToBottom();
+          this.markViewForUpdate();
         },
-        error: () => {
-          this.errorMessage = $localize`AI request failed. Check your model quota and permissions.`;
+        error: (error: unknown) => {
+          const backendErrorMessage = this.getRequestErrorMessage(error);
+
+          if (submission.requestedModelId !== 'auto') {
+            this.pendingSubmissionQueue.unshift({
+              ...submission,
+              requestedModelId: 'auto'
+            });
+
+            this.errorMessage = backendErrorMessage
+              ? $localize`Model ${this.getModelLabel(
+                  submission.requestedModelId
+                )} failed (${backendErrorMessage}). Retrying with Auto...`
+              : $localize`Model ${this.getModelLabel(
+                  submission.requestedModelId
+                )} failed. Retrying with Auto...`;
+            this.markViewForUpdate();
+
+            return;
+          }
+
+          this.errorMessage = backendErrorMessage
+            ? $localize`AI request failed: ${backendErrorMessage}`
+            : $localize`AI request failed. Check your model quota and permissions.`;
 
           this.aiChatConversationsService.appendAssistantMessage({
-            content: $localize`Request failed. Please retry.`,
+            content: backendErrorMessage
+              ? $localize`Request failed (${backendErrorMessage}). Please retry.`
+              : $localize`Request failed. Please retry.`,
             conversationId: submission.conversationId
           });
           this.scrollToBottom();
+          this.markViewForUpdate();
         }
       });
   }

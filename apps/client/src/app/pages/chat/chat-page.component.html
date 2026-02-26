@@ -197,7 +197,7 @@
                   getRoleLabel(message.role)
                 }}</span>
                 <span class="ml-2 timestamp">{{
-                  message.createdAt | date: 'shortTime'
+                  message.createdAt | date: 'mediumTime'
                 }}</span>
 
                 @if (message.role === 'assistant' && message.response) {
@@ -481,6 +481,13 @@
                       <span class="font-weight-bold">{{ toolCall.tool }}</span>
                       -
                       {{ toolCall.status }}
+                      @if (toolCall.durationInMs !== undefined) {
+                        <span class="ml-1 text-muted">
+                          (duration: {{
+                            formatToolCallDuration(toolCall.durationInMs)
+                          }})
+                        </span>
+                      }
                       <div>
                         <span class="text-muted" i18n>Input</span>:
                         {{ toolCall.input | json }}
