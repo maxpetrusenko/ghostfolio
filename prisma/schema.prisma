@@ -288,29 +288,29 @@ model Tag {
 }
 
 model User {
-  accessesGet   Access[]        @relation("accessGet")
-  accessesGive  Access[]        @relation("accessGive")
-  accessToken   String?
-  accounts      Account[]
-  activities    Order[]
-  analytics     Analytics?
-  apiKeys       ApiKey[]
-  authChallenge String?
-  authDevices   AuthDevice[]
+  accessesGet            Access[]                @relation("accessGet")
+  accessesGive           Access[]                @relation("accessGive")
+  accessToken            String?
+  accounts               Account[]
+  activities             Order[]
+  analytics              Analytics?
+  apiKeys                ApiKey[]
+  authChallenge          String?
+  authDevices            AuthDevice[]
   brokerStatementImports BrokerStatementImport[]
-  chatConversations ChatConversation[]
-  createdAt     DateTime        @default(now())
-  id            String          @id @default(uuid())
-  provider      Provider        @default(ANONYMOUS)
-  role          Role            @default(USER)
-  settings      Settings?
-  subscriptions Subscription[]
-  symbolMappings SymbolMapping[]
-  tags          Tag[]
-  thirdPartyId  String?
-  updatedAt     DateTime        @updatedAt
-  watchlist     SymbolProfile[] @relation("UserWatchlist")
-  SymbolProfile SymbolProfile[]
+  chatConversations      ChatConversation[]
+  createdAt              DateTime                @default(now())
+  id                     String                  @id @default(uuid())
+  provider               Provider                @default(ANONYMOUS)
+  role                   Role                    @default(USER)
+  settings               Settings?
+  subscriptions          Subscription[]
+  symbolMappings         SymbolMapping[]
+  tags                   Tag[]
+  thirdPartyId           String?
+  updatedAt              DateTime                @updatedAt
+  watchlist              SymbolProfile[]         @relation("UserWatchlist")
+  SymbolProfile          SymbolProfile[]
 
   @@index([accessToken])
   @@index([createdAt])
@@ -401,19 +401,19 @@ enum ViewMode {
 // =============================================================================
 
 model BrokerStatementImport {
-  id                String               @id @default(uuid())
-  fileName          String
-  fileHash          String               @unique
-  brokerName        String
-  status            ImportStatus         @default(UPLOADED)
-  uploadedAt        DateTime             @default(now())
-  processedAt       DateTime?
-  rowCount          Int                  @default(0)
-  errorCount        Int                  @default(0)
-  meta              Json?                @default("{}")
-  userId            String
-  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rows              BrokerStatementRow[]
+  id                 String               @id @default(uuid())
+  fileName           String
+  fileHash           String               @unique
+  brokerName         String
+  status             ImportStatus         @default(UPLOADED)
+  uploadedAt         DateTime             @default(now())
+  processedAt        DateTime?
+  rowCount           Int                  @default(0)
+  errorCount         Int                  @default(0)
+  meta               Json?                @default("{}")
+  userId             String
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows               BrokerStatementRow[]
   reconciliationRuns ReconciliationRun[]
 
   @@index([userId])
@@ -454,14 +454,14 @@ model SymbolMapping {
 }
 
 model ReconciliationRun {
-  id          String               @id @default(uuid())
+  id          String                @id @default(uuid())
   importId    String
   import      BrokerStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
   accountId   String?
-  status      ReconciliationStatus @default(RUNNING)
-  runAt       DateTime             @default(now())
+  status      ReconciliationStatus  @default(RUNNING)
+  runAt       DateTime              @default(now())
   completedAt DateTime?
-  summary     Json?                @default("{}")
+  summary     Json?                 @default("{}")
   userId      String
   diffs       ReconciliationDiff[]
 
@@ -471,15 +471,15 @@ model ReconciliationRun {
 }
 
 model ReconciliationDiff {
-  id                String             @id @default(uuid())
+  id                String            @id @default(uuid())
   runId             String
-  run               ReconciliationRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  run               ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   diffType          DiffType
   severity          DiffSeverity
   statementRowId    String?
   ghostfolioOrderId String?
-  details           Json               @default("{}")
-  resolved          Boolean            @default(false)
+  details           Json              @default("{}")
+  resolved          Boolean           @default(false)
   resolvedAt        DateTime?
 
   @@index([runId])

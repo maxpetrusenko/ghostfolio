@@ -1,4 +1,3 @@
-import { AI_AGENT_MVP_EVAL_DATASET } from './mvp-eval.dataset';
 import {
   buildScenarioCoverageMatrix,
   deriveScenarioLabels,
@@ -6,8 +5,9 @@ import {
   SCENARIO_DIFFICULTIES,
   SCENARIO_TOOL_BUCKETS
 } from './mvp-eval.coverage';
+import { AI_AGENT_MVP_EVAL_DATASET } from './mvp-eval.dataset';
 
-describe('AiAgentMvpEvalCoverage', () => {
+describe('AiAgentChatRequirementsEvalCoverage', () => {
   it('assigns scenario labels to each eval case', () => {
     for (const evalCase of AI_AGENT_MVP_EVAL_DATASET) {
       const labels = deriveScenarioLabels({
@@ -52,7 +52,9 @@ describe('AiAgentMvpEvalCoverage', () => {
       cases: AI_AGENT_MVP_EVAL_DATASET
     });
 
-    expect(table).toContain('| difficulty | portfolio | risk | market | rebalance | stress | multi |');
+    expect(table).toContain(
+      '| difficulty | portfolio | risk | market | rebalance | stress | multi |'
+    );
     expect(table).toContain('scenario_counts:');
     expect(table).toContain('empty_cells:');
   });

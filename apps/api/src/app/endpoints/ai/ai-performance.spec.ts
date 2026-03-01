@@ -77,6 +77,18 @@ function createAiServiceForPerformanceTests() {
       }
     })
   };
+  const prismaService = {
+    brokerStatementImport: {
+      findMany: jest.fn().mockResolvedValue([])
+    },
+    reconciliationRun: {
+      findMany: jest.fn().mockResolvedValue([])
+    },
+    symbolMapping: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([])
+    }
+  };
   const propertyService = {
     getByKey: jest.fn()
   };
@@ -115,6 +127,7 @@ function createAiServiceForPerformanceTests() {
     exchangeRateDataService as never,
     orderService as never,
     portfolioService as never,
+    prismaService as never,
     propertyService as never,
     redisCacheService as never,
     aiObservabilityService as never
@@ -135,6 +148,8 @@ async function measureLatencyInMs(operation: () => Promise<unknown>) {
 }
 
 describe('AiService Performance', () => {
+  jest.setTimeout(30_000);
+
   it(`keeps single-tool p95 latency under ${SINGLE_TOOL_P95_TARGET_IN_MS}ms`, async () => {
     const aiService = createAiServiceForPerformanceTests();
     const latencies: number[] = [];

@@ -2,6 +2,7 @@ import { AiAgentChatResponse } from '@ghostfolio/common/interfaces';
 import { DataService } from '@ghostfolio/ui/services';
 
 import { OverlayContainer } from '@angular/cdk/overlay';
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   ComponentFixture,
   TestBed,
@@ -31,7 +32,7 @@ function createChatResponse({
     model: string;
     provider: string;
   };
-    toolCalls?: {
+  toolCalls?: {
     input: Record<string, unknown>;
     outputSummary: string;
     status: 'failed' | 'success';
@@ -53,7 +54,7 @@ function createChatResponse({
       | 'transaction_categorize'
       | 'tax_estimate'
       | 'compliance_check';
-      }[];
+  }[];
   observability?: {
     latencyBreakdownInMs: {
       llmGenerationInMs: number;
@@ -420,22 +421,25 @@ describe('GfAiChatPanelComponent', () => {
     expect(restoredComponent.chatMessages[0].id).toBe(50);
   });
 
-  it('adds a fallback assistant message when chat request fails', () => {
+  it('adds backend error code and message when chat request fails', () => {
     dataService.postAiChat.mockReturnValue(
       throwError(() => {
-        return new Error('request failed');
+        return new HttpErrorResponse({
+          error: {
+            code: 'AI_PROVIDER_NOT_CONFIGURED',
+            message: 'No AI provider configured'
+          },
+          status: 503,
+          statusText: 'Service Unavailable'
+        });
       })
     );
     component.query = 'What is my allocation?';
 
     component.onSubmit();
 
-    expect(component.errorMessage).toBeDefined();
-    expect(component.chatMessages[1]).toEqual(
-      expect.objectContaining({
-        content: 'Request failed. Please retry.',
-        role: 'assistant'
-      })
+    expect(component.errorMessage).toBe(
+      'AI_PROVIDER_NOT_CONFIGURED: No AI provider configured'
     );
   });
 

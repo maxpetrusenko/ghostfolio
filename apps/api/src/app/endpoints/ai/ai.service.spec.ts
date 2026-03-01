@@ -13,6 +13,11 @@ describe('AiService', () => {
   let exchangeRateDataService: { toCurrency: jest.Mock };
   let orderService: { createOrder: jest.Mock; getOrders: jest.Mock };
   let portfolioService: { getDetails: jest.Mock };
+  let prismaService: {
+    brokerStatementImport: { findMany: jest.Mock };
+    reconciliationRun: { findMany: jest.Mock };
+    symbolMapping: { count: jest.Mock; findMany: jest.Mock };
+  };
   let propertyService: { getByKey: jest.Mock };
   let aiAgentWebSearchService: { searchStockNews: jest.Mock };
   let redisCacheService: { get: jest.Mock; set: jest.Mock };
@@ -56,6 +61,18 @@ describe('AiService', () => {
     portfolioService = {
       getDetails: jest.fn()
     };
+    prismaService = {
+      brokerStatementImport: {
+        findMany: jest.fn().mockResolvedValue([])
+      },
+      reconciliationRun: {
+        findMany: jest.fn().mockResolvedValue([])
+      },
+      symbolMapping: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([])
+      }
+    };
     propertyService = {
       getByKey: jest.fn()
     };
@@ -94,6 +111,7 @@ describe('AiService', () => {
       exchangeRateDataService as never,
       orderService as never,
       portfolioService as never,
+      prismaService as never,
       propertyService as never,
       redisCacheService as never,
       aiObservabilityService as never,
@@ -273,6 +291,47 @@ describe('AiService', () => {
     );
   });
 
+  it('fails fast on startup when no AI provider is configured', async () => {
+    const originalJestWorkerId = process.env.JEST_WORKER_ID;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalOpenRouterApiKey = process.env.API_KEY_OPENROUTER;
+
+    delete process.env.JEST_WORKER_ID;
+    process.env.NODE_ENV = 'development';
+    delete process.env.minimax_api_key;
+    delete process.env.minimax_model;
+    delete process.env.openai_api_key;
+    delete process.env.openai_model;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_MODEL;
+    delete process.env.z_ai_glm_api_key;
+    delete process.env.z_ai_glm_model;
+    delete process.env.API_KEY_OPENROUTER;
+    propertyService.getByKey.mockResolvedValue(undefined);
+
+    await expect(subject.onModuleInit()).rejects.toThrow(
+      'No AI provider configured (startup health check failed'
+    );
+
+    if (originalJestWorkerId === undefined) {
+      delete process.env.JEST_WORKER_ID;
+    } else {
+      process.env.JEST_WORKER_ID = originalJestWorkerId;
+    }
+
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    if (originalOpenRouterApiKey === undefined) {
+      delete process.env.API_KEY_OPENROUTER;
+    } else {
+      process.env.API_KEY_OPENROUTER = originalOpenRouterApiKey;
+    }
+  });
+
   it('fails fast when request userId is missing', async () => {
     await expect(
       subject.chat({
@@ -385,7 +444,7 @@ describe('AiService', () => {
         }),
         expect.objectContaining({
           check: 'policy_gating',
-          status: 'warning'
+          status: 'passed'
         })
       ])
     );
@@ -739,7 +798,10 @@ describe('AiService', () => {
 
   it('explains prior domain refusal when user asks why not', async () => {
     redisCacheService.get.mockImplementation(async (key: string) => {
-      if (key === 'ai-agent-memory-user-follow-up-domain-refusal-session-domain-refusal') {
+      if (
+        key ===
+        'ai-agent-memory-user-follow-up-domain-refusal-session-domain-refusal'
+      ) {
         return JSON.stringify({
           turns: [
             {
@@ -794,7 +856,10 @@ describe('AiService', () => {
       }
     });
     redisCacheService.get.mockImplementation(async (key: string) => {
-      if (key === 'ai-agent-memory-user-new-intent-after-refusal-session-new-intent-after-refusal') {
+      if (
+        key ===
+        'ai-agent-memory-user-new-intent-after-refusal-session-new-intent-after-refusal'
+      ) {
         return JSON.stringify({
           turns: [
             {
@@ -833,7 +898,10 @@ describe('AiService', () => {
 
   it('treats "anything else?" as contextual continuation after identity reply', async () => {
     redisCacheService.get.mockImplementation(async (key: string) => {
-      if (key === 'ai-agent-memory-user-follow-up-anything-else-session-anything-else') {
+      if (
+        key ===
+        'ai-agent-memory-user-follow-up-anything-else-session-anything-else'
+      ) {
         return JSON.stringify({
           turns: [
             {
@@ -859,7 +927,9 @@ describe('AiService', () => {
     });
 
     expect(result.toolCalls).toEqual([]);
-    expect(result.answer).toContain('I can continue with your current chat context');
+    expect(result.answer).toContain(
+      'I can continue with your current chat context'
+    );
     expect(result.answer).not.toContain('Insufficient confidence');
     expect(result.verification).toEqual(
       expect.arrayContaining([
@@ -1094,9 +1164,9 @@ describe('AiService', () => {
         })
       ])
     );
-    expect(portfolioService.getDetails.mock.calls.length).toBeGreaterThanOrEqual(
-      1
-    );
+    expect(
+      portfolioService.getDetails.mock.calls.length
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it('returns deterministic diversification action guidance when generated output is unreliable', async () => {
@@ -1147,6 +1217,9 @@ describe('AiService', () => {
   });
 
   it('returns graceful failure metadata when a tool execution fails', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {}
+    });
     dataProviderService.getQuotes.mockRejectedValue(
       new Error('market provider unavailable')
     );
@@ -1174,7 +1247,7 @@ describe('AiService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           check: 'numerical_consistency',
-          status: 'passed'
+          status: 'warning'
         }),
         expect.objectContaining({
           check: 'tool_execution',
@@ -1191,7 +1264,10 @@ describe('AiService', () => {
       ])
     );
     expect(result.answer).toContain(
-      'Insufficient confidence to answer safely with the current evidence.'
+      'Insufficient confidence to complete this scoped request with the current evidence.'
+    );
+    expect(result.answer).toContain(
+      'The required tool checks failed (market_data_lookup).'
     );
     expect(result.answer).toContain('Escalation:');
     expect(result.escalation).toEqual(
@@ -1202,6 +1278,9 @@ describe('AiService', () => {
   });
 
   it('returns abstain response when tool route has low confidence and no successful tool evidence', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {}
+    });
     dataProviderService.getQuotes.mockRejectedValue(
       new Error('market provider unavailable')
     );
@@ -1226,7 +1305,10 @@ describe('AiService', () => {
       })
     ]);
     expect(result.answer).toContain(
-      'Insufficient confidence to answer safely with the current evidence.'
+      'Insufficient confidence to complete this scoped request with the current evidence.'
+    );
+    expect(result.answer).toContain(
+      'The required tool checks failed (market_data_lookup).'
     );
     expect(result.verification).toEqual(
       expect.arrayContaining([
@@ -1320,6 +1402,9 @@ describe('AiService', () => {
   });
 
   it('flags market data coverage warning when only part of symbols resolve', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {}
+    });
     dataProviderService.getQuotes.mockResolvedValue({
       AAPL: {
         currency: 'USD',
@@ -1881,9 +1966,9 @@ describe('AiService', () => {
       updateAccountBalance: false
     });
     expect(createOrderInput.quantity).toBeCloseTo(2.5, 6);
-    expect(
-      createOrderInput.SymbolProfile.connectOrCreate.create.symbol
-    ).toBe('TSLA');
+    expect(createOrderInput.SymbolProfile.connectOrCreate.create.symbol).toBe(
+      'TSLA'
+    );
   });
 
   it('creates order from quantity-plus-stock wording using live quote', async () => {
@@ -1941,9 +2026,9 @@ describe('AiService', () => {
       unitPrice: 408.58,
       updateAccountBalance: false
     });
-    expect(
-      createOrderInput.SymbolProfile.connectOrCreate.create.symbol
-    ).toBe('TSLA');
+    expect(createOrderInput.SymbolProfile.connectOrCreate.create.symbol).toBe(
+      'TSLA'
+    );
   });
 
   it('answers holdings follow-up phrasing for symbol quantities', async () => {
@@ -1984,7 +2069,9 @@ describe('AiService', () => {
         })
       ])
     );
-    expect(result.answer.toLowerCase()).not.toContain('insufficient confidence');
+    expect(result.answer.toLowerCase()).not.toContain(
+      'insufficient confidence'
+    );
   });
 
   it('handles multiline holdings follow-up when cached analysis lacks quantity field', async () => {
@@ -2037,7 +2124,9 @@ describe('AiService', () => {
       ])
     );
     expect(result.answer.toLowerCase()).not.toContain('request failed');
-    expect(result.answer.toLowerCase()).not.toContain('insufficient confidence');
+    expect(result.answer.toLowerCase()).not.toContain(
+      'insufficient confidence'
+    );
   });
 
   it('adds seed funds for explicit seed funding requests', async () => {
@@ -2082,9 +2171,9 @@ describe('AiService', () => {
       unitPrice: 1000,
       updateAccountBalance: true
     });
-    expect(createOrderInput.SymbolProfile.connectOrCreate.create.symbol).toMatch(
-      /^GF_SEED_\d+$/
-    );
+    expect(
+      createOrderInput.SymbolProfile.connectOrCreate.create.symbol
+    ).toMatch(/^GF_SEED_\d+$/);
   });
 
   it('routes "seed my account ... split ..." phrasing to seed_funds instead of market snapshot tools', async () => {
@@ -2210,7 +2299,9 @@ describe('AiService', () => {
       userId: 'user-create-order-howto'
     });
 
-    expect(result.answer).toContain('To create an order, please specify the amount');
+    expect(result.answer).toContain(
+      'To create an order, please specify the amount'
+    );
     expect(result.toolCalls).toEqual([]);
     expect(orderService.createOrder).not.toHaveBeenCalled();
     expect(generateTextSpy).not.toHaveBeenCalled();
@@ -2458,9 +2549,13 @@ describe('AiService', () => {
     );
     expect(generateTextSpy).not.toHaveBeenCalled();
     expect(result.answer).toContain('FIRE quick check (rule-of-thumb):');
-    expect(result.answer).toContain('Portfolio value: 10000.00 USD across 2 holdings.');
+    expect(result.answer).toContain(
+      'Portfolio value: 10000.00 USD across 2 holdings.'
+    );
     expect(result.answer).toContain('4% withdrawal estimate: 400.00 USD/year');
-    expect(result.answer).toContain('Diversification: top holding SPY at 70.00%');
+    expect(result.answer).toContain(
+      'Diversification: top holding SPY at 70.00%'
+    );
   });
 
   it('routes "top 5 stocks now" to current holdings tool instead of clarify refusal', async () => {
@@ -2514,6 +2609,9 @@ describe('AiService', () => {
   });
 
   it('reuses one quote lookup for combined market and live quote tools', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {}
+    });
     dataProviderService.getQuotes.mockResolvedValue({
       NVDA: {
         currency: 'USD',

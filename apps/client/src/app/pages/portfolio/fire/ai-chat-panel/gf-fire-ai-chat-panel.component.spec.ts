@@ -2,6 +2,7 @@ import { AiAgentChatResponse } from '@ghostfolio/common/interfaces';
 import { DataService } from '@ghostfolio/ui/services';
 
 import { OverlayContainer } from '@angular/cdk/overlay';
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   ComponentFixture,
   TestBed,
@@ -87,15 +88,14 @@ function createChatResponse({
       sessionId,
       turns
     },
-    toolCalls:
-      toolCalls ?? [
-        {
-          input: {},
-          outputSummary: 'FIRE analysis complete',
-          status: 'success',
-          tool: 'portfolio_analysis'
-        }
-      ],
+    toolCalls: toolCalls ?? [
+      {
+        input: {},
+        outputSummary: 'FIRE analysis complete',
+        status: 'success',
+        tool: 'portfolio_analysis'
+      }
+    ],
     verification: [
       {
         check: 'fire_calculator_analysis',
@@ -140,8 +140,8 @@ describe('GfFireAiChatPanelComponent', () => {
 
     dataService = {
       postAiChat: jest.fn(),
-      postAiChatFeedback: jest.fn(
-        () => of({ accepted: true, feedbackId: 'fallback-feedback-id' })
+      postAiChatFeedback: jest.fn(() =>
+        of({ accepted: true, feedbackId: 'fallback-feedback-id' })
       )
     };
 
@@ -171,15 +171,25 @@ describe('GfFireAiChatPanelComponent', () => {
 
     it('should have FIRE-specific starter prompts', () => {
       expect(component.starterPrompts).toContain('Am I on track for FIRE?');
-      expect(component.starterPrompts).toContain('What is my current portfolio overview?');
-      expect(component.starterPrompts).toContain('Estimate my taxes for this year.');
+      expect(component.starterPrompts).toContain(
+        'What is my current portfolio overview?'
+      );
+      expect(component.starterPrompts).toContain(
+        'Estimate my taxes for this year.'
+      );
       expect(component.starterPrompts).toContain('How can I make an order?');
-      expect(component.starterPrompts).toContain('Add test data for a quick check.');
+      expect(component.starterPrompts).toContain(
+        'Add test data for a quick check.'
+      );
     });
 
     it('should use FIRE-specific storage keys', () => {
-      expect(component['STORAGE_KEY_MESSAGES']).toBe('gf_fire_ai_chat_messages');
-      expect(component['STORAGE_KEY_SESSION_ID']).toBe('gf_fire_ai_chat_session_id');
+      expect(component['STORAGE_KEY_MESSAGES']).toBe(
+        'gf_fire_ai_chat_messages'
+      );
+      expect(component['STORAGE_KEY_SESSION_ID']).toBe(
+        'gf_fire_ai_chat_session_id'
+      );
     });
 
     it('should initialize with empty chat messages', () => {
@@ -197,7 +207,8 @@ describe('GfFireAiChatPanelComponent', () => {
       dataService.postAiChat.mockReturnValue(
         of(
           createChatResponse({
-            answer: 'Based on your current savings rate and FIRE number, you are on track for early retirement by age 45.',
+            answer:
+              'Based on your current savings rate and FIRE number, you are on track for early retirement by age 45.',
             sessionId: 'fire-session-1',
             turns: 1
           })
@@ -220,11 +231,14 @@ describe('GfFireAiChatPanelComponent', () => {
       );
       expect(component.chatMessages[1]).toEqual(
         expect.objectContaining({
-          content: 'Based on your current savings rate and FIRE number, you are on track for early retirement by age 45.',
+          content:
+            'Based on your current savings rate and FIRE number, you are on track for early retirement by age 45.',
           role: 'assistant'
         })
       );
-      expect(localStorage.getItem(STORAGE_KEY_SESSION_ID)).toBe('fire-session-1');
+      expect(localStorage.getItem(STORAGE_KEY_SESSION_ID)).toBe(
+        'fire-session-1'
+      );
     });
 
     it('emits chatCompleted after a successful assistant response', () => {
@@ -264,22 +278,25 @@ describe('GfFireAiChatPanelComponent', () => {
       expect(dataService.postAiChat).not.toHaveBeenCalled();
     });
 
-    it('adds a fallback assistant message when chat request fails', () => {
+    it('adds backend error code and message when chat request fails', () => {
       dataService.postAiChat.mockReturnValue(
         throwError(() => {
-          return new Error('request failed');
+          return new HttpErrorResponse({
+            error: {
+              code: 'AI_CHAT_RUNTIME_ERROR',
+              message: 'Unexpected runtime failure'
+            },
+            status: 500,
+            statusText: 'Internal Server Error'
+          });
         })
       );
       component.query = 'What is my safe withdrawal rate?';
 
       component.onSubmit();
 
-      expect(component.errorMessage).toBeDefined();
-      expect(component.chatMessages[1]).toEqual(
-        expect.objectContaining({
-          content: 'Request failed. Please retry.',
-          role: 'assistant'
-        })
+      expect(component.errorMessage).toBe(
+        'AI_CHAT_RUNTIME_ERROR: Unexpected runtime failure'
       );
     });
 
@@ -308,7 +325,9 @@ describe('GfFireAiChatPanelComponent', () => {
 
   describe('Starter Prompts', () => {
     it('populates query when a starter prompt is selected', () => {
-      component.onSelectStarterPrompt('What if I increase my savings rate by 5%?');
+      component.onSelectStarterPrompt(
+        'What if I increase my savings rate by 5%?'
+      );
 
       expect(component.query).toBe('What if I increase my savings rate by 5%?');
     });
@@ -369,7 +388,9 @@ describe('GfFireAiChatPanelComponent', () => {
         ])
       );
 
-      const restoredFixture = TestBed.createComponent(GfFireAiChatPanelComponent);
+      const restoredFixture = TestBed.createComponent(
+        GfFireAiChatPanelComponent
+      );
       const restoredComponent = restoredFixture.componentInstance;
       restoredComponent.hasPermissionToReadAiPrompt = true;
       restoredFixture.detectChanges();
@@ -397,7 +418,9 @@ describe('GfFireAiChatPanelComponent', () => {
     it('ignores invalid chat storage payload without throwing', () => {
       localStorage.setItem(STORAGE_KEY_MESSAGES, '{invalid-json}');
 
-      const restoredFixture = TestBed.createComponent(GfFireAiChatPanelComponent);
+      const restoredFixture = TestBed.createComponent(
+        GfFireAiChatPanelComponent
+      );
       const restoredComponent = restoredFixture.componentInstance;
       restoredComponent.hasPermissionToReadAiPrompt = true;
 
@@ -416,9 +439,14 @@ describe('GfFireAiChatPanelComponent', () => {
           role: index % 2 === 0 ? 'user' : 'assistant'
         });
       });
-      localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(storedMessages));
+      localStorage.setItem(
+        STORAGE_KEY_MESSAGES,
+        JSON.stringify(storedMessages)
+      );
 
-      const restoredFixture = TestBed.createComponent(GfFireAiChatPanelComponent);
+      const restoredFixture = TestBed.createComponent(
+        GfFireAiChatPanelComponent
+      );
       const restoredComponent = restoredFixture.componentInstance;
       restoredComponent.hasPermissionToReadAiPrompt = true;
       restoredFixture.detectChanges();
@@ -553,8 +581,8 @@ describe('GfFireAiChatPanelComponent', () => {
       expect(overlayText).toContain('gpt-4o-mini');
       expect(overlayText).toContain('Tools');
       expect(overlayText).toContain('portfolio_analysis');
-    expect(overlayText).toContain('Trace ID');
-    expect(overlayText).toContain('fire-trace-details');
+      expect(overlayText).toContain('Trace ID');
+      expect(overlayText).toContain('fire-trace-details');
     }));
 
     it('displays trace ID when available in observability', fakeAsync(() => {
@@ -587,7 +615,9 @@ describe('GfFireAiChatPanelComponent', () => {
       fixture.detectChanges();
 
       expect(component.activeResponseDetails).toBeDefined();
-      expect(component.activeResponseDetails?.observability?.traceId).toBe('custom-trace-id-123');
+      expect(component.activeResponseDetails?.observability?.traceId).toBe(
+        'custom-trace-id-123'
+      );
     }));
   });
 

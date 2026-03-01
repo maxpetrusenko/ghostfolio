@@ -1,12 +1,13 @@
-import { AiService } from '../ai.service';
 import { Client, RunTree } from 'langsmith';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
+import { AiService } from '../ai.service';
 import {
   AiAgentMvpEvalCategory,
   AiAgentMvpEvalCategorySummary,
   AiAgentMvpEvalCase,
+  AiAgentMvpEvalNumericAssertion,
   AiAgentMvpEvalResult,
   AiAgentMvpEvalSuiteResult,
   AiAgentMvpEvalVerificationExpectation
@@ -26,7 +27,7 @@ const EVAL_CATEGORIES: AiAgentMvpEvalCategory[] = [
 ];
 const DEFAULT_EVAL_HISTORY_PATH = resolve(
   process.cwd(),
-  'tools/evals/finance-agent-evals/history/mvp-eval-history.json'
+  'tools/evals/finance-agent-evals/history/ai-chat-requirements-eval-history.json'
 );
 const MAX_EVAL_HISTORY_ENTRIES = 200;
 
@@ -86,7 +87,9 @@ export async function persistEvalHistoryRecord({
   const regressionDetected = Boolean(
     previousEntry && currentEntry.passRate < previousEntry.passRate
   );
-  const nextHistory = [...history, currentEntry].slice(-MAX_EVAL_HISTORY_ENTRIES);
+  const nextHistory = [...history, currentEntry].slice(
+    -MAX_EVAL_HISTORY_ENTRIES
+  );
 
   await mkdir(dirname(historyPath), {
     recursive: true
@@ -127,7 +130,9 @@ function isLangSmithTracingEnabled() {
 function hasValidLangSmithApiKey(apiKey?: string) {
   const normalizedApiKey = apiKey?.trim();
 
-  return Boolean(normalizedApiKey) && !ENV_PLACEHOLDER_PATTERN.test(normalizedApiKey);
+  return (
+    Boolean(normalizedApiKey) && !ENV_PLACEHOLDER_PATTERN.test(normalizedApiKey)
+  );
 }
 
 async function runSafely(operation: () => Promise<void>) {
@@ -199,11 +204,7 @@ function summarizeByCategory({
   });
 }
 
-function createEvalSuiteRun({
-  cases
-}: {
-  cases: AiAgentMvpEvalCase[];
-}) {
+function createEvalSuiteRun({ cases }: { cases: AiAgentMvpEvalCase[] }) {
   const apiKey = getLangSmithApiKey();
 
   if (!hasValidLangSmithApiKey(apiKey) || !isLangSmithTracingEnabled()) {
@@ -230,7 +231,7 @@ function createEvalSuiteRun({
     metadata: {
       type: 'mvp_eval_suite'
     },
-    name: 'ghostfolio_ai_mvp_eval_suite',
+    name: 'ghostfolio_ai_chat_requirements_eval_suite',
     project_name: getLangSmithProjectName(),
     run_type: 'chain'
   });
@@ -259,7 +260,7 @@ async function captureEvalCaseRun({
       category: evalCase.category,
       intent: evalCase.intent
     },
-    name: `ghostfolio_ai_mvp_eval_case_${evalCase.id}`,
+    name: `ghostfolio_ai_chat_requirements_eval_case_${evalCase.id}`,
     run_type: 'tool'
   });
 
@@ -312,7 +313,9 @@ async function finalizeSuiteRun({
         total,
         verificationAccuracy
       },
-      passRate >= 0.8 ? undefined : 'mvp eval pass rate below threshold'
+      passRate >= 0.8
+        ? undefined
+        : 'ai chat requirements eval pass rate below threshold'
     )
   );
   await runSafely(async () => suiteRunTree.patchRun());
@@ -338,6 +341,106 @@ function hasExpectedVerification({
   });
 }
 
+function getExpectedToolsInOrder({
+  evalCase
+}: {
+  evalCase: AiAgentMvpEvalCase;
+}) {
+  return evalCase.expected.toolPlan ?? evalCase.expected.requiredTools ?? [];
+}
+
+function hasOrderedToolPlan({
+  observedTools,
+  toolPlan
+}: {
+  observedTools: string[];
+  toolPlan: string[];
+}) {
+  if (toolPlan.length === 0) {
+    return true;
+  }
+
+  const plannedTools = new Set(toolPlan);
+  let nextPlanIndex = 0;
+
+  for (const observedTool of observedTools) {
+    if (!plannedTools.has(observedTool)) {
+      continue;
+    }
+
+    if (nextPlanIndex >= toolPlan.length) {
+      return false;
+    }
+
+    if (observedTool !== toolPlan[nextPlanIndex]) {
+      return false;
+    }
+
+    nextPlanIndex += 1;
+  }
+
+  return nextPlanIndex === toolPlan.length;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function collectStateValues({
+  response,
+  key
+}: {
+  response: Awaited<ReturnType<AiService['chat']>>;
+  key: string;
+}) {
+  return response.toolCalls.reduce<unknown[]>((values, { state }) => {
+    if (!isRecord(state) || !(key in state)) {
+      return values;
+    }
+
+    values.push(state[key]);
+    return values;
+  }, []);
+}
+
+function satisfiesNumericAssertion({
+  actualValues,
+  assertion
+}: {
+  actualValues: unknown[];
+  assertion: AiAgentMvpEvalNumericAssertion;
+}) {
+  const numericValues = actualValues.filter((value): value is number => {
+    return typeof value === 'number' && Number.isFinite(value);
+  });
+
+  if (numericValues.length === 0) {
+    return false;
+  }
+
+  if (typeof assertion.gte === 'number') {
+    const hasMatchingLowerBound = numericValues.some((value) => {
+      return value >= assertion.gte!;
+    });
+
+    if (!hasMatchingLowerBound) {
+      return false;
+    }
+  }
+
+  if (typeof assertion.lte === 'number') {
+    const hasMatchingUpperBound = numericValues.some((value) => {
+      return value <= assertion.lte!;
+    });
+
+    if (!hasMatchingUpperBound) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function evaluateResponse({
   evalCase,
   response
@@ -347,11 +450,24 @@ function evaluateResponse({
 }) {
   const failures: string[] = [];
   const observedTools = response.toolCalls.map(({ tool }) => tool);
+  const expectedTools = getExpectedToolsInOrder({ evalCase });
 
-  for (const requiredTool of evalCase.expected.requiredTools ?? []) {
+  for (const requiredTool of expectedTools) {
     if (!observedTools.includes(requiredTool)) {
       failures.push(`Missing required tool: ${requiredTool}`);
     }
+  }
+
+  if (
+    evalCase.expected.toolPlan &&
+    !hasOrderedToolPlan({
+      observedTools,
+      toolPlan: evalCase.expected.toolPlan
+    })
+  ) {
+    failures.push(
+      `Tool plan order mismatch. Expected ordered sequence: ${evalCase.expected.toolPlan.join(' -> ')}. Observed: ${observedTools.join(' -> ')}`
+    );
   }
 
   for (const forbiddenTool of evalCase.expected.forbiddenTools ?? []) {
@@ -417,7 +533,8 @@ function evaluateResponse({
     );
   }
 
-  for (const expectedVerification of evalCase.expected.verificationChecks ?? []) {
+  for (const expectedVerification of evalCase.expected.verificationChecks ??
+    []) {
     if (
       !hasExpectedVerification({
         actualChecks: response.verification,
@@ -426,6 +543,110 @@ function evaluateResponse({
     ) {
       failures.push(
         `Missing verification check: ${expectedVerification.check}${expectedVerification.status ? `:${expectedVerification.status}` : ''}`
+      );
+    }
+  }
+
+  const { resultAssertions } = evalCase.expected;
+
+  if (resultAssertions?.status) {
+    const statusValues = collectStateValues({
+      key: 'status',
+      response
+    });
+    const hasStatusEvidence = statusValues.some((value) => {
+      return value === resultAssertions.status;
+    });
+
+    if (!hasStatusEvidence) {
+      failures.push(
+        `Missing status assertion evidence in tool state: status == ${resultAssertions.status}`
+      );
+    }
+  }
+
+  if (resultAssertions?.parseSuccessRate) {
+    const parseSuccessRateValues = collectStateValues({
+      key: 'parseSuccessRate',
+      response
+    });
+
+    if (
+      !satisfiesNumericAssertion({
+        actualValues: parseSuccessRateValues,
+        assertion: resultAssertions.parseSuccessRate
+      })
+    ) {
+      failures.push(
+        `Missing parseSuccessRate assertion evidence in tool state for ${JSON.stringify(resultAssertions.parseSuccessRate)}`
+      );
+    }
+  }
+
+  if (resultAssertions?.unknownSymbolRate) {
+    const unknownSymbolRateValues = collectStateValues({
+      key: 'unknownSymbolRate',
+      response
+    });
+
+    if (
+      !satisfiesNumericAssertion({
+        actualValues: unknownSymbolRateValues,
+        assertion: resultAssertions.unknownSymbolRate
+      })
+    ) {
+      failures.push(
+        `Missing unknownSymbolRate assertion evidence in tool state for ${JSON.stringify(resultAssertions.unknownSymbolRate)}`
+      );
+    }
+  }
+
+  if (resultAssertions?.errorCount) {
+    const errorCountValues = collectStateValues({
+      key: 'errorCount',
+      response
+    });
+
+    if (
+      !satisfiesNumericAssertion({
+        actualValues: errorCountValues,
+        assertion: resultAssertions.errorCount
+      })
+    ) {
+      failures.push(
+        `Missing errorCount assertion evidence in tool state for ${JSON.stringify(resultAssertions.errorCount)}`
+      );
+    }
+  }
+
+  if (typeof resultAssertions?.idempotent === 'boolean') {
+    const idempotentValues = collectStateValues({
+      key: 'idempotent',
+      response
+    });
+    const hasExpectedIdempotencyStatus = idempotentValues.some((value) => {
+      return value === resultAssertions.idempotent;
+    });
+
+    if (!hasExpectedIdempotencyStatus) {
+      failures.push(
+        `Missing idempotency assertion evidence in tool state: idempotent == ${resultAssertions.idempotent}`
+      );
+    }
+  }
+
+  if (typeof resultAssertions?.noNewRowsCreated === 'boolean') {
+    const noNewRowsCreatedValues = collectStateValues({
+      key: 'noNewRowsCreated',
+      response
+    });
+    const hasNoNewRowsStatus = noNewRowsCreatedValues.some((value) => {
+      return value === resultAssertions.noNewRowsCreated;
+    });
+
+    if (!hasNoNewRowsStatus) {
+      failures.push(
+        `Missing noNewRowsCreated assertion evidence in tool state: noNewRowsCreated == ${resultAssertions.noNewRowsCreated}`
       );
     }
   }
@@ -514,16 +735,14 @@ export async function runMvpEvalSuite({
     cases,
     results
   });
-  const {
-    previousPassRate,
-    regressionDetected
-  } = await persistEvalHistoryRecord({
-    hallucinationRate,
-    passRate,
-    passed,
-    total: cases.length,
-    verificationAccuracy
-  });
+  const { previousPassRate, regressionDetected } =
+    await persistEvalHistoryRecord({
+      hallucinationRate,
+      passRate,
+      passed,
+      total: cases.length,
+      verificationAccuracy
+    });
 
   await finalizeSuiteRun({
     categorySummaries,

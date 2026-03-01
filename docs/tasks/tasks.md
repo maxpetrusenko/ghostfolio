@@ -4,18 +4,18 @@ Last updated: 2026-02-27
 
 ## Active Tickets
 
-| ID | Feature | Status | Tests | PR / Commit |
-| --- | --- | --- | --- | --- |
-| T-001 | Presearch package and architecture direction | Complete | Doc review checklist | Local docs update |
-| T-002 | ADR foundation in `docs/adr/` | Complete | ADR template and first ADR review | Local docs update |
-| T-003 | Agent MVP tool 1: `portfolio_analysis` | Complete | `apps/api/src/app/endpoints/ai/ai.service.spec.ts` | Planned |
-| T-004 | Agent memory and response formatter | Complete | `apps/api/src/app/endpoints/ai/ai.service.spec.ts` | Planned |
-| T-005 | Eval dataset baseline (MVP 5-10) | Complete | `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` | Planned |
-| T-006 | Full eval dataset (50+) | Complete | `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` | Local implementation |
-| T-007 | Observability wiring (LangSmith traces and metrics) | Complete | `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/ai-feedback.service.spec.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` | Local implementation |
-| T-008 | Deployment and submission bundle | Complete | `npm run test:ai` + Railway healthcheck + submission docs checklist | `2b6506de8` |
-| T-009 | Open source eval framework contribution | In Review | `@ghostfolio/finance-agent-evals` package scaffold + dataset export + smoke/pack checks | openai/evals PR #1625 + langchain PR #35421 |
-| T-020 | Conversational acknowledgments + freshness news routing | In Progress | `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts` | Local implementation |
+| ID    | Feature                                                 | Status      | Tests                                                                                                                                                                          | PR / Commit                                 |
+| ----- | ------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| T-001 | Presearch package and architecture direction            | Complete    | Doc review checklist                                                                                                                                                           | Local docs update                           |
+| T-002 | ADR foundation in `docs/adr/`                           | Complete    | ADR template and first ADR review                                                                                                                                              | Local docs update                           |
+| T-003 | Agent MVP tool 1: `portfolio_analysis`                  | Complete    | `apps/api/src/app/endpoints/ai/ai.service.spec.ts`                                                                                                                             | Planned                                     |
+| T-004 | Agent memory and response formatter                     | Complete    | `apps/api/src/app/endpoints/ai/ai.service.spec.ts`                                                                                                                             | Planned                                     |
+| T-005 | Eval dataset baseline (MVP 5-10)                        | Complete    | `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts`                                                                                                                  | Planned                                     |
+| T-006 | Full eval dataset (50+)                                 | Complete    | `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts`                                                                                                                  | Local implementation                        |
+| T-007 | Observability wiring (LangSmith traces and metrics)     | Complete    | `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/ai-feedback.service.spec.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` | Local implementation                        |
+| T-008 | Deployment and submission bundle                        | Complete    | `npm run test:ai` + Railway healthcheck + submission docs checklist                                                                                                            | `2b6506de8`                                 |
+| T-009 | Open source eval framework contribution                 | In Review   | `@ghostfolio/finance-agent-evals` package scaffold + dataset export + smoke/pack checks                                                                                        | openai/evals PR #1625 + langchain PR #35421 |
+| T-020 | Conversational acknowledgments + freshness news routing | In Progress | `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`      | Local implementation                        |
 
 ## Notes
 
@@ -58,10 +58,62 @@ Last updated: 2026-02-27
   - `npm run test:ai`
   - `npm run test:mvp-eval`
 
-
 # Ghostfolio AI Tasks
 
 ## Active Tasks
+
+### Bounty Eval Reliability Hardening (Tool Plan + State Assertions)
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Extend MVP eval schema with ordered `toolPlan` and `resultAssertions` while keeping `requiredTools` backward compatibility
+- [x] Tighten ordered `toolPlan` enforcement to reject invalid pre-sequence tool calls
+- [x] Ground `resultAssertions` on structured tool/state payload evidence instead of verification string parsing
+- [x] Add grouped broker-statement multi-turn sequences (upload, map conflict, reconcile, apply fix, clean rerun)
+- [x] Add adversarial CSV-row prompt-injection scenario to the global adversarial dataset
+- [x] Resolve ambiguous broker cases (`bs-008`, `bs-011`, `bs-edge-003`) with explicit scope/order expectations
+- [x] Restore destructive confirmation negative test so delete confirmation is directly validated
+- [x] Run eval runner + coverage tests and API lint
+
+Success Criteria:
+
+- Tool routing-only pass is no longer sufficient for broker-critical scenarios
+- Out-of-order tool execution fails deterministic eval checks
+- Broker statement workflow includes stateful multi-turn sequences and idempotency/state assertions
+- State assertions are validated from structured `toolCalls[].state` payloads instead of verification text parsing
+- Any planned tool executed out of order (including premature pre-sequence calls) fails eval deterministically
+
+Build/Lint/Test Log:
+
+- 2026-03-01 09:56:35 EST: `npm run test:mvp-eval` passed, `npx nx run api:lint` passed (existing repo warnings), `npx nx build api` passed.
+
+**Key Files**:
+
+- `apps/api/src/app/endpoints/ai/evals/mvp-eval.interfaces.ts`
+- `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.ts`
+- `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts`
+- `apps/api/src/app/endpoints/ai/evals/dataset/broker-statement.dataset.ts`
+- `apps/api/src/app/endpoints/ai/evals/dataset/adversarial.dataset.ts`
+
+### AI Chat Failure Diagnostics + Deterministic Error Codes
+
+**Status**: In Progress | **Priority**: High
+
+Tasks:
+
+- [x] Attempt local reproduction for `POST /api/v1/ai/chat` query `How is my portfolio performing?` and capture blocker details
+- [x] Wrap AI chat backend failures with deterministic HTTP status + stable error code payload
+- [x] Surface backend error code/message in all AI chat UI surfaces (`chat-page`, `analysis ai panel`, `fire ai panel`)
+- [x] Add provider configuration startup health check for AI chat fail-fast behavior
+- [x] Add regression tests for success path (`How is my portfolio performing?`) and deterministic negative paths (403/503)
+- [x] Run targeted AI + client tests for touched modules
+
+Notes:
+
+- Local reproduction blocker (2026-03-01): API bootstrap fails before request handling with `UnknownDependenciesException` in `BrokerStatementModule` (`PrismaService` -> `ConfigService` dependency resolution).
+- Runtime fix (2026-03-01): portfolio AI tool failures with `[big.js] Invalid number` traced to malformed `emergencyFund` user setting parsing; added `normalizeEmergencyFundValue` guard in `PortfolioService.getDetails` and regression unit test.
 
 ### Intent Capture Reliability: Typos + Wording Variants
 
@@ -141,6 +193,28 @@ Success Criteria:
 - `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`
 - `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
 - `docs/tasks/tasks.md`
+
+### Regression Fix: Scoped Requests Returning Generic Scope Prompt
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Reproduce low-confidence guardrail path for scoped tool requests with failed tool execution
+- [x] Update abstain fallback copy to distinguish scoped tool failures from ambiguous no-scope prompts
+- [x] Add regression assertions in AI service specs for failure-aware abstain messaging
+- [x] Run targeted AI service tests for touched module
+
+Success Criteria:
+
+- Scoped prompts like portfolio performance and concentration risk do not return "need one concrete request with scope" when tools were already selected
+- Failure path preserves low-confidence + human escalation while surfacing tool execution failure context
+- Existing low-confidence abstain behavior remains available for ambiguous/no-scope requests
+
+**Key Files**:
+
+- `apps/api/src/app/endpoints/ai/ai.service.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
 
 ### AI Reliability Guardrails: No Portfolio Fallback on Low Confidence
 
@@ -613,15 +687,15 @@ Tasks:
 
 ## Gap Scorecard (Before vs After)
 
-| Gap | Before | After | Evidence |
-| --- | --- | --- | --- |
-| G-001 Architecture doc (`docs/ai_agents.md`) | Missing (0 lines) | Completed with architecture mapping + tests | `docs/ai_agents.md`, `apps/api/src/app/endpoints/ai/ai-docs.spec.ts` |
-| G-002 Timeout default | 15_000ms fallback | 1_500ms fallback + provider tests | `apps/api/src/app/endpoints/ai/ai-llm.providers.ts`, `apps/api/src/app/endpoints/ai/ai-llm.providers.spec.ts` |
-| G-003 Response cache staleness | No portfolio version in key | Portfolio-state hash added to cache key | `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts` |
-| G-004 Deterministic tool coverage | Missing for `activity_history` and `demo_data` | Added deterministic single-tool answers + eval coverage | `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/evals/dataset/happy-path.dataset.ts` |
-| G-005 Token/cost + historical eval persistence | Partial/inferred only | Added cost estimate + tool-step telemetry persistence and eval history regression signal | `apps/api/src/app/endpoints/ai/ai-observability.service.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` |
-| G-006 Submission artifacts evidence | Not documented in repo | Scaffolded and validated; waiting real external URLs | `docs/submission.md`, `apps/api/src/app/endpoints/ai/ai-submission-docs.spec.ts` |
-| G-007 Human-in-the-loop escalation | 4/10 (not explicit) | Explicit escalation metadata + verification check + adversarial eval | `apps/api/src/app/endpoints/ai/ai-agent.interfaces.ts`, `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/evals/dataset/adversarial.dataset.ts` |
+| Gap                                            | Before                                         | After                                                                                    | Evidence                                                                                                                                                                             |
+| ---------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| G-001 Architecture doc (`docs/ai_agents.md`)   | Missing (0 lines)                              | Completed with architecture mapping + tests                                              | `docs/ai_agents.md`, `apps/api/src/app/endpoints/ai/ai-docs.spec.ts`                                                                                                                 |
+| G-002 Timeout default                          | 15_000ms fallback                              | 1_500ms fallback + provider tests                                                        | `apps/api/src/app/endpoints/ai/ai-llm.providers.ts`, `apps/api/src/app/endpoints/ai/ai-llm.providers.spec.ts`                                                                        |
+| G-003 Response cache staleness                 | No portfolio version in key                    | Portfolio-state hash added to cache key                                                  | `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`                                                                                    |
+| G-004 Deterministic tool coverage              | Missing for `activity_history` and `demo_data` | Added deterministic single-tool answers + eval coverage                                  | `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/ai.service.spec.ts`, `apps/api/src/app/endpoints/ai/evals/dataset/happy-path.dataset.ts`               |
+| G-005 Token/cost + historical eval persistence | Partial/inferred only                          | Added cost estimate + tool-step telemetry persistence and eval history regression signal | `apps/api/src/app/endpoints/ai/ai-observability.service.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.ts`, `apps/api/src/app/endpoints/ai/evals/mvp-eval.runner.spec.ts` |
+| G-006 Submission artifacts evidence            | Not documented in repo                         | Scaffolded and validated; waiting real external URLs                                     | `docs/submission.md`, `apps/api/src/app/endpoints/ai/ai-submission-docs.spec.ts`                                                                                                     |
+| G-007 Human-in-the-loop escalation             | 4/10 (not explicit)                            | Explicit escalation metadata + verification check + adversarial eval                     | `apps/api/src/app/endpoints/ai/ai-agent.interfaces.ts`, `apps/api/src/app/endpoints/ai/ai.service.ts`, `apps/api/src/app/endpoints/ai/evals/dataset/adversarial.dataset.ts`          |
 
 Verification runs:
 

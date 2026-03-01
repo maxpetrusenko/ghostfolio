@@ -32,6 +32,19 @@ describe('HasPermissionGuard', () => {
     const noPermissions = createMockExecutionContext([]);
 
     expect(() => guard.canActivate(noPermissions)).toThrow(HttpException);
+
+    try {
+      guard.canActivate(noPermissions);
+    } catch (error) {
+      const exception = error as HttpException;
+      const response = exception.getResponse() as Record<string, unknown>;
+
+      expect(response).toMatchObject({
+        code: 'PERMISSION_DENIED',
+        message: 'Forbidden',
+        statusCode: 403
+      });
+    }
   });
 
   it('should deny access if the user has the wrong permission', () => {

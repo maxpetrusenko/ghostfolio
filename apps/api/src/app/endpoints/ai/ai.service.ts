@@ -5,6 +5,7 @@ import { RedisCacheService } from '@ghostfolio/api/app/redis-cache/redis-cache.s
 import { BenchmarkService } from '@ghostfolio/api/services/benchmark/benchmark.service';
 import { DataProviderService } from '@ghostfolio/api/services/data-provider/data-provider.service';
 import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.service';
+import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
 import { PropertyService } from '@ghostfolio/api/services/property/property.service';
 import {
   PROPERTY_API_KEY_OPENROUTER,
@@ -14,7 +15,7 @@ import { Filter } from '@ghostfolio/common/interfaces';
 import type { AiPromptMode } from '@ghostfolio/common/types';
 
 import { RunnableLambda } from '@langchain/core/runnables';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { DataSource, Type } from '@prisma/client';
 import type { SymbolProfile } from '@prisma/client';
@@ -74,6 +75,9 @@ import {
 import { AiObservabilityService } from './ai-observability.service';
 
 const PORTFOLIO_CONTEXT_SYMBOL_TOOLS = new Set([
+  'get_financial_news',
+  'get_live_quote',
+  'market_data_lookup',
   'price_history',
   'calculate_rebalance_plan',
   'get_asset_fundamentals',
@@ -107,7 +111,8 @@ const AI_TOOL_REGISTRY_DEFAULT_MAX_CALLS_PER_TOOL = 1;
 const AI_PORTFOLIO_ANALYSIS_CACHE_TTL_IN_MS = 30_000;
 const AI_PORTFOLIO_ANALYSIS_CACHE_MAX_AGE_IN_MS = 120_000;
 const AI_RESPONSE_CACHE_TTL_IN_MS = 300_000;
-const AI_CACHE_BYPASS_PATTERN = /\b(?:now|today|latest|current|updated|update|refresh|real-time)\b/i;
+const AI_CACHE_BYPASS_PATTERN =
+  /\b(?:now|today|latest|current|updated|update|refresh|real-time)\b/i;
 const CONVERSATIONAL_ACKNOWLEDGMENT_QUERY_PATTERN =
   /^\s*(?:oh\s+wow|wow|whoa|cool|nice|awesome|great|got it|ok(?:ay)?|interesting|alright)\b(?:.{0,30})?\s*[!.?]*\s*$/i;
 const FINANCE_TOKEN_QUERY_PATTERN =
@@ -277,7 +282,10 @@ function buildTurnContext({
     primaryScope: classifyPrimaryScope(query),
     toolSummaryHash:
       successfulTools.length > 0
-        ? createHash('sha1').update(successfulTools.join('|')).digest('hex').slice(0, 12)
+        ? createHash('sha1')
+            .update(successfulTools.join('|'))
+            .digest('hex')
+            .slice(0, 12)
         : undefined
   };
 }
@@ -337,13 +345,12 @@ function shouldUseLlmClarifyFallback({
     return false;
   }
 
-  const queryTokenCount = query
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length;
+  const queryTokenCount = query.trim().split(/\s+/).filter(Boolean).length;
   const hasAmbiguousShortInput = queryTokenCount <= 8;
 
-  return followUpSignal.isLikelyFollowUp && hasAmbiguousShortInput && !!previousTurn;
+  return (
+    followUpSignal.isLikelyFollowUp && hasAmbiguousShortInput && !!previousTurn
+  );
 }
 
 function isShortContextFollowUpQuery(query: string) {
@@ -374,7 +381,16 @@ function isShortContextFollowUpQuery(query: string) {
   }
 
   const hasFollowUpSignal = normalizedTokens.some((token) => {
-    return ['why', 'how', 'what', 'mean', 'explain', 'that', 'this', 'it'].includes(token);
+    return [
+      'why',
+      'how',
+      'what',
+      'mean',
+      'explain',
+      'that',
+      'this',
+      'it'
+    ].includes(token);
   });
   const hasConcreteTopic = normalizedTokens.some((token) => {
     return [
@@ -520,7 +536,11 @@ function buildFireAnalysisAnswer({
         ? 'moderate concentration'
         : 'diversified concentration';
   const hhiBand =
-    hhi >= 0.5 ? 'high concentration risk' : hhi >= 0.25 ? 'moderate concentration risk' : 'lower concentration risk';
+    hhi >= 0.5
+      ? 'high concentration risk'
+      : hhi >= 0.25
+        ? 'moderate concentration risk'
+        : 'lower concentration risk';
 
   return [
     `FIRE quick check (rule-of-thumb):`,
@@ -676,7 +696,10 @@ function buildSingleToolDeterministicAnswer({
     return priceHistorySummary;
   }
 
-  if (toolName === 'portfolio_analysis' || toolName === 'get_portfolio_summary') {
+  if (
+    toolName === 'portfolio_analysis' ||
+    toolName === 'get_portfolio_summary'
+  ) {
     return buildPortfolioSnapshotAnswer({ portfolioAnalysis, userCurrency });
   }
 
@@ -703,7 +726,10 @@ function buildSingleToolDeterministicAnswer({
     return assetFundamentalsSummary;
   }
 
-  if (toolName === 'rebalance_plan' || toolName === 'calculate_rebalance_plan') {
+  if (
+    toolName === 'rebalance_plan' ||
+    toolName === 'calculate_rebalance_plan'
+  ) {
     return rebalancePlanSummary;
   }
 
@@ -746,14 +772,21 @@ function buildMultiToolDeterministicAnswer({
   const isPortfolioAndRebalance =
     toolsSet.size === 2 &&
     toolsSet.has('portfolio_analysis') &&
-    (toolsSet.has('rebalance_plan') || toolsSet.has('calculate_rebalance_plan'));
+    (toolsSet.has('rebalance_plan') ||
+      toolsSet.has('calculate_rebalance_plan'));
   const isPortfolioAndRiskAndRebalance =
     toolsSet.size === 3 &&
     toolsSet.has('portfolio_analysis') &&
     toolsSet.has('risk_assessment') &&
-    (toolsSet.has('rebalance_plan') || toolsSet.has('calculate_rebalance_plan'));
+    (toolsSet.has('rebalance_plan') ||
+      toolsSet.has('calculate_rebalance_plan'));
 
-  if (isPortfolioAndRiskAndRebalance && portfolioAnalysis && riskAssessment && rebalancePlanSummary) {
+  if (
+    isPortfolioAndRiskAndRebalance &&
+    portfolioAnalysis &&
+    riskAssessment &&
+    rebalancePlanSummary
+  ) {
     return [
       'Portfolio analysis:',
       buildPortfolioSnapshotAnswer({ portfolioAnalysis, userCurrency }) ?? '',
@@ -763,7 +796,9 @@ function buildMultiToolDeterministicAnswer({
       `Rebalance plan: ${rebalancePlanSummary}`,
       '',
       'Next steps: Review concentration risk and consider gradual rebalancing to reduce drift.'
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   if (isPortfolioAndRisk && portfolioAnalysis && riskAssessment) {
@@ -771,7 +806,9 @@ function buildMultiToolDeterministicAnswer({
       buildPortfolioSnapshotAnswer({ portfolioAnalysis, userCurrency }) ?? '',
       '',
       buildRiskSnapshotAnswer({ riskAssessment })
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   if (isPortfolioAndRebalance && portfolioAnalysis && rebalancePlanSummary) {
@@ -781,7 +818,9 @@ function buildMultiToolDeterministicAnswer({
       `Rebalance plan: ${rebalancePlanSummary}`,
       '',
       'Next steps: Execute trims gradually and reallocate to underweight positions.'
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   return undefined;
@@ -1019,7 +1058,9 @@ type OrderActivity = Awaited<
 >['activities'][number];
 
 @Injectable()
-export class AiService implements AgentKernel {
+export class AiService implements AgentKernel, OnModuleInit {
+  private readonly logger = new Logger(AiService.name);
+
   public constructor(
     private readonly accountService: AccountService,
     private readonly benchmarkService: BenchmarkService,
@@ -1027,11 +1068,60 @@ export class AiService implements AgentKernel {
     private readonly exchangeRateDataService: ExchangeRateDataService,
     private readonly orderService: OrderService,
     private readonly portfolioService: PortfolioService,
+    private readonly prisma: PrismaService,
     private readonly propertyService: PropertyService,
     private readonly redisCacheService: RedisCacheService,
     private readonly aiObservabilityService: AiObservabilityService,
     private readonly aiAgentWebSearchService?: AiAgentWebSearchService
   ) {}
+
+  public async onModuleInit() {
+    // Unit and component tests instantiate AiService in constrained environments.
+    if (process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    await this.assertAiProviderConfiguredAtStartup();
+  }
+
+  private async assertAiProviderConfiguredAtStartup() {
+    const hasZAiGlm = Boolean(
+      process.env.z_ai_glm_api_key?.trim() ||
+      process.env.Z_AI_GLM_API_KEY?.trim()
+    );
+    const hasMinimax = Boolean(
+      process.env.minimax_api_key?.trim() || process.env.MINIMAX_API_KEY?.trim()
+    );
+    const hasOpenAi = Boolean(
+      process.env.openai_api_key?.trim() || process.env.OPENAI_API_KEY?.trim()
+    );
+
+    let hasOpenRouter = Boolean(
+      process.env.API_KEY_OPENROUTER?.trim() ||
+      process.env.OPENROUTER_API_KEY?.trim()
+    );
+
+    if (!hasOpenRouter) {
+      try {
+        const propertyApiKey = await this.propertyService.getByKey<string>(
+          PROPERTY_API_KEY_OPENROUTER
+        );
+        hasOpenRouter = Boolean(propertyApiKey?.trim());
+      } catch (error) {
+        this.logger.warn(
+          `AI startup provider check could not read property store: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`
+        );
+      }
+    }
+
+    if (!(hasZAiGlm || hasMinimax || hasOpenAi || hasOpenRouter)) {
+      throw new Error(
+        'No AI provider configured (startup health check failed: configure z_ai_glm, minimax, openai, or openrouter)'
+      );
+    }
+  }
   public async generateText({
     prompt,
     signal,
@@ -1044,7 +1134,12 @@ export class AiService implements AgentKernel {
     signal?: AbortSignal;
     model?: string;
     onLlmInvocation?: (invocation: { model: string; provider: string }) => void;
-    traceContext?: { query: string; sessionId: string; traceId: string; userId: string };
+    traceContext?: {
+      query: string;
+      sessionId: string;
+      traceId: string;
+      userId: string;
+    };
     useFormatterModel?: boolean;
   }): Promise<{ text?: string }> {
     const zAiGlmApiKey =
@@ -1063,14 +1158,13 @@ export class AiService implements AgentKernel {
       'gpt-4o-mini';
     const openAiModel = useFormatterModel
       ? formatterModel
-      : process.env.openai_model ??
-        process.env.OPENAI_MODEL ??
-        'gpt-4o-mini';
-    const allowProviderFallbacks =
-      useFormatterModel
-        ? false
-        : process.env.AI_AGENT_LLM_ALLOW_FALLBACKS === 'true';
-    const normalizedModel = (useFormatterModel ? 'openai' : model ?? 'auto').toLowerCase();
+      : (process.env.openai_model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini');
+    const allowProviderFallbacks = useFormatterModel
+      ? false
+      : process.env.AI_AGENT_LLM_ALLOW_FALLBACKS === 'true';
+    const normalizedModel = (
+      useFormatterModel ? 'openai' : (model ?? 'auto')
+    ).toLowerCase();
     const requestedModel = [
       'auto',
       'glm',
@@ -1424,10 +1518,15 @@ export class AiService implements AgentKernel {
         const currencyCodePattern = /^(?:USD|EUR|GBP|CAD|CHF|JPY|AUD|NZD)$/i;
         const previousSymbols = previousEntities.filter((entity) => {
           const upperEntity = entity.toUpperCase();
-          return tickerPattern.test(upperEntity) && !currencyCodePattern.test(upperEntity);
+          return (
+            tickerPattern.test(upperEntity) &&
+            !currencyCodePattern.test(upperEntity)
+          );
         });
 
-        return previousSymbols.length > 0 ? previousSymbols.map((s) => s.toUpperCase()) : (symbols ?? []);
+        return previousSymbols.length > 0
+          ? previousSymbols.map((s) => s.toUpperCase())
+          : (symbols ?? []);
       })();
 
       const inferredPlannedTools = determineToolPlan({
@@ -1445,21 +1544,22 @@ export class AiService implements AgentKernel {
             )
           )
         : [];
-      const previousTurnForFollowUp: AiAgentFollowUpResolverPreviousTurn | undefined =
-        previousTurn
-          ? {
-              context: previousTurn.context
-                ? {
-                    entities: previousTurn.context.entities,
-                    goalType: previousTurn.context.goalType,
-                    primaryScope: previousTurn.context.primaryScope
-                  }
-                : undefined,
-              query: previousTurn.query,
-              successfulTools: previousSuccessfulTools,
-              timestamp: previousTurn.timestamp
-            }
-          : undefined;
+      const previousTurnForFollowUp:
+        | AiAgentFollowUpResolverPreviousTurn
+        | undefined = previousTurn
+        ? {
+            context: previousTurn.context
+              ? {
+                  entities: previousTurn.context.entities,
+                  goalType: previousTurn.context.goalType,
+                  primaryScope: previousTurn.context.primaryScope
+                }
+              : undefined,
+            query: previousTurn.query,
+            successfulTools: previousSuccessfulTools,
+            timestamp: previousTurn.timestamp
+          }
+        : undefined;
       const followUpSignal = resolveFollowUpSignal({
         inferredPlannedTools,
         previousTurn: previousTurnForFollowUp,
@@ -1495,7 +1595,8 @@ export class AiService implements AgentKernel {
         }
       });
 
-      const shouldBypassResponseCache = AI_CACHE_BYPASS_PATTERN.test(normalizedQuery);
+      const shouldBypassResponseCache =
+        AI_CACHE_BYPASS_PATTERN.test(normalizedQuery);
       let responseCacheKey: string | undefined;
       let cachedResponse: string | undefined;
       const parseCachedResponse = (
@@ -1508,7 +1609,10 @@ export class AiService implements AgentKernel {
         try {
           const parsed = JSON.parse(rawValue) as CachedResponsePayload;
 
-          if (typeof parsed?.answer !== 'string' || parsed.answer.length === 0) {
+          if (
+            typeof parsed?.answer !== 'string' ||
+            parsed.answer.length === 0
+          ) {
             return undefined;
           }
 
@@ -1520,11 +1624,15 @@ export class AiService implements AgentKernel {
 
       if (!shouldBypassResponseCache && policyDecision.route === 'tools') {
         const toolsHash = policyDecision.toolsToExecute.sort().join(',');
-        const queryHash = Buffer.from(normalizedQuery).toString('base64').slice(0, 16);
+        const queryHash = Buffer.from(normalizedQuery)
+          .toString('base64')
+          .slice(0, 16);
         let portfolioVersion = 'na';
-        const needsPortfolioVersion = policyDecision.toolsToExecute.some((toolName) => {
-          return PORTFOLIO_STATE_SENSITIVE_TOOLS.has(toolName);
-        });
+        const needsPortfolioVersion = policyDecision.toolsToExecute.some(
+          (toolName) => {
+            return PORTFOLIO_STATE_SENSITIVE_TOOLS.has(toolName);
+          }
+        );
 
         if (needsPortfolioVersion) {
           try {
@@ -1615,10 +1723,6 @@ export class AiService implements AgentKernel {
       let taxEstimateSummary: string | undefined;
       let tradeImpactSummary: string | undefined;
       let transactionCategorizationSummary: string | undefined;
-      // Broker Statement Ingestion (AgentForge Bounty)
-      let brokerStatementImportSummary: string | undefined;
-      let brokerReconciliationSummary: string | undefined;
-      let brokerSymbolMappingSummary: string | undefined;
       const portfolioAnalysisCacheKey = `ai:portfolio-analysis:${userId}`;
       let backgroundPortfolioRefreshPromise: Promise<void> | undefined;
 
@@ -1696,13 +1800,12 @@ export class AiService implements AgentKernel {
         portfolioAnalysisPromise ??= runPortfolioAnalysis({
           portfolioService: this.portfolioService,
           userId
-        })
-          .then(async (analysis) => {
-            portfolioAnalysis = analysis;
-            await storePortfolioAnalysisCache(analysis);
+        }).then(async (analysis) => {
+          portfolioAnalysis = analysis;
+          await storePortfolioAnalysisCache(analysis);
 
-            return analysis;
-          });
+          return analysis;
+        });
 
         return portfolioAnalysisPromise;
       };
@@ -1943,7 +2046,8 @@ export class AiService implements AgentKernel {
                 };
               } else if (toolName === 'get_current_holdings') {
                 const analysis = await getPortfolioAnalysisWithCache();
-                const requestedSymbols = extractSymbolsFromQuery(normalizedQuery);
+                const requestedSymbols =
+                  extractSymbolsFromQuery(normalizedQuery);
                 const selectedHoldings =
                   requestedSymbols.length > 0
                     ? analysis.holdings.filter(({ symbol }) => {
@@ -2360,7 +2464,8 @@ export class AiService implements AgentKernel {
                   );
                 }
 
-                const userAccounts = await this.accountService.getAccounts(userId);
+                const userAccounts =
+                  await this.accountService.getAccounts(userId);
                 const accountId = userAccounts[0]?.id;
 
                 if (!accountId) {
@@ -2489,7 +2594,9 @@ export class AiService implements AgentKernel {
                   orderInput.unitPrice > 0
                 ) {
                   const derivedQuantity = Number.parseFloat(
-                    (orderInput.notionalAmount / orderInput.unitPrice).toFixed(6)
+                    (orderInput.notionalAmount / orderInput.unitPrice).toFixed(
+                      6
+                    )
                   );
 
                   if (derivedQuantity > 0) {
@@ -2647,7 +2754,8 @@ export class AiService implements AgentKernel {
                 };
               } else if (toolName === 'get_recent_transactions') {
                 const transactionCount = getDetailItemCount(toolName, 5);
-                const latestActivities = await getRecentActivities(transactionCount);
+                const latestActivities =
+                  await getRecentActivities(transactionCount);
 
                 recentTransactionsSummary =
                   latestActivities.length > 0
@@ -3007,6 +3115,366 @@ export class AiService implements AgentKernel {
                     tool: toolName
                   }
                 };
+              } else if (toolName === 'import_broker_statement') {
+                // Broker statement import tool
+                // This tool is triggered when user mentions uploading/importing a statement
+                // Returns a summary of available imports or prompts for upload
+                const importsList =
+                  await this.prisma.brokerStatementImport.findMany({
+                    where: { userId },
+                    orderBy: { uploadedAt: 'desc' },
+                    take: 5
+                  });
+
+                return {
+                  citations: [
+                    {
+                      confidence: 0.9,
+                      snippet:
+                        importsList.length > 0
+                          ? `Found ${importsList.length} recent statement imports`
+                          : 'Upload a broker statement (CSV) to import transactions',
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: { userId },
+                    state: {
+                      importsCount: importsList.length
+                    },
+                    outputSummary: `listed ${importsList.length} imports`,
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              } else if (toolName === 'list_statement_imports') {
+                // List all statement imports for the user
+                const importsList =
+                  await this.prisma.brokerStatementImport.findMany({
+                    where: { userId },
+                    orderBy: { uploadedAt: 'desc' }
+                  });
+
+                return {
+                  citations: [
+                    {
+                      confidence: 0.95,
+                      snippet: `Found ${importsList.length} broker statement imports`,
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: {},
+                    state: {
+                      importsCount: importsList.length
+                    },
+                    outputSummary: `${importsList.length} imports listed`,
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              } else if (toolName === 'get_statement_import_details') {
+                // Get details of a specific import
+                // This would parse the query to extract import ID
+                const importsList =
+                  await this.prisma.brokerStatementImport.findMany({
+                    where: { userId },
+                    orderBy: { uploadedAt: 'desc' },
+                    take: 1,
+                    include: { rows: { take: 5 } }
+                  });
+
+                if (importsList.length === 0) {
+                  return {
+                    citations: [
+                      {
+                        confidence: 0.5,
+                        snippet: 'No statement imports found',
+                        source: toolName
+                      }
+                    ],
+                    toolCall: {
+                      input: {},
+                      state: {
+                        status: 'NOT_FOUND'
+                      },
+                      outputSummary: 'no imports found',
+                      status: 'failed' as const,
+                      tool: toolName
+                    }
+                  };
+                }
+
+                const latest = importsList[0];
+                const parseSuccessRate =
+                  latest.rowCount > 0
+                    ? (latest.rowCount - latest.errorCount) / latest.rowCount
+                    : 0;
+                const importMeta = latest.meta as {
+                  idempotent?: boolean;
+                  noNewRowsCreated?: boolean;
+                  unknownSymbolRate?: number;
+                } | null;
+                return {
+                  citations: [
+                    {
+                      confidence: 0.9,
+                      snippet: `Import ${latest.fileName}: ${latest.status}`,
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: {},
+                    state: {
+                      errorCount: latest.errorCount,
+                      idempotent: importMeta?.idempotent,
+                      noNewRowsCreated: importMeta?.noNewRowsCreated,
+                      parseSuccessRate,
+                      rowCount: latest.rowCount,
+                      status: latest.status,
+                      unknownSymbolRate: importMeta?.unknownSymbolRate
+                    },
+                    outputSummary: `details for ${latest.fileName}`,
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              } else if (toolName === 'set_symbol_mapping') {
+                // Set a symbol mapping for broker statements
+                // This would extract rawSymbol, brokerName, canonicalSymbol from query
+                const mappings = await this.prisma.symbolMapping.count({
+                  where: { userId }
+                });
+
+                return {
+                  citations: [
+                    {
+                      confidence: 0.85,
+                      snippet: `Symbol mappings configured: ${mappings}`,
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: { userId },
+                    state: {
+                      mappingsCount: mappings
+                    },
+                    outputSummary: `${mappings} mappings found`,
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              } else if (toolName === 'list_symbol_mappings') {
+                // List all symbol mappings for the user
+                const mappings = await this.prisma.symbolMapping.findMany({
+                  where: { userId },
+                  orderBy: { createdAt: 'desc' },
+                  take: 10
+                });
+
+                return {
+                  citations: [
+                    {
+                      confidence: 0.95,
+                      snippet: `Found ${mappings.length} symbol mappings`,
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: {},
+                    state: {
+                      mappingsCount: mappings.length
+                    },
+                    outputSummary: `${mappings.length} mappings listed`,
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              } else if (toolName === 'run_reconciliation') {
+                // Run reconciliation between broker statement and Ghostfolio
+                const importsList =
+                  await this.prisma.brokerStatementImport.findMany({
+                    where: {
+                      userId,
+                      status: { in: ['PARSED_OK', 'PARSED_WITH_ERRORS'] }
+                    },
+                    orderBy: { uploadedAt: 'desc' },
+                    take: 1
+                  });
+
+                if (importsList.length === 0) {
+                  return {
+                    citations: [
+                      {
+                        confidence: 0.5,
+                        snippet:
+                          'No parsed imports available for reconciliation',
+                        source: toolName
+                      }
+                    ],
+                    toolCall: {
+                      input: {},
+                      state: {
+                        status: 'NO_PARSED_IMPORT'
+                      },
+                      outputSummary: 'no imports to reconcile',
+                      status: 'failed' as const,
+                      tool: toolName
+                    }
+                  };
+                }
+
+                const importRec = importsList[0];
+                const runs = await this.prisma.reconciliationRun.findMany({
+                  where: { importId: importRec.id },
+                  orderBy: { runAt: 'desc' },
+                  take: 1
+                });
+                const latestRun = runs[0];
+                const summary = latestRun?.summary as
+                  | {
+                      criticalDiffs?: number;
+                      totalDiffs?: number;
+                      unknownSymbols?: number;
+                    }
+                  | undefined;
+                const rowCount = importRec.rowCount;
+                const unknownSymbolRate =
+                  rowCount > 0 && typeof summary?.unknownSymbols === 'number'
+                    ? summary.unknownSymbols / rowCount
+                    : undefined;
+
+                const snippet =
+                  runs.length > 0
+                    ? `Reconciliation ${latestRun.status}: ${(latestRun.summary as { totalDiffs?: number })?.totalDiffs ?? 0} differences found.`
+                    : `No reconciliation run yet for ${importRec.fileName}.`;
+
+                return {
+                  citations: [
+                    {
+                      confidence: 0.85,
+                      snippet,
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: { importId: importRec.id },
+                    state: {
+                      errorCount: importRec.errorCount,
+                      parseSuccessRate:
+                        rowCount > 0
+                          ? (rowCount - importRec.errorCount) / rowCount
+                          : 0,
+                      rowCount,
+                      status: importRec.status,
+                      totalDiffs: summary?.totalDiffs,
+                      unknownSymbolRate
+                    },
+                    outputSummary: `reconciliation for ${importRec.fileName}`,
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              } else if (toolName === 'get_reconciliation_result') {
+                // Get reconciliation results
+                const runs = await this.prisma.reconciliationRun.findMany({
+                  where: { userId },
+                  orderBy: { runAt: 'desc' },
+                  take: 1,
+                  include: { diffs: true }
+                });
+
+                if (runs.length === 0) {
+                  return {
+                    citations: [
+                      {
+                        confidence: 0.5,
+                        snippet: 'No reconciliation runs found',
+                        source: toolName
+                      }
+                    ],
+                    toolCall: {
+                      input: {},
+                      state: {
+                        status: 'NO_RECONCILIATION_RUN'
+                      },
+                      outputSummary: 'no reconciliation results',
+                      status: 'failed' as const,
+                      tool: toolName
+                    }
+                  };
+                }
+
+                const run = runs[0];
+                const summary = run.summary as {
+                  criticalDiffs?: number;
+                  totalDiffs?: number;
+                  unknownSymbols?: number;
+                };
+                const relatedImport =
+                  await this.prisma.brokerStatementImport.findFirst({
+                    where: {
+                      id: run.importId,
+                      userId
+                    }
+                  });
+                const parseSuccessRate =
+                  relatedImport && relatedImport.rowCount > 0
+                    ? (relatedImport.rowCount - relatedImport.errorCount) /
+                      relatedImport.rowCount
+                    : undefined;
+                const unknownSymbolRate =
+                  relatedImport &&
+                  relatedImport.rowCount > 0 &&
+                  typeof summary?.unknownSymbols === 'number'
+                    ? summary.unknownSymbols / relatedImport.rowCount
+                    : undefined;
+                const snippet = `Latest reconciliation: ${run.status}, ${summary?.totalDiffs ?? 0} diffs (${summary?.criticalDiffs ?? 0} critical).`;
+
+                return {
+                  citations: [
+                    {
+                      confidence: 0.9,
+                      snippet,
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: {},
+                    state: {
+                      errorCount: relatedImport?.errorCount,
+                      parseSuccessRate,
+                      status: relatedImport?.status,
+                      totalDiffs: summary?.totalDiffs ?? 0,
+                      unknownSymbolRate
+                    },
+                    outputSummary: `reconciliation results: ${summary?.totalDiffs ?? 0} diffs`,
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
+              } else if (toolName === 'apply_reconciliation_fix') {
+                // Apply a reconciliation fix
+
+                return {
+                  citations: [
+                    {
+                      confidence: 0.7,
+                      snippet:
+                        'Reconciliation fixes require user confirmation via UI',
+                      source: toolName
+                    }
+                  ],
+                  toolCall: {
+                    input: {},
+                    state: {
+                      userConfirmationRequired: true
+                    },
+                    outputSummary: 'fix application requires UI confirmation',
+                    status: 'success' as const,
+                    tool: toolName
+                  }
+                };
               }
 
               return {
@@ -3235,7 +3703,7 @@ export class AiService implements AgentKernel {
 
         const deterministicAnswer = isFireOnlyRoute
           ? fireAnalysisSummary
-          : singleToolDeterministicAnswer ?? multiToolDeterministicAnswer;
+          : (singleToolDeterministicAnswer ?? multiToolDeterministicAnswer);
         const shouldPreferDeterministicAnswer =
           !preferredStyleInstruction &&
           !effectiveUserPreferences.responseStyle &&
@@ -3252,37 +3720,37 @@ export class AiService implements AgentKernel {
         } else {
           const llmGenerationStartedAt = Date.now();
           answer = await buildAnswer({
-              additionalContextSummaries: [
-                ...actionExecutionSummaries,
-                accountOverviewSummary,
-                activityHistorySummary,
-                benchmarkSummary,
-                demoDataSummary,
-                exchangeRateSummary,
-                priceHistorySummary,
-                symbolLookupSummary
-              ].filter((summary): summary is string => Boolean(summary)),
-              assetFundamentalsSummary,
-              complianceCheckSummary,
-              financialNewsSummary,
-              generateText: (options) =>
-                this.generateText({
-                  ...options,
-                  model,
-                  useFormatterModel: true,
-                  onLlmInvocation: ({ model: invocationModel, provider }) => {
-                    llmInvocation = {
-                      model: invocationModel,
-                      provider
-                    };
-                  },
-                  traceContext: {
-                    query: queryForPrompt,
-                    sessionId: resolvedSessionId,
-                    traceId,
-                    userId
-                  }
-                }),
+            additionalContextSummaries: [
+              ...actionExecutionSummaries,
+              accountOverviewSummary,
+              activityHistorySummary,
+              benchmarkSummary,
+              demoDataSummary,
+              exchangeRateSummary,
+              priceHistorySummary,
+              symbolLookupSummary
+            ].filter((summary): summary is string => Boolean(summary)),
+            assetFundamentalsSummary,
+            complianceCheckSummary,
+            financialNewsSummary,
+            generateText: (options) =>
+              this.generateText({
+                ...options,
+                model,
+                useFormatterModel: true,
+                onLlmInvocation: ({ model: invocationModel, provider }) => {
+                  llmInvocation = {
+                    model: invocationModel,
+                    provider
+                  };
+                },
+                traceContext: {
+                  query: queryForPrompt,
+                  sessionId: resolvedSessionId,
+                  traceId,
+                  userId
+                }
+              }),
             languageCode,
             marketData,
             memory,
@@ -3366,10 +3834,17 @@ export class AiService implements AgentKernel {
       const successfulToolCalls = toolCalls.filter(({ status }) => {
         return status === 'success';
       }).length;
+      const hasFailedToolCall = toolCalls.some(({ status }) => {
+        return status === 'failed';
+      });
       const hasVerificationFailure = verification.some(({ status }) => {
         return status === 'failed';
       });
       let escalation: AiAgentChatResponse['escalation'] | undefined;
+      const hasNoReliableToolEvidence =
+        successfulToolCalls === 0 &&
+        policyDecision.route === 'tools' &&
+        (confidence.band === 'low' || hasFailedToolCall);
 
       if (
         confidence.band === 'low' &&
@@ -3377,29 +3852,52 @@ export class AiService implements AgentKernel {
         policyDecision.route === 'tools' &&
         policyDecision.blockReason !== 'unauthorized_access'
       ) {
-        answer = [
-          'Insufficient confidence to answer safely with the current evidence.',
-          'I need one concrete request with scope (portfolio, symbol, tax, or FIRE) before I proceed.',
-          'Once provided, I will return a verified answer with confidence and citations.'
-        ].join(' ');
+        const failedToolCalls = toolCalls.filter(({ status }) => {
+          return status === 'failed';
+        });
+        const hasScopedToolFailure = failedToolCalls.length > 0;
+
+        if (hasScopedToolFailure) {
+          const failedTools = Array.from(
+            new Set(
+              failedToolCalls.map(({ tool }) => {
+                return tool;
+              })
+            )
+          ).join(', ');
+          const firstFailureDetail = failedToolCalls
+            .map(({ outputSummary }) => outputSummary?.trim())
+            .find((detail) => detail && detail.length > 0);
+
+          answer = [
+            'Insufficient confidence to complete this scoped request with the current evidence.',
+            `The required tool checks failed (${failedTools}).`,
+            firstFailureDetail
+              ? `Latest tool failure: ${firstFailureDetail}.`
+              : 'Latest tool failure: unavailable execution details.',
+            'Retry this request in a moment, or ask for a narrower check on one symbol so I can return verified output with confidence and citations.'
+          ].join(' ');
+        } else {
+          answer = [
+            'Insufficient confidence to answer safely with the current evidence.',
+            'I need one concrete request with scope (portfolio, symbol, tax, or FIRE) before I proceed.',
+            'Once provided, I will return a verified answer with confidence and citations.'
+          ].join(' ');
+        }
         verification.push({
           check: 'confidence_guardrail',
-          details:
-            'Low confidence with no successful tool evidence; abstain response returned',
+          details: hasScopedToolFailure
+            ? 'Low confidence with scoped tool execution failures; failure-aware abstain response returned'
+            : 'Low confidence with no successful tool evidence; abstain response returned',
           status: 'warning'
         });
       }
 
-      if (
-        hasVerificationFailure ||
-        (confidence.band === 'low' &&
-          successfulToolCalls === 0 &&
-          policyDecision.route === 'tools')
-      ) {
+      if (hasVerificationFailure || hasNoReliableToolEvidence) {
         escalation = {
           reason: hasVerificationFailure
             ? 'Verification checks reported failed status'
-            : 'Low confidence with insufficient reliable tool evidence',
+            : 'Insufficient reliable tool evidence from executed tools',
           required: true,
           suggestedAction:
             'Escalate this response to a human reviewer before taking financial action.'
@@ -3513,6 +4011,12 @@ export class AiService implements AgentKernel {
         userId,
         traceId
       });
+
+      if (error && typeof error === 'object') {
+        const mutableError = error as Record<string, unknown>;
+        mutableError.traceId = traceId;
+        mutableError.sessionId = resolvedSessionId;
+      }
 
       throw error;
     }
@@ -3665,12 +4169,10 @@ export class AiService implements AgentKernel {
     const amountMatch = /\$?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/.exec(
       normalizedQuery
     );
-    const currencyAfterAmountMatch = /\$?\d+(?:,\d{3})*(?:\.\d{1,2})?\s*([A-Z]{3})\b/.exec(
-      normalizedQuery
-    );
-    const currencyBeforeAmountMatch = /\b([A-Z]{3})\s+\$?\d+(?:,\d{3})*(?:\.\d{1,2})?\b/.exec(
-      normalizedQuery
-    );
+    const currencyAfterAmountMatch =
+      /\$?\d+(?:,\d{3})*(?:\.\d{1,2})?\s*([A-Z]{3})\b/.exec(normalizedQuery);
+    const currencyBeforeAmountMatch =
+      /\b([A-Z]{3})\s+\$?\d+(?:,\d{3})*(?:\.\d{1,2})?\b/.exec(normalizedQuery);
 
     const currency =
       currencyAfterAmountMatch?.[1] ??
@@ -3739,9 +4241,7 @@ export class AiService implements AgentKernel {
     const currencyAfterAmountMatch =
       /\$?[0-9]+(?:,\d{3})*(?:\.[0-9]+)?\s*([A-Z]{3})\b/.exec(upperCaseQuery);
     const currencyBeforeAmountMatch =
-      /\b([A-Z]{3})\s+\$?[0-9]+(?:,\d{3})*(?:\.[0-9]+)?\b/.exec(
-        upperCaseQuery
-      );
+      /\b([A-Z]{3})\s+\$?[0-9]+(?:,\d{3})*(?:\.[0-9]+)?\b/.exec(upperCaseQuery);
     const explicitCurrencyToken = symbols.find((symbol) => {
       return supportedCurrencyCodes.has(symbol);
     });
@@ -3768,7 +4268,8 @@ export class AiService implements AgentKernel {
       quantityWithUnitMatch?.[1] ?? quantityAfterActionMatch?.[1] ?? '1'
     );
     const hasQuantity =
-      Boolean(quantityWithUnitMatch?.[1]) || Boolean(quantityAfterActionMatch?.[1]);
+      Boolean(quantityWithUnitMatch?.[1]) ||
+      Boolean(quantityAfterActionMatch?.[1]);
 
     return {
       currency,
@@ -4182,5 +4683,4 @@ export class AiService implements AgentKernel {
       symbol
     };
   }
-
 }

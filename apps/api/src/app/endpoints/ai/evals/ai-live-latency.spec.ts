@@ -10,11 +10,11 @@ const LIVE_MULTI_STEP_TARGET_IN_MS = 15_000;
 function hasLiveProviderKey() {
   return Boolean(
     process.env.z_ai_glm_api_key ||
-      process.env.Z_AI_GLM_API_KEY ||
-      process.env.minimax_api_key ||
-      process.env.MINIMAX_API_KEY ||
-      process.env.openai_api_key ||
-      process.env.OPENAI_API_KEY
+    process.env.Z_AI_GLM_API_KEY ||
+    process.env.minimax_api_key ||
+    process.env.MINIMAX_API_KEY ||
+    process.env.openai_api_key ||
+    process.env.OPENAI_API_KEY
   );
 }
 
@@ -97,6 +97,18 @@ function createLiveBenchmarkSubject() {
       }
     })
   };
+  const prismaService = {
+    brokerStatementImport: {
+      findMany: jest.fn().mockResolvedValue([])
+    },
+    reconciliationRun: {
+      findMany: jest.fn().mockResolvedValue([])
+    },
+    symbolMapping: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([])
+    }
+  };
   const propertyService = {
     getByKey: jest.fn()
   };
@@ -139,6 +151,7 @@ function createLiveBenchmarkSubject() {
     exchangeRateDataService as never,
     orderService as never,
     portfolioService as never,
+    prismaService as never,
     propertyService as never,
     redisCacheService as never,
     aiObservabilityService as never

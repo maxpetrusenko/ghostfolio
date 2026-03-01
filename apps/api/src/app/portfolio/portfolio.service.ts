@@ -101,6 +101,22 @@ const developedMarkets = require('../../assets/countries/developed-markets.json'
 const emergingMarkets = require('../../assets/countries/emerging-markets.json');
 const europeMarkets = require('../../assets/countries/europe-markets.json');
 
+export function normalizeEmergencyFundValue(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = Number.parseFloat(value.trim());
+
+    if (Number.isFinite(normalized)) {
+      return normalized;
+    }
+  }
+
+  return 0;
+}
+
 @Injectable()
 export class PortfolioService {
   public constructor(
@@ -487,7 +503,9 @@ export class PortfolioService {
     const userCurrency = this.getUserCurrency(user);
 
     const emergencyFund = new Big(
-      (user.settings?.settings as UserSettings)?.emergencyFund ?? 0
+      normalizeEmergencyFundValue(
+        (user.settings?.settings as UserSettings)?.emergencyFund
+      )
     );
 
     const { activities } =

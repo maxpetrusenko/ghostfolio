@@ -96,6 +96,55 @@ describe('AiController', () => {
     });
   });
 
+  it('returns answer and session id for "How is my portfolio performing?"', async () => {
+    const dto: AiChatDto = {
+      query: 'How is my portfolio performing?',
+      sessionId: 'chat-session-performance'
+    };
+
+    aiService.run.mockResolvedValue({
+      answer: 'Your portfolio is up 8.2% year to date.',
+      citations: [],
+      confidence: { band: 'high', score: 0.91 },
+      memory: { sessionId: 'chat-session-performance', turns: 1 },
+      toolCalls: [],
+      verification: []
+    });
+
+    const response = await controller.chat(dto);
+
+    expect(response.answer).toContain('portfolio');
+    expect(response.memory.sessionId).toBe('chat-session-performance');
+  });
+
+  it('maps missing provider errors to deterministic 503 payload', async () => {
+    const dto: AiChatDto = {
+      query: 'How is my portfolio performing?',
+      sessionId: 'session-no-provider'
+    };
+
+    aiService.run.mockRejectedValue(
+      Object.assign(
+        new Error('No AI provider configured (openai: not configured)'),
+        {
+          sessionId: 'session-no-provider',
+          traceId: 'trace-no-provider'
+        }
+      )
+    );
+
+    await expect(controller.chat(dto)).rejects.toMatchObject({
+      response: {
+        code: 'AI_PROVIDER_NOT_CONFIGURED',
+        message: 'No AI provider configured (openai: not configured)',
+        sessionId: 'session-no-provider',
+        statusCode: 503,
+        traceId: 'trace-no-provider'
+      },
+      status: 503
+    });
+  });
+
   it('builds filters via api service before calling prompt generation', async () => {
     const filters = [{ key: 'symbol', value: 'AAPL' }];
     apiService.buildFiltersFromQueryParams.mockReturnValue(filters);

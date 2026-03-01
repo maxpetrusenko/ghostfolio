@@ -15,6 +15,7 @@ Broker Statement Ingestion + Reconciliation Agent: Upload broker statements → 
 **Primary:** Broker CSV/OFX exports (what users already have and trust)
 
 **Required Fields:**
+
 - account_id / broker_name
 - symbol / ISIN
 - transaction_type (BUY/SELL/DIVIDEND/FEE/TRANSFER)
@@ -23,6 +24,7 @@ Broker Statement Ingestion + Reconciliation Agent: Upload broker statements → 
 - fees, description
 
 **Why this is "source of truth":**
+
 - What users actually have from brokers
 - What accountants reconcile against for tax reporting
 
@@ -224,17 +226,21 @@ User: "I uploaded my Schwab statement — is Ghostfolio accurate?"
 
 ### 6. Evals Coverage
 
-Test cases to implement:
+**Dataset:** [apps/api/src/app/endpoints/ai/evals/dataset/broker-statement.dataset.ts](https://github.com/maxpetrusenko/ghostfolio/blob/main/apps/api/src/app/endpoints/ai/evals/dataset/broker-statement.dataset.ts)
 
-| Scenario | Expected Behavior |
-|----------|-------------------|
-| Clean CSV import | Full parse, 0 errors, reconcile passes |
-| Unknown symbols | Partial parse, mapping request, user confirm |
-| Malformed rows | Parse with warnings per row, partial import |
-| Missing dividends | Diff detection, apply_fix creates Order |
-| Quantity mismatch | Diff detection, applies correct quantity |
-| Duplicate import | Idempotency check, no new rows added |
-| Prompt injection in CSV | Tool ignores, strict JSON only |
+22 test cases (16 happy path, 3 adversarial, 3 edge) — full implementation complete.
+
+Test scenarios:
+
+| Scenario                | Expected Behavior                            |
+| ----------------------- | -------------------------------------------- |
+| Clean CSV import        | Full parse, 0 errors, reconcile passes       |
+| Unknown symbols         | Partial parse, mapping request, user confirm |
+| Malformed rows          | Parse with warnings per row, partial import  |
+| Missing dividends       | Diff detection, apply_fix creates Order      |
+| Quantity mismatch       | Diff detection, applies correct quantity     |
+| Duplicate import        | Idempotency check, no new rows added         |
+| Prompt injection in CSV | Tool ignores, strict JSON only               |
 
 ## Impact
 

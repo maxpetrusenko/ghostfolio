@@ -9,10 +9,14 @@ import {
   Body,
   Controller,
   Get,
+  HttpException,
+  HttpStatus,
   Inject,
+  InternalServerErrorException,
   Param,
   Post,
   Query,
+  ServiceUnavailableException,
   UseGuards
 } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
@@ -22,9 +26,9 @@ import {
   AiAgentChatResponse,
   AiAgentFeedbackResponse
 } from './ai-agent.interfaces';
-import { AiFeedbackService } from './ai-feedback.service';
 import { AiChatFeedbackDto } from './ai-chat-feedback.dto';
 import { AiChatDto } from './ai-chat.dto';
+import { AiFeedbackService } from './ai-feedback.service';
 import { AiService } from './ai.service';
 
 @Controller('ai')
@@ -71,7 +75,7 @@ export class AiController {
   @HasPermission(permissions.readAiPrompt)
   @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
   public async chat(@Body() data: AiChatDto): Promise<AiAgentChatResponse> {
-    return this.aiService.run({
+    const requestPayload = {
       languageCode: this.request.user.settings.settings.language,
       query: data.query,
       ...(data.model ? { model: data.model } : {}),
@@ -83,7 +87,13 @@ export class AiController {
       symbols: data.symbols,
       userCurrency: this.request.user.settings.settings.baseCurrency,
       userId: this.request.user.id
-    });
+    };
+
+    try {
+      return await this.aiService.run(requestPayload);
+    } catch (error) {
+      throw this.mapAiChatErrorToHttpException(error);
+    }
   }
 
   @Post('chat/feedback')
@@ -98,5 +108,44 @@ export class AiController {
       sessionId: data.sessionId,
       userId: this.request.user.id
     });
+  }
+
+  private mapAiChatErrorToHttpException(error: unknown): HttpException {
+    if (error instanceof HttpException) {
+      return error;
+    }
+
+    const message = error instanceof Error ? error.message : 'AI chat failed';
+    const traceId = this.getStringMetadata(error, 'traceId');
+    const sessionId = this.getStringMetadata(error, 'sessionId');
+
+    if (message.includes('No AI provider configured')) {
+      return new ServiceUnavailableException({
+        ...(sessionId ? { sessionId } : {}),
+        ...(traceId ? { traceId } : {}),
+        code: 'AI_PROVIDER_NOT_CONFIGURED',
+        message,
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE
+      });
+    }
+
+    return new InternalServerErrorException({
+      ...(sessionId ? { sessionId } : {}),
+      ...(traceId ? { traceId } : {}),
+      code: 'AI_CHAT_RUNTIME_ERROR',
+      message,
+      statusCode: HttpStatus.INTERNAL_SERVER_ERROR
+    });
+  }
+
+  private getStringMetadata(error: unknown, key: 'sessionId' | 'traceId') {
+    if (!error || typeof error !== 'object') {
+      return undefined;
+    }
+
+    const value = (error as Record<string, unknown>)[key];
+    return typeof value === 'string' && value.trim().length > 0
+      ? value.trim()
+      : undefined;
   }
 }

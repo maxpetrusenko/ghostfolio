@@ -1,5 +1,4 @@
 import { AiAgentToolName } from '../ai-agent.interfaces';
-
 import {
   AiAgentMvpEvalCase,
   AiAgentMvpScenarioCategory,
@@ -76,11 +75,11 @@ function detectDifficulty({
 }
 
 function detectToolBucket({
-  requiredTools
+  expectedTools
 }: {
-  requiredTools?: AiAgentToolName[];
+  expectedTools?: AiAgentToolName[];
 }): AiAgentMvpScenarioToolBucket {
-  const uniqueRequiredTools = Array.from(new Set(requiredTools ?? []));
+  const uniqueRequiredTools = Array.from(new Set(expectedTools ?? []));
 
   if (uniqueRequiredTools.length === 0) {
     return 'none';
@@ -111,12 +110,15 @@ export function deriveScenarioLabels({
   expected,
   input,
   intent
-}: Pick<AiAgentMvpEvalCase, 'category' | 'expected' | 'input' | 'intent'>): AiAgentMvpScenarioLabels {
+}: Pick<
+  AiAgentMvpEvalCase,
+  'category' | 'expected' | 'input' | 'intent'
+>): AiAgentMvpScenarioLabels {
   const normalizedText = `${input.query} ${intent}`.toLowerCase();
   const scenarioCategory = detectScenarioCategory({ category, normalizedText });
   const difficulty = detectDifficulty({ category, normalizedText });
   const toolBucket = detectToolBucket({
-    requiredTools: expected.requiredTools
+    expectedTools: expected.toolPlan ?? expected.requiredTools
   });
 
   return {
@@ -134,20 +136,29 @@ export function buildScenarioCoverageMatrix({
   cases: AiAgentMvpEvalCase[];
 }) {
   const matrix = SCENARIO_DIFFICULTIES.reduce<
-    Record<AiAgentMvpScenarioDifficulty, Record<AiAgentMvpScenarioToolBucket, number>>
-  >((result, difficulty) => {
-    result[difficulty] = {
-      market: 0,
-      multi: 0,
-      none: 0,
-      portfolio: 0,
-      rebalance: 0,
-      risk: 0,
-      stress: 0
-    };
+    Record<
+      AiAgentMvpScenarioDifficulty,
+      Record<AiAgentMvpScenarioToolBucket, number>
+    >
+  >(
+    (result, difficulty) => {
+      result[difficulty] = {
+        market: 0,
+        multi: 0,
+        none: 0,
+        portfolio: 0,
+        rebalance: 0,
+        risk: 0,
+        stress: 0
+      };
 
-    return result;
-  }, {} as Record<AiAgentMvpScenarioDifficulty, Record<AiAgentMvpScenarioToolBucket, number>>);
+      return result;
+    },
+    {} as Record<
+      AiAgentMvpScenarioDifficulty,
+      Record<AiAgentMvpScenarioToolBucket, number>
+    >
+  );
   const scenarioCategoryCounts: Record<AiAgentMvpScenarioCategory, number> = {
     attack: 0,
     edge_case: 0,

@@ -28,7 +28,11 @@ export class HasPermissionGuard implements CanActivate {
 
     if (!user || !hasPermission(user.permissions, requiredPermission)) {
       throw new HttpException(
-        getReasonPhrase(StatusCodes.FORBIDDEN),
+        {
+          code: 'PERMISSION_DENIED',
+          message: getReasonPhrase(StatusCodes.FORBIDDEN),
+          statusCode: StatusCodes.FORBIDDEN
+        },
         StatusCodes.FORBIDDEN
       );
     }

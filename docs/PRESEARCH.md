@@ -4,11 +4,19 @@
 **Date**: 2026-02-23
 **Status**: ✅ Ready for execution
 
+## 2026-03-01 Core Change Note
+
+- AI chat reliability hardening is in progress with deterministic backend error codes, UI error surfacing, and provider startup checks for fail-fast diagnostics.
+- MVP eval harness now supports ordered `toolPlan` plus `resultAssertions` and grouped broker-statement multi-turn workflows to measure reliability, not only tool routing.
+- Bounty hardening patch enforces strict ordered tool-plan semantics (no invalid pre-sequence calls) and evaluates broker `resultAssertions` from structured `toolCalls[].state` payloads sourced from tool/database state.
+- Scoped tool failure handling now uses failure-aware abstain messaging so explicit portfolio/symbol prompts report execution/data issues instead of requesting scope again.
+
 ---
 
 ## Quick Start: The One Loop
 
 **Every change follows this**:
+
 ```
 ADR (Decision) → Red (Test/Eval) → Green (Implement) → Refactor (Polish)
 ```
@@ -16,6 +24,7 @@ ADR (Decision) → Red (Test/Eval) → Green (Implement) → Refactor (Polish)
 **Why**: "Red test → Implementation → Green test is pretty hard to cheat for an LLM" — @mattpocockuk
 
 **This reduces cognitive load** by:
+
 - Making behavior explicit before code
 - Limiting LLM drift (tests guardrails)
 - Fast confidence for architecture, agents, UI
@@ -30,6 +39,7 @@ ADR (Decision) → Red (Test/Eval) → Green (Implement) → Refactor (Polish)
 **Deployment**: Railway ✅
 
 **Why Ghostfolio Won** (vs OpenEMR):
+
 - Modern TypeScript stack (NestJS 11, Angular 21, Prisma, Nx)
 - Existing AI infrastructure (`@openrouter/ai-sdk-provider` installed)
 - Cleaner architecture → faster iteration
@@ -37,6 +47,7 @@ ADR (Decision) → Red (Test/Eval) → Green (Implement) → Refactor (Polish)
 - High hiring signal (fintech booming)
 
 **Existing Ghostfolio Architecture**:
+
 ```
 apps/api/src/app/
 ├── endpoints/ai/           # Already has AI service
@@ -61,6 +72,7 @@ REFACTOR → Improve structure while tests stay green (Claude does this)
 ```
 
 **For Code** (Unit/Integration):
+
 ```typescript
 // 1. RED: Write failing test
 describe('PortfolioAnalysisTool', () => {
@@ -76,6 +88,7 @@ describe('PortfolioAnalysisTool', () => {
 ```
 
 **For Agents** (Eval Cases):
+
 ```json
 // 1. RED: Write failing eval case
 {
@@ -92,6 +105,7 @@ describe('PortfolioAnalysisTool', () => {
 ```
 
 **For UI** (E2E Flows):
+
 ```typescript
 // 1. RED: Write failing E2E test
 test('portfolio analysis flow', async ({ page }) => {
@@ -108,31 +122,38 @@ test('portfolio analysis flow', async ({ page }) => {
 ### ADR Workflow (Lightweight)
 
 **Template** (in `docs/adr/`):
+
 ```markdown
 # ADR-XXX: [Title]
 
 ## Context
+
 - [Constraints and risks]
 - [Domain considerations]
 
 ## Options Considered
+
 - Option A: [One-liner]
 - Option B: [One-liner] (REJECTED: [reason])
 
 ## Decision
+
 [1-2 sentences]
 
 ## Trade-offs / Consequences
+
 - [Positive consequences]
 - [Negative consequences]
 
 ## What Would Change Our Mind
+
 [Specific conditions]
 ```
 
 **Scope**: Write ADR for any architecture/tooling/verification decision
 
 **How it helps**:
+
 - ADR becomes prompt header for Claude session
 - Future you sees why code looks this way
 - Links to tests/evals for traceability
@@ -142,16 +163,19 @@ test('portfolio analysis flow', async ({ page }) => {
 > "When I forget to update the ADR after a big refactor → instant architecture drift." — @j0nl1
 
 **Update Rule:**
+
 - After each refactor, update linked ADRs
 - Mark outdated ADRs as `SUPERSEDED` or delete
 - Before work, verify ADR still matches code
 
 **Debug Rule:**
+
 - Bug investigation starts with ADR review
 - Check if code matches ADR intent
 - Mismatch → update ADR or fix code
 
 **Citation Rule:**
+
 - Agent must cite relevant ADR before architecture changes
 - Explain why change is consistent with ADR
 - If inconsistent → update ADR first
@@ -177,6 +201,7 @@ Context: [Paste relevant ADR here]
 ```
 
 **Session hygiene**:
+
 - Paste ADR + failing output before asking for implementation
 - Keep each session scoped to one feature/ADR
 - Reset context for new ADR/feature
@@ -189,19 +214,20 @@ Context: [Paste relevant ADR here]
 
 Your presearch investment (2 hours) delivered:
 
-| Benefit | Time Saved | How |
-|---------|------------|-----|
-| **Framework selection** | 4-8 hours | Avoided LangChain vs LangGraph debate mid-sprint |
+| Benefit                  | Time Saved | How                                                    |
+| ------------------------ | ---------- | ------------------------------------------------------ |
+| **Framework selection**  | 4-8 hours  | Avoided LangChain vs LangGraph debate mid-sprint       |
 | **Architecture clarity** | 6-12 hours | Reused Ghostfolio services vs inventing new data layer |
-| **Stack justification** | 2-4 hours | Documentation-ready rationale for submission |
-| **Risk identification** | 8-16 hours | Knew about verification, evals, observability upfront |
-| **Decision speed** | Ongoing | ADR template + RGR workflow = fast, defensible choices |
+| **Stack justification**  | 2-4 hours  | Documentation-ready rationale for submission           |
+| **Risk identification**  | 8-16 hours | Knew about verification, evals, observability upfront  |
+| **Decision speed**       | Ongoing    | ADR template + RGR workflow = fast, defensible choices |
 
 **Total ROI**: ~20-40 hours saved in a 7-day sprint (30-50% of timeline)
 
 ### Presearch Is Worth It When:
 
 ✅ **DO presearch when**:
+
 - Timeline < 2 weeks (can't afford wrong framework)
 - High-stakes domain (finance, healthcare) where wrong decisions hurt
 - Multiple valid options exist (LangChain vs LangGraph vs CrewAI)
@@ -209,6 +235,7 @@ Your presearch investment (2 hours) delivered:
 - Submission requires architecture justification
 
 ❌ **Skip presearch when**:
+
 - Exploratory prototype with no deadline
 - Familiar stack (you've used it successfully before)
 - Trivial problem (< 1 day of work)
@@ -226,12 +253,14 @@ Your presearch process:
 ```
 
 **Why this works**:
+
 - Different models have different training biases
 - Consensus = high-confidence decision
 - Outliers = risks to investigate
 - You get 3 perspectives for the price of 1 document
 
 **For this project**:
+
 - Google Deep Research preferred (available via gfachallenger)
 - Fallback: Perplexity or direct model queries
 - Result: LangChain + LangGraph + LangSmith consensus emerged quickly
@@ -252,11 +281,13 @@ Your plan rated 9/10. Two upgrades push it toward 10/10:
 **Why LangGraph matters**:
 
 Your workflow is inherently graph-y:
+
 ```
 User Query → Tool Selection → Verification → (maybe) Human Check → Formatter → Response
 ```
 
 LangGraph features you need:
+
 - **State graphs**: Explicit states + transitions (verification, retry, human-in-the-loop)
 - **Durable execution**: Long-running chains survive failures/resume
 - **Native memory**: Built-in conversation + long-term memory hooks
@@ -297,6 +328,7 @@ LangGraph features you need:
 ```
 
 **If that feels like too much stack for week one**:
+
 - Stick with plain LangChain
 - Design code as if it were a graph (explicit states + transitions)
 - Migrate to LangGraph in v2 when you hit complexity limits
@@ -306,36 +338,41 @@ LangGraph features you need:
 **Question**: Do you need multiple specialized agents?
 
 **Single-agent** (recommended for MVP):
+
 ```
 Ghostfolio Agent → Tools → Response
 ```
+
 - Faster to build (one brain, multiple tools)
 - Easier to debug (one trace to follow)
 - Sufficient for most queries
 - **Ship this first**
 
 **Multi-agent** (v2, if needed):
+
 ```
 Planner Agent → delegates to → [Risk Agent, Tax Agent, Narrator Agent]
 ```
+
 - Use CrewAI if you go this route
 - Better for: offline analysis, complex multi-domain queries
 - Adds: orchestration overhead, more failure modes
 - Consider ONLY if single-agent hits limits
 
 **Decision rule**:
+
 - Week 1: Single well-designed agent with good tools
 - Week 2+: Add specialist agents if users need complex multi-step workflows
 - Never add multi-agent for "cool factor" — only if it solves a real problem
 
 ### Alternative Frameworks (If You Want Options)
 
-| Framework | When to Use | For This Project |
-|-----------|-------------|------------------|
+| Framework     | When to Use                                                       | For This Project                    |
+| ------------- | ----------------------------------------------------------------- | ----------------------------------- |
 | **LangGraph** | Complex stateful workflows, verification loops, human-in-the-loop | **Add for week 1** (with LangChain) |
-| **CrewAI** | Multi-agent teams, role-based collaboration, offline batch jobs | Week 2+ (if needed) |
-| **Langfuse** | Self-hosted observability, cost tracking, prompt versioning | Optional (LangSmith is primary) |
-| **Zep** | Long-term memory, conversation summaries, user prefs | Optional (Redis + DB may suffice) |
+| **CrewAI**    | Multi-agent teams, role-based collaboration, offline batch jobs   | Week 2+ (if needed)                 |
+| **Langfuse**  | Self-hosted observability, cost tracking, prompt versioning       | Optional (LangSmith is primary)     |
+| **Zep**       | Long-term memory, conversation summaries, user prefs              | Optional (Redis + DB may suffice)   |
 
 **Week 1 recommendation**: LangChain + LangGraph + LangSmith
 **Week 2+ additions**: CrewAI (multi-agent), Zep (memory), Langfuse (self-hosted obs)
@@ -404,6 +441,7 @@ Planner Agent → delegates to → [Risk Agent, Tax Agent, Narrator Agent]
    - Verification: Portfolio constraint check
 
 **Tool Design Principles**:
+
 - Pure functions when possible (easy testing)
 - Max 200 LOC per tool
 - Zod schema validation for inputs
@@ -471,13 +509,14 @@ const AgentResponseSchema = z.object({
 ```
 
 ### Testing Verification (RGR Style)
+
 ```typescript
 // RED: Write failing test first
 describe('Numerical Validator', () => {
   it('should fail when sums mismatch', () => {
     const data = {
       holdings: [{ value: 100 }, { value: 200 }],
-      totalValue: 400  // Wrong!
+      totalValue: 400 // Wrong!
     };
     expect(() => validateNumericalConsistency(data)).toThrow();
   });
@@ -508,7 +547,7 @@ export const mvpEvalCases = [
   },
   {
     id: 'edge-1',
-    input: 'Analyze my portfolio',  // No user ID
+    input: 'Analyze my portfolio', // No user ID
     expectedTools: [],
     expectedOutput: {
       hasAnswer: true,
@@ -529,12 +568,12 @@ export const mvpEvalCases = [
 
 ### Full Eval Dataset (50+ Cases)
 
-| Type | Count | Examples |
-|------|-------|----------|
-| Happy Path | 20+ | Portfolio queries, risk, tax, dividends |
-| Edge Cases | 10+ | Empty portfolio, stale data, invalid dates |
-| Adversarial | 10+ | Prompt injection, illegal advice, hallucination triggers |
-| Multi-Step | 10+ | Complete review, tax-loss harvesting, rebalancing |
+| Type        | Count | Examples                                                 |
+| ----------- | ----- | -------------------------------------------------------- |
+| Happy Path  | 20+   | Portfolio queries, risk, tax, dividends                  |
+| Edge Cases  | 10+   | Empty portfolio, stale data, invalid dates               |
+| Adversarial | 10+   | Prompt injection, illegal advice, hallucination triggers |
+| Multi-Step  | 10+   | Complete review, tax-loss harvesting, rebalancing        |
 
 ### Eval Execution (RGR Style)
 
@@ -603,6 +642,7 @@ describe('Agent E2E', () => {
 ```
 
 ### When to Run Tests
+
 - ✅ Before pushing to GitHub (required)
 - ✅ When asked by user
 - ❌ Not during normal dev (don't slow iteration)
@@ -633,14 +673,14 @@ await langsmith.run('ghostfolio-agent', async (run) => {
 
 ### Metrics
 
-| Metric | How to Track |
-|--------|--------------|
-| **Full traces** | Input → reasoning → tools → output |
-| **Latency breakdown** | LLM time, tool time, verification time |
-| **Token usage & cost** | Per request + daily aggregates |
-| **Error categories** | Tool execution, verification, LLM timeout |
-| **Eval trends** | Pass rates, regressions over time |
-| **User feedback** | Thumbs up/down with trace ID |
+| Metric                 | How to Track                              |
+| ---------------------- | ----------------------------------------- |
+| **Full traces**        | Input → reasoning → tools → output        |
+| **Latency breakdown**  | LLM time, tool time, verification time    |
+| **Token usage & cost** | Per request + daily aggregates            |
+| **Error categories**   | Tool execution, verification, LLM timeout |
+| **Eval trends**        | Pass rates, regressions over time         |
+| **User feedback**      | Thumbs up/down with trace ID              |
 
 ### Dev vs Prod
 
@@ -694,6 +734,7 @@ npm run build         # TypeScript compilation
 ```
 
 ### Writing Clean Code (RGR Style)
+
 1. **First pass**: Make it work (RED → GREEN)
 2. **Second pass**: Make it clean (<500 LOC, modular) - REFACTOR
 3. **Check**: Does it pass all tests? Is it readable?
@@ -704,24 +745,25 @@ npm run build         # TypeScript compilation
 
 ### Development Costs
 
-| LLM | Cost/Week | Notes |
-|-----|-----------|-------|
-| Claude Sonnet 4.5 | ~$7 | $3/1M input, $15/1M output |
-| OpenAI GPT-4o | ~$5 | $2.50/1M input, $10/1M output |
-| Google Gemini | $0 | Free via gfachallenger |
+| LLM               | Cost/Week | Notes                         |
+| ----------------- | --------- | ----------------------------- |
+| Claude Sonnet 4.5 | ~$7       | $3/1M input, $15/1M output    |
+| OpenAI GPT-4o     | ~$5       | $2.50/1M input, $10/1M output |
+| Google Gemini     | $0        | Free via gfachallenger        |
 
 **Total development**: ~$12/week (without Google)
 
 ### Production Costs
 
-| Users | Monthly Cost | Assumptions |
-|-------|-------------|-------------|
-| 100 | $324 | 2 queries/day, 4.5K tokens/query |
-| 1,000 | $3,240 | Same |
-| 10,000 | $32,400 | Same |
-| 100,000 | $324,000 | Same |
+| Users   | Monthly Cost | Assumptions                      |
+| ------- | ------------ | -------------------------------- |
+| 100     | $324         | 2 queries/day, 4.5K tokens/query |
+| 1,000   | $3,240       | Same                             |
+| 10,000  | $32,400      | Same                             |
+| 100,000 | $324,000     | Same                             |
 
 **Optimization** (60% savings):
+
 - Caching (30% reduction)
 - Smaller model for simple queries (40% reduction)
 - Batch processing (20% reduction)
@@ -743,6 +785,7 @@ LANGCHAIN_SAMPLING_RATE=1.0  # Log everything
 ```
 
 **Setup**:
+
 ```bash
 docker compose -f docker/docker-compose.dev.yml up -d
 npm run database:setup
@@ -762,6 +805,7 @@ LANGCHAIN_SAMPLING_RATE=0.1  # Sample 10%
 ```
 
 **Deploy**:
+
 ```bash
 railway init
 railway add postgresql
@@ -782,22 +826,27 @@ railway up
 # ADR-001: Risk Agent v1 in Ghostfolio API
 
 ## Context
+
 - Users need to understand portfolio concentration risk
 - Must cite sources and verify calculations
 - High-risk domain (financial advice)
 
 ## Options Considered
+
 - Use existing PortfolioService (chosen)
 - Build new risk calculation engine (rejected: slower)
 
 ## Decision
+
 Extend PortfolioService with concentration analysis using existing data
 
 ## Trade-offs
+
 - Faster to ship vs custom calculations
 - Relies on existing math vs full control
 
 ## What Would Change Our Mind
+
 - Existing math doesn't meet requirements
 - Performance issues with large portfolios
 ```
@@ -832,6 +881,7 @@ describe('RiskAssessmentTool', () => {
 ### Step 3: GREEN (Implementation)
 
 **Prompt to Claude Code**:
+
 ```
 You are in strict Red-Green-Refactor mode.
 
@@ -849,6 +899,7 @@ Do not touch passing tests. Only change production code.
 ### Step 4: REFACTOR (Polish)
 
 **Prompt to Claude Code**:
+
 ```
 Step 3 (REFACTOR): Improve code structure while keeping all tests green.
 - Extract duplicate logic
@@ -865,9 +916,14 @@ Step 3 (REFACTOR): Improve code structure while keeping all tests green.
 // E2E test (RED)
 test('risk analysis flow', async ({ page }) => {
   await page.goto('/portfolio');
-  await page.fill('[data-testid="agent-input"]', 'What is my concentration risk?');
+  await page.fill(
+    '[data-testid="agent-input"]',
+    'What is my concentration risk?'
+  );
   await page.click('[data-testid="submit"]');
-  await expect(page.locator('[data-testid="response"]')).toContainText('concentration');
+  await expect(page.locator('[data-testid="response"]')).toContainText(
+    'concentration'
+  );
 });
 
 // Claude wires minimal UI (GREEN)
@@ -879,6 +935,7 @@ test('risk analysis flow', async ({ page }) => {
 ## 12) Success Criteria
 
 ### MVP Gate (Tuesday, 24h)
+
 - [x] 3 tools working (portfolio_analysis, risk_assessment, market_data_lookup)
 - [x] Agent responds to queries with citations
 - [x] 5 eval cases passing
@@ -887,6 +944,7 @@ test('risk analysis flow', async ({ page }) => {
 - [x] All using RGR workflow
 
 ### Final Submission (Sunday, 7d)
+
 - [x] 5+ tools implemented
 - [x] 50+ eval cases with >80% pass rate
 - [x] LangSmith observability integrated
@@ -897,6 +955,7 @@ test('risk analysis flow', async ({ page }) => {
 - [x] AI cost analysis
 
 Performance note (2026-02-24):
+
 - Service-level latency regression gate is implemented and passing via `npm run test:ai:performance`.
 - Live model/network latency benchmark is implemented via `npm run test:ai:live-latency:strict` and currently passing:
   - single-tool p95: ~`3514ms` (`<5000ms`)
@@ -908,6 +967,7 @@ Performance note (2026-02-24):
 ## 13) Quick Reference
 
 ### Environment Setup
+
 ```bash
 git clone https://github.com/ghostfolio/ghostfolio.git
 cd ghostfolio
@@ -918,6 +978,7 @@ npm run start:server
 ```
 
 ### Claude Code Prompt (Copy This)
+
 ```
 You are in strict Red-Green-Refactor mode.
 
@@ -936,6 +997,7 @@ Keep each session scoped to one feature/ADR.
 ```
 
 ### Railway Deployment
+
 ```bash
 npm i -g @railway/cli
 railway init
@@ -950,9 +1012,11 @@ railway up
 ## 14) Why This Works
 
 **From your research (Matt Pocock)**:
+
 > "Red test → Implementation → Green test is pretty hard to cheat for an LLM. Gives me a lot of confidence to move fast."
 
 **This workflow**:
+
 - ✅ Makes behavior explicit (tests/evals before code)
 - ✅ Prevents LLM drift (failing tests guardrails)
 - ✅ Reduces cognitive load (one small loop)
@@ -961,6 +1025,7 @@ railway up
 - ✅ Traceable decisions (ADRs linked to tests)
 
 **For this project**:
+
 - Architecture decisions (ADRs)
 - Agent behavior (evals as tests)
 - Verification logic (unit tests)

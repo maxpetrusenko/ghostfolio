@@ -1,5 +1,13 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { OrderService } from '@ghostfolio/api/app/order/order.service';
 import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
+import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
+import { Filter } from '@ghostfolio/common/interfaces';
+
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException
+} from '@nestjs/common';
 import {
   BrokerStatementImport,
   BrokerStatementRow,
@@ -11,8 +19,11 @@ import {
   ReconciliationStatus,
   ReconciliationDiff,
   DiffType,
-  DiffSeverity
+  DiffSeverity,
+  Prisma
 } from '@prisma/client';
+import { DataSource } from '@prisma/client';
+
 import { BrokerStatementParserService } from './broker-statement-parser.service';
 import {
   ParsedBrokerTransaction,
@@ -23,15 +34,12 @@ import {
   ImportDetailsDto,
   SymbolMappingDto,
   ReconciliationSummaryDto,
+  ReconciliationSummaryData,
   StatementRowDto,
   VerificationSummaryDto,
   BrokerStatementListDto,
   SymbolMappingListDto
 } from './broker-statement.dto';
-import { DataSource } from '@prisma/client';
-import { OrderService } from '@ghostfolio/api/app/order/order.service';
-import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
-import { PortfolioService } from '@ghostfolio/api/app/portfolio/portfolio.service';
 
 @Injectable()
 export class BrokerStatementService {
@@ -39,8 +47,7 @@ export class BrokerStatementService {
     private readonly prisma: PrismaService,
     private readonly parser: BrokerStatementParserService,
     private readonly orderService: OrderService,
-    private readonly symbolProfileService: SymbolProfileService,
-    private readonly portfolioService: PortfolioService
+    private readonly symbolProfileService: SymbolProfileService
   ) {}
 
   /**
@@ -51,7 +58,8 @@ export class BrokerStatementService {
     userId: string
   ): Promise<ImportDetailsDto> {
     // Check for idempotency (same file hash)
-    const fileHash = dto.fileHash || this.parser.generateFileHash(dto.fileContent);
+    const fileHash =
+      dto.fileHash || this.parser.generateFileHash(dto.fileContent);
 
     const existing = await this.prisma.brokerStatementImport.findUnique({
       where: { fileHash }
@@ -59,20 +67,26 @@ export class BrokerStatementService {
 
     if (existing) {
       if (existing.userId !== userId) {
-        throw new BadRequestException('File already imported by different user');
+        throw new BadRequestException(
+          'File already imported by different user'
+        );
       }
       return this.getImportDetails(existing.id, userId);
     }
 
     // Parse the CSV
-    const parseResult = await this.parser.parseCSV(dto.fileContent, dto.brokerName);
+    const parseResult = await this.parser.parseCSV(
+      dto.fileContent,
+      dto.brokerName
+    );
 
     // Determine status
     let status: ImportStatus = ImportStatus.PARSED_OK;
     if (parseResult.errors.length > 0) {
-      status = parseResult.transactions.length > 0
-        ? ImportStatus.PARSED_WITH_ERRORS
-        : ImportStatus.FAILED;
+      status =
+        parseResult.transactions.length > 0
+          ? ImportStatus.PARSED_WITH_ERRORS
+          : ImportStatus.FAILED;
     }
 
     // Create import record
@@ -87,7 +101,7 @@ export class BrokerStatementService {
         meta: {
           parserUsed: dto.brokerName,
           accountLinked: dto.accountId
-        },
+        } as Prisma.InputJsonValue,
         userId,
         rows: {
           create: await this.createRowRecords(parseResult)
@@ -123,7 +137,7 @@ export class BrokerStatementService {
     });
 
     return {
-      imports: imports.map(i => this.mapToImportDetails(i)),
+      imports: imports.map((i) => this.mapToImportDetails(i)),
       total: imports.length
     };
   }
@@ -169,6 +183,7 @@ export class BrokerStatementService {
     } catch {
       // Create the symbol profile if it doesn't exist
       await this.symbolProfileService.add({
+        currency: 'USD',
         dataSource: DataSource.MANUAL,
         symbol: dto.canonicalSymbol
       });
@@ -210,7 +225,7 @@ export class BrokerStatementService {
     });
 
     return {
-      mappings: mappings.map(m => this.mapToSymbolMapping(m)),
+      mappings: mappings.map((m) => this.mapToSymbolMapping(m)),
       total: mappings.length
     };
   }
@@ -262,7 +277,7 @@ export class BrokerStatementService {
       // Get Ghostfolio orders for comparison
       const ghostfolioOrders = await this.orderService.getOrders({
         filters: dto.accountId
-          ? this.buildAccountFilter()
+          ? this.buildAccountFilter(dto.accountId)
           : undefined,
         userCurrency: 'USD',
         userId
@@ -282,7 +297,7 @@ export class BrokerStatementService {
             runId: run.id,
             diffType: diff.diffType as DiffType,
             severity: diff.severity as DiffSeverity,
-            details: diff.details,
+            details: diff.details as Prisma.InputJsonValue,
             statementRowId: diff.statementRowId,
             ghostfolioOrderId: diff.ghostfolioOrderId
           }
@@ -292,13 +307,23 @@ export class BrokerStatementService {
       // Calculate summary
       const summary = {
         totalDiffs: diffs.length,
-        criticalDiffs: diffs.filter(d => d.severity === DiffSeverity.CRITICAL).length,
-        warningDiffs: diffs.filter(d => d.severity === DiffSeverity.WARNING).length,
-        infoDiffs: diffs.filter(d => d.severity === DiffSeverity.INFO).length,
-        missingTransactions: diffs.filter(d => d.diffType === DiffType.MISSING_TXN).length,
-        quantityMismatches: diffs.filter(d => d.diffType === DiffType.QUANTITY_MISMATCH).length,
-        missingDividends: diffs.filter(d => d.diffType === DiffType.MISSING_DIVIDEND).length,
-        unknownSymbols: diffs.filter(d => d.diffType === DiffType.UNKNOWN_SYMBOL).length
+        criticalDiffs: diffs.filter((d) => d.severity === DiffSeverity.CRITICAL)
+          .length,
+        warningDiffs: diffs.filter((d) => d.severity === DiffSeverity.WARNING)
+          .length,
+        infoDiffs: diffs.filter((d) => d.severity === DiffSeverity.INFO).length,
+        missingTransactions: diffs.filter(
+          (d) => d.diffType === DiffType.MISSING_TXN
+        ).length,
+        quantityMismatches: diffs.filter(
+          (d) => d.diffType === DiffType.QUANTITY_MISMATCH
+        ).length,
+        missingDividends: diffs.filter(
+          (d) => d.diffType === DiffType.MISSING_DIVIDEND
+        ).length,
+        unknownSymbols: diffs.filter(
+          (d) => d.diffType === DiffType.UNKNOWN_SYMBOL
+        ).length
       };
 
       // Update run with results
@@ -313,7 +338,6 @@ export class BrokerStatementService {
       });
 
       return this.mapToReconciliationSummary(completed);
-
     } catch (error) {
       await this.prisma.reconciliationRun.update({
         where: { id: run.id },
@@ -362,7 +386,7 @@ export class BrokerStatementService {
       throw new NotFoundException('Reconciliation run not found');
     }
 
-    const diff = run.diffs.find(d => d.id === dto.diffId);
+    const diff = run.diffs.find((d) => d.id === dto.diffId);
     if (!diff) {
       throw new NotFoundException('Diff not found');
     }
@@ -376,19 +400,21 @@ export class BrokerStatementService {
     }
 
     if (dto.action === 'CREATE_MISSING_TRANSACTION') {
-      const row = run.import.rows.find(r => r.id === diff.statementRowId);
+      const row = run.import.rows.find((r) => r.id === diff.statementRowId);
       if (!row?.parsedData) {
         throw new BadRequestException('Cannot find source row data');
       }
 
-      const parsed = row.parsedData as ParsedBrokerTransaction;
+      const parsed = row.parsedData as unknown as ParsedBrokerTransaction;
 
       // Get or create symbol profile
       try {
-        await this.symbolProfileService.getSymbolProfiles([{
-          dataSource: DataSource.MANUAL,
-          symbol: parsed.rawSymbol
-        }]);
+        await this.symbolProfileService.getSymbolProfiles([
+          {
+            dataSource: DataSource.MANUAL,
+            symbol: parsed.rawSymbol
+          }
+        ]);
       } catch {
         await this.symbolProfileService.add({
           dataSource: DataSource.MANUAL,
@@ -424,19 +450,34 @@ export class BrokerStatementService {
     importRecord: BrokerStatementImport & { rows: BrokerStatementRow[] }
   ): Promise<VerificationSummaryDto> {
     const totalRows = importRecord.rows.length;
-    const okRows = importRecord.rows.filter(r => r.validationStatus === RowValidationStatus.OK).length;
-    const errorRows = importRecord.rows.filter(r => r.validationStatus === RowValidationStatus.ERROR);
+    const okRows = importRecord.rows.filter(
+      (r) => r.validationStatus === RowValidationStatus.OK
+    ).length;
+    const errorRows = importRecord.rows.filter(
+      (r) => r.validationStatus === RowValidationStatus.ERROR
+    );
 
     // Parse success rate
     const parseSuccessRate = totalRows > 0 ? okRows / totalRows : 0;
-    const parseSuccessRateStatus = parseSuccessRate >= 0.95 ? 'passed' : parseSuccessRate >= 0.8 ? 'warning' : 'failed';
+    const parseSuccessRateStatus =
+      parseSuccessRate >= 0.95
+        ? 'passed'
+        : parseSuccessRate >= 0.8
+          ? 'warning'
+          : 'failed';
 
     // Unknown symbol rate
-    const unknownSymbolErrors = errorRows.filter(r =>
+    const unknownSymbolErrors = errorRows.filter((r) =>
       r.errorCodes.includes('UNKNOWN_SYMBOL')
     );
-    const unknownSymbolRate = totalRows > 0 ? unknownSymbolErrors.length / totalRows : 0;
-    const unknownSymbolRateStatus = unknownSymbolRate < 0.05 ? 'passed' : unknownSymbolRate < 0.15 ? 'warning' : 'failed';
+    const unknownSymbolRate =
+      totalRows > 0 ? unknownSymbolErrors.length / totalRows : 0;
+    const unknownSymbolRateStatus =
+      unknownSymbolRate < 0.05
+        ? 'passed'
+        : unknownSymbolRate < 0.15
+          ? 'warning'
+          : 'failed';
 
     // Idempotency check (based on file hash)
     const idempotencyCheck = importRecord.fileHash !== null;
@@ -444,11 +485,14 @@ export class BrokerStatementService {
 
     // Overall status
     const overallStatus: 'passed' | 'warning' | 'failed' =
-      parseSuccessRateStatus === 'failed' || unknownSymbolRateStatus === 'failed'
+      parseSuccessRateStatus === 'failed' ||
+      unknownSymbolRateStatus === 'failed'
         ? 'failed'
-        : parseSuccessRateStatus === 'warning' || unknownSymbolRateStatus === 'warning' || idempotencyCheckStatus === 'warning'
-        ? 'warning'
-        : 'passed';
+        : parseSuccessRateStatus === 'warning' ||
+            unknownSymbolRateStatus === 'warning' ||
+            idempotencyCheckStatus === 'warning'
+          ? 'warning'
+          : 'passed';
 
     return {
       parseSuccessRate,
@@ -468,13 +512,15 @@ export class BrokerStatementService {
     importRecord: BrokerStatementImport & { rows: BrokerStatementRow[] },
     ghostfolioOrders: any[],
     userId: string
-  ): Promise<{
-    diffType: DiffType;
-    severity: DiffSeverity;
-    details: Record<string, unknown>;
-    statementRowId?: string;
-    ghostfolioOrderId?: string;
-  }[]> {
+  ): Promise<
+    {
+      diffType: DiffType;
+      severity: DiffSeverity;
+      details: Record<string, unknown>;
+      statementRowId?: string;
+      ghostfolioOrderId?: string;
+    }[]
+  > {
     const diffs: {
       diffType: DiffType;
       severity: DiffSeverity;
@@ -488,7 +534,7 @@ export class BrokerStatementService {
       where: { userId }
     });
     const mappingMap = new Map(
-      mappings.map(m => [`${m.brokerName}:${m.rawSymbol}`, m.canonicalSymbol])
+      mappings.map((m) => [`${m.brokerName}:${m.rawSymbol}`, m.canonicalSymbol])
     );
 
     // Group broker transactions by symbol
@@ -499,7 +545,7 @@ export class BrokerStatementService {
         continue;
       }
 
-      const parsed = row.parsedData as ParsedBrokerTransaction;
+      const parsed = row.parsedData as unknown as ParsedBrokerTransaction;
       const key = `${parsed.rawSymbol}`;
 
       if (!brokerBySymbol.has(key)) {
@@ -520,7 +566,9 @@ export class BrokerStatementService {
 
     // Check for unknown symbols
     for (const [rawSymbol, transactions] of brokerBySymbol) {
-      const mappedSymbol = mappingMap.get(`${importRecord.brokerName}:${rawSymbol}`);
+      const mappedSymbol = mappingMap.get(
+        `${importRecord.brokerName}:${rawSymbol}`
+      );
 
       if (!mappedSymbol && !ghostfolioBySymbol.has(rawSymbol)) {
         diffs.push({
@@ -531,8 +579,11 @@ export class BrokerStatementService {
             brokerName: importRecord.brokerName,
             transactionCount: transactions.length
           },
-          statementRowId: importRecord.rows.find(r =>
-            r.parsedData && (r.parsedData as ParsedBrokerTransaction).rawSymbol === rawSymbol
+          statementRowId: importRecord.rows.find(
+            (r) =>
+              r.parsedData &&
+              (r.parsedData as unknown as ParsedBrokerTransaction).rawSymbol ===
+                rawSymbol
           )?.id
         });
       }
@@ -540,11 +591,15 @@ export class BrokerStatementService {
 
     // Check for missing dividends
     for (const [rawSymbol, transactions] of brokerBySymbol) {
-      const mappedSymbol = mappingMap.get(`${importRecord.brokerName}:${rawSymbol}`) || rawSymbol;
+      const mappedSymbol =
+        mappingMap.get(`${importRecord.brokerName}:${rawSymbol}`) || rawSymbol;
 
-      const brokerDividends = transactions.filter(t => t.transactionType === 'DIVIDEND');
-      const ghostfolioDividends = (ghostfolioBySymbol.get(mappedSymbol) || [])
-        .filter(o => o.type === 'DIVIDEND');
+      const brokerDividends = transactions.filter(
+        (t) => t.transactionType === 'DIVIDEND'
+      );
+      const ghostfolioDividends = (
+        ghostfolioBySymbol.get(mappedSymbol) || []
+      ).filter((o) => o.type === 'DIVIDEND');
 
       if (brokerDividends.length > ghostfolioDividends.length) {
         diffs.push({
@@ -561,28 +616,32 @@ export class BrokerStatementService {
 
     // Check for quantity mismatches
     for (const [rawSymbol, transactions] of brokerBySymbol) {
-      const mappedSymbol = mappingMap.get(`${importRecord.brokerName}:${rawSymbol}`) || rawSymbol;
+      const mappedSymbol =
+        mappingMap.get(`${importRecord.brokerName}:${rawSymbol}`) || rawSymbol;
 
       const brokerBuys = transactions
-        .filter(t => t.transactionType === 'BUY')
+        .filter((t) => t.transactionType === 'BUY')
         .reduce((sum, t) => sum + (t.quantity || 0), 0);
 
       const brokerSells = transactions
-        .filter(t => t.transactionType === 'SELL')
+        .filter((t) => t.transactionType === 'SELL')
         .reduce((sum, t) => sum + (t.quantity || 0), 0);
 
       const ghostfolioTransactions = ghostfolioBySymbol.get(mappedSymbol) || [];
       const ghostfolioBuys = ghostfolioTransactions
-        .filter(o => o.type === 'BUY')
+        .filter((o) => o.type === 'BUY')
         .reduce((sum, o) => sum + (o.quantity || 0), 0);
       const ghostfolioSells = ghostfolioTransactions
-        .filter(o => o.type === 'SELL')
+        .filter((o) => o.type === 'SELL')
         .reduce((sum, o) => sum + (o.quantity || 0), 0);
 
       const brokerNet = brokerBuys - brokerSells;
       const ghostfolioNet = ghostfolioBuys - ghostfolioSells;
 
-      if (brokerNet !== ghostfolioNet && Math.abs(brokerNet - ghostfolioNet) > 0.01) {
+      if (
+        brokerNet !== ghostfolioNet &&
+        Math.abs(brokerNet - ghostfolioNet) > 0.01
+      ) {
         diffs.push({
           diffType: DiffType.QUANTITY_MISMATCH,
           severity: DiffSeverity.WARNING,
@@ -598,7 +657,8 @@ export class BrokerStatementService {
 
     // Check for completely missing transactions
     for (const [rawSymbol, transactions] of brokerBySymbol) {
-      const mappedSymbol = mappingMap.get(`${importRecord.brokerName}:${rawSymbol}`) || rawSymbol;
+      const mappedSymbol =
+        mappingMap.get(`${importRecord.brokerName}:${rawSymbol}`) || rawSymbol;
 
       if (!ghostfolioBySymbol.has(mappedSymbol)) {
         for (const txn of transactions) {
@@ -622,32 +682,34 @@ export class BrokerStatementService {
     return diffs;
   }
 
-  private buildAccountFilter() {
-    // Build filter object based on account ID
-    // Implementation depends on filter structure
-    return {};
+  private buildAccountFilter(accountId: string): Filter[] {
+    return [{ id: accountId, type: 'ACCOUNT' }];
   }
 
-  private async createRowRecords(
-    parseResult: {
-      transactions: ParsedBrokerTransaction[];
-      errors: { row: number; message: string; rawRow?: Record<string, string> }[];
-      warnings: { row: number; message: string }[];
-      rowCount: number;
-    }
-  ) {
+  private async createRowRecords(parseResult: {
+    transactions: ParsedBrokerTransaction[];
+    errors: { row: number; message: string; rawRow?: Record<string, string> }[];
+    warnings: { row: number; message: string }[];
+    rowCount: number;
+  }) {
     const records: {
-      rawData: Record<string, unknown>;
-      parsedData: Record<string, unknown> | null;
+      rawData: Prisma.InputJsonValue;
+      parsedData: Prisma.InputJsonValue | null;
       validationStatus: RowValidationStatus;
       errorCodes: string[];
     }[] = [];
 
     // Add parsed transactions
     for (const txn of parseResult.transactions) {
+      // Convert Date objects to ISO strings for JSON serialization
+      const plainTxn = {
+        ...txn,
+        tradeDate: txn.tradeDate.toISOString(),
+        settleDate: txn.settleDate?.toISOString()
+      };
       records.push({
-        rawData: { raw: txn },
-        parsedData: txn as unknown as Record<string, unknown>,
+        rawData: { raw: plainTxn } as Prisma.InputJsonValue,
+        parsedData: plainTxn as unknown as Prisma.JsonObject,
         validationStatus: RowValidationStatus.OK,
         errorCodes: []
       });
@@ -667,7 +729,9 @@ export class BrokerStatementService {
       }
 
       records.push({
-        rawData: error.rawRow || { error: error.message },
+        rawData: (error.rawRow || {
+          error: error.message
+        }) as Prisma.InputJsonValue,
         parsedData: null,
         validationStatus: RowValidationStatus.ERROR,
         errorCodes
@@ -689,8 +753,8 @@ export class BrokerStatementService {
       processedAt: importRecord.processedAt ?? undefined,
       rowCount: importRecord.rowCount,
       errorCount: importRecord.errorCount,
-      meta: importRecord.meta as Record<string, unknown> ?? undefined,
-      rows: importRecord.rows?.map(r => this.mapToStatementRow(r))
+      meta: (importRecord.meta as Record<string, unknown>) ?? undefined,
+      rows: importRecord.rows?.map((r) => this.mapToStatementRow(r))
     };
   }
 
@@ -700,7 +764,9 @@ export class BrokerStatementService {
       validationStatus: row.validationStatus,
       errorCodes: row.errorCodes,
       rawData: row.rawData as Record<string, unknown>,
-      parsedData: row.parsedData as ParsedBrokerTransaction | undefined
+      parsedData: row.parsedData
+        ? (row.parsedData as unknown as ParsedBrokerTransaction)
+        : undefined
     };
   }
 
@@ -720,6 +786,8 @@ export class BrokerStatementService {
   private mapToReconciliationSummary(
     run: ReconciliationRun & { diffs?: ReconciliationDiff[] }
   ): ReconciliationSummaryDto {
+    const summary = run.summary as unknown as ReconciliationSummaryData;
+
     return {
       id: run.id,
       importId: run.importId,
@@ -727,7 +795,7 @@ export class BrokerStatementService {
       status: run.status,
       runAt: run.runAt,
       completedAt: run.completedAt ?? undefined,
-      summary: (run.summary as Record<string, unknown> ?? {
+      summary: summary ?? {
         totalDiffs: 0,
         criticalDiffs: 0,
         warningDiffs: 0,
@@ -736,8 +804,8 @@ export class BrokerStatementService {
         quantityMismatches: 0,
         missingDividends: 0,
         unknownSymbols: 0
-      }),
-      diffs: (run.diffs || []).map(d => ({
+      },
+      diffs: (run.diffs || []).map((d) => ({
         id: d.id,
         diffType: d.diffType,
         severity: d.severity,

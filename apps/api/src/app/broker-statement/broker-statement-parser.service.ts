@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { BrokerName, ParsedBrokerTransaction, TransactionType } from './broker-statement.dto';
-import { parse } from 'csv-parse/sync';
 import { createHash } from 'node:crypto';
+
+import {
+  BrokerName,
+  ParsedBrokerTransaction,
+  TransactionType
+} from './broker-statement.dto';
 
 interface CSVRow extends Record<string, string> {}
 
@@ -23,21 +27,21 @@ interface BrokerParserConfig {
 /**
  * Broker-specific CSV parser configurations
  */
-const BROKER_CONFIGS: Record<BrokerName, BrokerParserConfig> = {
+const BROKER_CONFIGS: Record<string, BrokerParserConfig> = {
   [BrokerName.SCHWAB]: {
     requiredColumns: ['Date', 'Action', 'Symbol', 'Quantity', 'Price'],
     columnMapping: {
-      'Date': 'tradeDate',
+      Date: 'tradeDate',
       'Settle Date': 'settleDate',
-      'Action': 'transactionType',
-      'Symbol': 'rawSymbol',
-      'Description': 'rawDescription',
-      'Quantity': 'quantity',
-      'Price': 'price',
-      'Fees': 'feeAmount',
-      'Commission': 'feeAmount',
-      'Amount': 'netAmount',
-      'Currency': 'currency'
+      Action: 'transactionType',
+      Symbol: 'rawSymbol',
+      Description: 'rawDescription',
+      Quantity: 'quantity',
+      Price: 'price',
+      Fees: 'feeAmount',
+      Commission: 'feeAmount',
+      Amount: 'netAmount',
+      Currency: 'currency'
     },
     dateFormats: ['MM/DD/YYYY', 'M/D/YYYY'],
     decimalSeparator: '.',
@@ -48,14 +52,14 @@ const BROKER_CONFIGS: Record<BrokerName, BrokerParserConfig> = {
     columnMapping: {
       'Run Date': 'tradeDate',
       'Settlement Date': 'settleDate',
-      'Action': 'transactionType',
-      'Symbol': 'rawSymbol',
-      'Description': 'rawDescription',
-      'Quantity': 'quantity',
-      'Price': 'price',
-      'Commission': 'feeAmount',
-      'Amount': 'netAmount',
-      'Currency': 'currency'
+      Action: 'transactionType',
+      Symbol: 'rawSymbol',
+      Description: 'rawDescription',
+      Quantity: 'quantity',
+      Price: 'price',
+      Commission: 'feeAmount',
+      Amount: 'netAmount',
+      Currency: 'currency'
     },
     dateFormats: ['MM/DD/YYYY', 'M/D/YYYY'],
     decimalSeparator: '.',
@@ -64,16 +68,16 @@ const BROKER_CONFIGS: Record<BrokerName, BrokerParserConfig> = {
   [BrokerName.INTERACTIVE_BROKERS]: {
     requiredColumns: ['Date', 'Action', 'Symbol', 'Quantity', 'Price'],
     columnMapping: {
-      'Date': 'tradeDate',
+      Date: 'tradeDate',
       'Settlement Date': 'settleDate',
-      'Action': 'transactionType',
-      'Symbol': 'rawSymbol',
-      'Description': 'rawDescription',
-      'Quantity': 'quantity',
-      'Price': 'price',
-      'Commission': 'feeAmount',
+      Action: 'transactionType',
+      Symbol: 'rawSymbol',
+      Description: 'rawDescription',
+      Quantity: 'quantity',
+      Price: 'price',
+      Commission: 'feeAmount',
       'Net Cash': 'netAmount',
-      'Currency': 'currency',
+      Currency: 'currency',
       'Order ID': 'externalId'
     },
     dateFormats: ['YYYY-MM-DD', 'MM/DD/YYYY'],
@@ -85,32 +89,32 @@ const BROKER_CONFIGS: Record<BrokerName, BrokerParserConfig> = {
     columnMapping: {
       'Trade Date': 'tradeDate',
       'Settlement Date': 'settleDate',
-      'Type': 'transactionType',
-      'Symbol': 'rawSymbol',
-      'Description': 'rawDescription',
-      'Quantity': 'quantity',
-      'Price': 'price',
-      'Commission': 'feeAmount',
-      'Amount': 'netAmount',
-      'Currency': 'currency'
+      Type: 'transactionType',
+      Symbol: 'rawSymbol',
+      Description: 'rawDescription',
+      Quantity: 'quantity',
+      Price: 'price',
+      Commission: 'feeAmount',
+      Amount: 'netAmount',
+      Currency: 'currency'
     },
     dateFormats: ['MM/DD/YYYY', 'M/D/YYYY'],
     decimalSeparator: '.',
     hasHeader: true
   },
-  [BrokerName.ETRADE]: {
+  [BrokerName.ETORO]: {
     requiredColumns: ['Date', 'Action', 'Symbol', 'Qty', 'Price'],
     columnMapping: {
-      'Date': 'tradeDate',
+      Date: 'tradeDate',
       'Settlement Date': 'settleDate',
-      'Action': 'transactionType',
-      'Symbol': 'rawSymbol',
-      'Description': 'rawDescription',
-      'Qty': 'quantity',
-      'Price': 'price',
+      Action: 'transactionType',
+      Symbol: 'rawSymbol',
+      Description: 'rawDescription',
+      Qty: 'quantity',
+      Price: 'price',
       'Comm/Fee': 'feeAmount',
-      'Amount': 'netAmount',
-      'Currency': 'currency'
+      Amount: 'netAmount',
+      Currency: 'currency'
     },
     dateFormats: ['MM/DD/YYYY', 'M/D/YYYY'],
     decimalSeparator: '.',
@@ -119,16 +123,16 @@ const BROKER_CONFIGS: Record<BrokerName, BrokerParserConfig> = {
   [BrokerName.TRADESTATION]: {
     requiredColumns: ['Date', 'Type', 'Symbol', 'Qty', 'Price'],
     columnMapping: {
-      'Date': 'tradeDate',
+      Date: 'tradeDate',
       'Settlement Date': 'settleDate',
-      'Type': 'transactionType',
-      'Symbol': 'rawSymbol',
-      'Description': 'rawDescription',
-      'Qty': 'quantity',
-      'Price': 'price',
-      'Commission': 'feeAmount',
-      'Amount': 'netAmount',
-      'Currency': 'currency'
+      Type: 'transactionType',
+      Symbol: 'rawSymbol',
+      Description: 'rawDescription',
+      Qty: 'quantity',
+      Price: 'price',
+      Commission: 'feeAmount',
+      Amount: 'netAmount',
+      Currency: 'currency'
     },
     dateFormats: ['MM/DD/YYYY', 'M/D/YYYY'],
     decimalSeparator: '.',
@@ -148,55 +152,137 @@ const BROKER_CONFIGS: Record<BrokerName, BrokerParserConfig> = {
  */
 const ACTION_TYPE_MAPPING: Record<string, TransactionType> = {
   // Buy actions
-  'BUY': TransactionType.BUY,
-  'BOUGHT': TransactionType.BUY,
+  BUY: TransactionType.BUY,
+  BOUGHT: TransactionType.BUY,
   'BUY TO OPEN': TransactionType.BUY,
   'BUY TO CLOSE': TransactionType.BUY,
-  'PURCHASE': TransactionType.BUY,
-  'BTO': TransactionType.BUY,
+  PURCHASE: TransactionType.BUY,
+  BTO: TransactionType.BUY,
 
   // Sell actions
-  'SELL': TransactionType.SELL,
-  'SOLD': TransactionType.SELL,
+  SELL: TransactionType.SELL,
+  SOLD: TransactionType.SELL,
   'SELL TO CLOSE': TransactionType.SELL,
   'SELL TO OPEN': TransactionType.SELL,
-  'SALE': TransactionType.SELL,
-  'STC': TransactionType.SELL,
+  SALE: TransactionType.SELL,
+  STC: TransactionType.SELL,
   'SHORT SALE': TransactionType.SELL,
 
   // Dividend actions
-  'DIVIDEND': TransactionType.DIVIDEND,
-  'DIV': TransactionType.DIVIDEND,
+  DIVIDEND: TransactionType.DIVIDEND,
+  DIV: TransactionType.DIVIDEND,
   'REINVEST DIV': TransactionType.DIVIDEND,
   'DIVIDEND REINVESTMENT': TransactionType.DIVIDEND,
   'QUALIFIED DIVIDEND': TransactionType.DIVIDEND,
-  'ORDINARY DIVIDEND': TransactionType.DIVENDEND,
+  'ORDINARY DIVIDEND': TransactionType.DIVIDEND,
 
   // Fee actions
-  'FEE': TransactionType.FEE,
-  'COMMISSION': TransactionType.FEE,
+  FEE: TransactionType.FEE,
+  COMMISSION: TransactionType.FEE,
   'MARGIN INTEREST': TransactionType.FEE,
 
   // Tax actions
-  'TAX': TransactionType.TAX,
-  'WITHHOLDING': TransactionType.TAX,
+  TAX: TransactionType.TAX,
+  WITHHOLDING: TransactionType.TAX,
   'FOREIGN TAX': TransactionType.TAX,
 
   // Interest
-  'INTEREST': TransactionType.INTEREST,
+  INTEREST: TransactionType.INTEREST,
   'CREDIT INTEREST': TransactionType.INTEREST,
   'DEBIT INTEREST': TransactionType.INTEREST,
 
   // Transfer
   'TRANSFER IN': TransactionType.TRANSFER_IN,
   'TRANSFER OUT': TransactionType.TRANSFER_OUT,
-  'DEPOSIT': TransactionType.TRANSFER_IN,
-  'WITHDRAWAL': TransactionType.TRANSFER_OUT,
+  DEPOSIT: TransactionType.TRANSFER_IN,
+  WITHDRAWAL: TransactionType.TRANSFER_OUT,
 
   // FX
   'FX CONVERSION': TransactionType.FX_CONVERSION,
   'CURRENCY EXCHANGE': TransactionType.FX_CONVERSION
 };
+
+/**
+ * Simple CSV parser - handles quoted fields and basic CSV format
+ */
+function parseCSV(content: string): string[][] {
+  const result: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i];
+    const nextChar = content[i + 1];
+
+    if (inQuotes) {
+      if (char === '"' && nextChar === '"') {
+        currentField += '"'; // Escaped quote
+        i++; // Skip next quote
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        currentField += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === ',') {
+        currentRow.push(currentField);
+        currentField = '';
+      } else if (char === '\r' && nextChar === '\n') {
+        currentRow.push(currentField);
+        if (currentRow.some((f) => f.trim() !== '')) {
+          result.push(currentRow);
+        }
+        currentRow = [];
+        currentField = '';
+        i++; // Skip \n
+      } else if (char === '\n' || char === '\r') {
+        currentRow.push(currentField);
+        if (currentRow.some((f) => f.trim() !== '')) {
+          result.push(currentRow);
+        }
+        currentRow = [];
+        currentField = '';
+      } else {
+        currentField += char;
+      }
+    }
+  }
+
+  // Add last field and row
+  if (currentField || inQuotes) {
+    currentRow.push(currentField);
+  }
+  if (currentRow.some((f) => f.trim() !== '')) {
+    result.push(currentRow);
+  }
+
+  return result;
+}
+
+/**
+ * Convert parsed CSV rows to objects with headers
+ */
+function rowsToObjects(rows: string[][]): CSVRow[] {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const headers = rows[0].map((h) => h.trim());
+  const result: CSVRow[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row: CSVRow = {};
+    for (let j = 0; j < headers.length && j < rows[i].length; j++) {
+      row[headers[j]] = rows[i][j]?.trim() || '';
+    }
+    result.push(row);
+  }
+
+  return result;
+}
 
 @Injectable()
 export class BrokerStatementParserService {
@@ -207,7 +293,8 @@ export class BrokerStatementParserService {
     fileContent: string,
     brokerName: BrokerName
   ): Promise<ParserResult> {
-    const config = BROKER_CONFIGS[brokerName] || BROKER_CONFIGS[BrokerName.OTHER];
+    const config =
+      BROKER_CONFIGS[brokerName] || BROKER_CONFIGS[BrokerName.OTHER];
     const result: ParserResult = {
       transactions: [],
       errors: [],
@@ -215,19 +302,25 @@ export class BrokerStatementParserService {
       rowCount: 0
     };
 
-    let records: CSVRow[];
-
     try {
       // Detect if base64 encoded
       const csvContent = this.decodeFileContent(fileContent);
 
       // Parse CSV
-      records = parse(csvContent, {
-        columns: config.hasHeader,
-        skip_empty_lines: true,
-        trim: true,
-        relax_column_count: true
-      });
+      const parsedRows = parseCSV(csvContent);
+      const records =
+        config.hasHeader && parsedRows.length > 0
+          ? rowsToObjects(parsedRows)
+          : parsedRows.map(
+              (row) =>
+                ({
+                  '0': row[0] || '',
+                  '1': row[1] || '',
+                  '2': row[2] || '',
+                  '3': row[3] || '',
+                  '4': row[4] || ''
+                }) as CSVRow
+            );
 
       result.rowCount = records.length;
 
@@ -240,10 +333,14 @@ export class BrokerStatementParserService {
       }
 
       // Validate required columns if this is a known broker
-      if (brokerName !== BrokerName.OTHER && config.hasHeader) {
-        const firstRow = records[0];
+      if (
+        brokerName !== BrokerName.OTHER &&
+        config.hasHeader &&
+        parsedRows.length > 0
+      ) {
+        const headers = parsedRows[0];
         const missingColumns = config.requiredColumns.filter(
-          col => !(col in firstRow)
+          (col) => !headers.includes(col)
         );
 
         if (missingColumns.length > 0) {
@@ -267,12 +364,12 @@ export class BrokerStatementParserService {
         } catch (error) {
           result.errors.push({
             row: rowNumber,
-            message: error instanceof Error ? error.message : 'Unknown parsing error',
+            message:
+              error instanceof Error ? error.message : 'Unknown parsing error',
             rawRow: row
           });
         }
       }
-
     } catch (error) {
       result.errors.push({
         row: 0,
@@ -298,216 +395,222 @@ export class BrokerStatementParserService {
     // Check if it looks like base64 (no newlines, only valid base64 chars)
     if (!fileContent.includes('\n') && !fileContent.includes(',')) {
       try {
-        const decoded = Buffer.from(fileContent, 'base64').toString('utf-8');
-        // If it looks like CSV after decoding, use it
-        if (decoded.includes(',') || decoded.includes('\t')) {
-          return decoded;
-        }
+        return Buffer.from(fileContent, 'base64').toString('utf-8');
       } catch {
-        // Not base64, use as-is
+        // If decoding fails, assume it's already decoded
+        return fileContent;
       }
     }
     return fileContent;
   }
 
   /**
-   * Parse a single CSV row into a ParsedBrokerTransaction
+   * Parse a single CSV row into a transaction
    */
   private parseRow(
     row: CSVRow,
     config: BrokerParserConfig
   ): ParsedBrokerTransaction | null {
-    // Skip empty rows
-    if (Object.keys(row).length === 0) {
-      return null;
+    // Get the raw action string
+    const rawAction = row['Action'] || row['Type'] || '';
+    const transactionType = ACTION_TYPE_MAPPING[rawAction.toUpperCase()];
+
+    if (!transactionType) {
+      throw new Error(`Unknown transaction type: ${rawAction}`);
     }
 
-    const mapped: Partial<ParsedBrokerTransaction> = {
-      rawSymbol: '',
-      transactionType: TransactionType.BUY,
-      tradeDate: new Date(),
-      quantity: 0,
-      price: 0,
-      currency: 'USD'
-    };
+    // Parse quantity
+    const quantityField =
+      this.findMappedField(row, config, 'quantity') ||
+      row['Quantity'] ||
+      row['Qty'];
+    const quantity = quantityField
+      ? parseFloat(quantityField.replace(/,/g, ''))
+      : 0;
 
-    // Map columns according to broker config
-    for (const [csvColumn, targetField] of Object.entries(config.columnMapping)) {
-      const value = row[csvColumn];
-      if (value === undefined || value === '') {
-        continue;
-      }
-
-      if (targetField === 'tradeDate' || targetField === 'settleDate') {
-        (mapped as Record<string, unknown>)[targetField] = this.parseDate(value, config.dateFormats);
-      } else if (targetField === 'quantity' || targetField === 'price' || targetField === 'feeAmount' || targetField === 'taxAmount' || targetField === 'grossAmount' || targetField === 'netAmount') {
-        (mapped as Record<string, unknown>)[targetField] = this.parseNumber(value, config.decimalSeparator);
-      } else {
-        (mapped as Record<string, unknown>)[targetField] = value;
-      }
+    if (isNaN(quantity)) {
+      throw new Error(`Invalid quantity: ${quantityField}`);
     }
 
-    // Normalize transaction type
-    if (mapped.rawDescription) {
-      const action = this.findTransactionType(mapped.rawDescription, row);
-      if (action) {
-        mapped.transactionType = action;
-      }
+    // Parse price
+    const priceField =
+      this.findMappedField(row, config, 'price') || row['Price'];
+    const price = priceField ? parseFloat(priceField.replace(/,/g, '')) : 0;
+
+    if (isNaN(price)) {
+      throw new Error(`Invalid price: ${priceField}`);
     }
 
-    // Try to infer type from various fields
-    if (!mapped.transactionType || mapped.transactionType === TransactionType.BUY) {
-      const action = this.findTransactionType(
-        Object.values(row).join(' ').toUpperCase(),
-        row
-      );
-      if (action) {
-        mapped.transactionType = action;
-      }
+    // Parse date
+    const dateField =
+      this.findMappedField(row, config, 'tradeDate') ||
+      row['Date'] ||
+      row['Trade Date'] ||
+      row['Run Date'];
+    const tradeDate = this.parseDate(dateField, config.dateFormats);
+
+    if (!tradeDate) {
+      throw new Error(`Invalid date: ${dateField}`);
     }
 
-    // Validate required fields
-    if (!mapped.rawSymbol) {
+    // Parse settlement date (optional)
+    const settleDateField =
+      this.findMappedField(row, config, 'settleDate') ||
+      row['Settle Date'] ||
+      row['Settlement Date'];
+    const settleDate = settleDateField
+      ? this.parseDate(settleDateField, config.dateFormats)
+      : undefined;
+
+    // Get symbol
+    const symbolField =
+      this.findMappedField(row, config, 'rawSymbol') || row['Symbol'];
+    const rawSymbol = symbolField?.trim() || '';
+
+    if (!rawSymbol) {
       throw new Error('Missing symbol');
     }
 
-    if (isNaN(mapped.tradeDate?.getTime())) {
-      throw new Error('Invalid or missing date');
-    }
+    // Parse amounts (optional)
+    const netAmountField = row['Amount'] || row['Net Cash'];
+    const netAmount = netAmountField
+      ? parseFloat(netAmountField.replace(/,/g, ''))
+      : undefined;
 
-    if (mapped.quantity === undefined || mapped.quantity === null) {
-      // Try to derive quantity from amount and price for dividends
-      if (mapped.transactionType === TransactionType.DIVIDEND) {
-        mapped.quantity = 0; // Dividends don't always have quantity
-      } else {
-        throw new Error('Missing quantity');
-      }
-    }
+    const feeAmountField =
+      this.findMappedField(row, config, 'feeAmount') ||
+      row['Commission'] ||
+      row['Fees'] ||
+      row['Comm/Fee'];
+    const feeAmount = feeAmountField
+      ? Math.abs(parseFloat(feeAmountField.replace(/,/g, '')))
+      : undefined;
 
-    // Calculate derived amounts if missing
-    if (mapped.netAmount === undefined && mapped.quantity !== undefined && mapped.price !== undefined) {
-      const grossAmount = mapped.quantity * mapped.price;
-      mapped.grossAmount = grossAmount;
-      mapped.netAmount = grossAmount - (mapped.feeAmount || 0) - (mapped.taxAmount || 0);
-    }
-
-    return mapped as ParsedBrokerTransaction;
+    // Build transaction
+    return {
+      rawSymbol,
+      rawDescription: row['Description'] || undefined,
+      transactionType,
+      tradeDate,
+      settleDate,
+      quantity,
+      price,
+      netAmount,
+      feeAmount,
+      currency: row['Currency'] || 'USD',
+      externalId: row['Order ID'] || undefined
+    };
   }
 
   /**
-   * Parse date trying multiple formats
+   * Find a field value using the column mapping
    */
-  private parseDate(dateStr: string, formats: string[]): Date {
-    const cleanStr = dateStr.trim();
+  private findMappedField(
+    row: CSVRow,
+    config: BrokerParserConfig,
+    targetField: string
+  ): string | undefined {
+    for (const [csvColumn, mappedField] of Object.entries(
+      config.columnMapping
+    )) {
+      if (mappedField === targetField && row[csvColumn] !== undefined) {
+        return row[csvColumn];
+      }
+    }
+    return undefined;
+  }
 
+  /**
+   * Parse date using multiple format attempts
+   */
+  private parseDate(
+    dateStr: string | undefined,
+    formats: string[]
+  ): Date | undefined {
+    if (!dateStr) {
+      return undefined;
+    }
+
+    dateStr = dateStr.trim();
+
+    // Try each format
     for (const format of formats) {
       try {
-        if (format === 'MM/DD/YYYY' || format === 'M/D/YYYY') {
-          const parts = cleanStr.split('/');
-          if (parts.length === 3) {
-            const month = parseInt(parts[0], 10) - 1;
-            const day = parseInt(parts[1], 10);
-            const year = parseInt(parts[2], 10);
-            const date = new Date(year, month, day);
-            if (!isNaN(date.getTime())) {
-              return date;
-            }
-          }
-        } else if (format === 'YYYY-MM-DD') {
-          const date = new Date(cleanStr);
-          if (!isNaN(date.getTime())) {
-            return date;
-          }
+        const parsed = this.tryParseDate(dateStr, format);
+        if (parsed) {
+          return parsed;
         }
       } catch {
-        continue;
+        // Continue to next format
       }
     }
 
-    // Fallback to native Date parsing
-    const fallback = new Date(cleanStr);
-    if (!isNaN(fallback.getTime())) {
-      return fallback;
+    // Try native Date parsing as fallback
+    const nativeDate = new Date(dateStr);
+    if (!isNaN(nativeDate.getTime())) {
+      return nativeDate;
     }
 
-    throw new Error(`Could not parse date: ${dateStr}`);
+    return undefined;
   }
 
   /**
-   * Parse number with locale-specific decimal separator
+   * Try to parse date with specific format
    */
-  private parseNumber(numStr: string, decimalSeparator: '.' | ','): number {
-    const clean = numStr.trim().replace(/,/g, ''); // Remove thousands separators
-
-    // Handle European format (comma as decimal)
-    if (decimalSeparator === ',') {
-      const withDot = clean.replace(',', '.');
-      const parsed = parseFloat(withDot);
-      if (!isNaN(parsed)) {
-        return parsed;
+  private tryParseDate(dateStr: string, format: string): Date | undefined {
+    // Handle MM/DD/YYYY and M/D/YYYY
+    if (format === 'MM/DD/YYYY' || format === 'M/D/YYYY') {
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const month = parseInt(parts[0], 10) - 1;
+        const day = parseInt(parts[1], 10);
+        const year = parseInt(parts[2], 10);
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
       }
     }
 
-    const parsed = parseFloat(clean);
-    if (isNaN(parsed)) {
-      throw new Error(`Could not parse number: ${numStr}`);
-    }
-    return parsed;
-  }
-
-  /**
-   * Find transaction type from action text
-   */
-  private findTransactionType(actionText: string, row: CSVRow): TransactionType | null {
-    const normalized = actionText.toUpperCase().trim();
-
-    // Direct match
-    if (ACTION_TYPE_MAPPING[normalized]) {
-      return ACTION_TYPE_MAPPING[normalized];
-    }
-
-    // Partial match
-    for (const [key, value] of Object.entries(ACTION_TYPE_MAPPING)) {
-      if (normalized.includes(key) || key.includes(normalized)) {
-        return value;
+    // Handle YYYY-MM-DD
+    if (format === 'YYYY-MM-DD') {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
       }
     }
 
-    // Heuristics based on row content
-    if (normalized.includes('DIV') || row['Description']?.toUpperCase().includes('DIVIDEND')) {
-      return TransactionType.DIVIDEND;
-    }
-
-    if (normalized.includes('SELL') || normalized.includes('STC') || normalized.includes('SHORT')) {
-      return TransactionType.SELL;
-    }
-
-    return TransactionType.BUY; // Default
+    return undefined;
   }
 
   /**
-   * Detect broker from CSV content (heuristic)
+   * Detect broker from CSV content (heuristic-based)
    */
-  detectBroker(fileContent: string): BrokerName {
-    const csvContent = this.decodeFileContent(fileContent).toLowerCase();
+  detectBroker(csvContent: string): BrokerName {
+    const content = csvContent.toLowerCase();
 
-    // Check for broker-specific patterns in headers
-    if (csvContent.includes('settlement date') && csvContent.includes('principal')) {
-      return BrokerName.FIDELITY;
-    }
-    if (csvContent.includes('settle date') && csvContent.includes('confirmation')) {
+    if (content.includes('schwab')) {
       return BrokerName.SCHWAB;
     }
-    if (csvContent.includes('order id') && csvContent.includes('ibkr')) {
+    if (content.includes('fidelity') || content.includes('fidelity')) {
+      return BrokerName.FIDELITY;
+    }
+    if (content.includes('interactive') || content.includes('ibkr')) {
       return BrokerName.INTERACTIVE_BROKERS;
     }
-    if (csvContent.includes('vanguard') && csvContent.includes('investment')) {
+    if (content.includes('vanguard')) {
       return BrokerName.VANGUARD;
     }
-    if (csvContent.includes('etrade')) {
-      return BrokerName.ETRADE;
+    if (content.includes('etrade')) {
+      return BrokerName.ETORO; // Map etrade to etoro for now
     }
-    if (csvContent.includes('tradestation')) {
+    if (content.includes('tradestation')) {
       return BrokerName.TRADESTATION;
     }
 

@@ -1,15 +1,13 @@
 import { DataSource } from '@prisma/client';
 
-import {
-  AiAgentChatResponse,
-  AiAgentToolName
-} from '../ai-agent.interfaces';
+import { AiAgentChatResponse, AiAgentToolName } from '../ai-agent.interfaces';
 
 export type AiAgentMvpEvalCategory =
   | 'happy_path'
   | 'edge_case'
   | 'adversarial'
-  | 'multi_step';
+  | 'multi_step'
+  | 'broker_statement';
 
 export type AiAgentMvpScenarioCategory =
   | 'attack'
@@ -91,6 +89,23 @@ export interface AiAgentMvpEvalVerificationExpectation {
   status?: 'passed' | 'warning' | 'failed';
 }
 
+export interface AiAgentMvpEvalNumericAssertion {
+  gte?: number;
+  lte?: number;
+}
+
+export interface AiAgentMvpEvalResultAssertions {
+  /**
+   * All assertions are evaluated against structured `toolCalls[].state` payloads.
+   */
+  errorCount?: AiAgentMvpEvalNumericAssertion;
+  idempotent?: boolean;
+  noNewRowsCreated?: boolean;
+  parseSuccessRate?: AiAgentMvpEvalNumericAssertion;
+  status?: string;
+  unknownSymbolRate?: AiAgentMvpEvalNumericAssertion;
+}
+
 export interface AiAgentMvpEvalCaseExpected {
   answerIncludes?: string[];
   answerPattern?: RegExp;
@@ -98,8 +113,14 @@ export interface AiAgentMvpEvalCaseExpected {
   forbiddenTools?: AiAgentToolName[];
   memoryTurnsAtLeast?: number;
   minCitations?: number;
+  /**
+   * Legacy unordered tool expectations kept for backward compatibility.
+   * Prefer `toolPlan` for ordered execution checks.
+   */
   requiredTools?: AiAgentToolName[];
   requiredToolCalls?: AiAgentMvpEvalToolExpectation[];
+  resultAssertions?: AiAgentMvpEvalResultAssertions;
+  toolPlan?: AiAgentToolName[];
   verificationChecks?: AiAgentMvpEvalVerificationExpectation[];
 }
 

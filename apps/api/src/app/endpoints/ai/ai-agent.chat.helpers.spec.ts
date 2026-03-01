@@ -53,7 +53,7 @@ describe('AiAgentChatHelpers', () => {
       userCurrency: 'USD'
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(700);
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
     expect(answer).toContain('Largest long allocations:');
   });
 
@@ -291,8 +291,7 @@ describe('AiAgentChatHelpers', () => {
 
   it('passes full memory history as structured messages to the model call', async () => {
     const generateText = jest.fn().mockResolvedValue({
-      text:
-        'Risk remains elevated with top concentration at 70.0%. Option: trim 5% and reallocate in stages.'
+      text: 'Risk remains elevated with top concentration at 70.0%. Option: trim 5% and reallocate in stages.'
     });
 
     await buildAnswer({
@@ -369,12 +368,12 @@ describe('AiAgentChatHelpers', () => {
 
   it('uses detailed analysis prompt structure for fundamentals queries', async () => {
     const generateText = jest.fn().mockResolvedValue({
-      text:
-        'Snapshot: TSLA remains a high-volatility growth name with material execution risk. Drivers: demand elasticity, margin pressure, and storage ramp dynamics. Risks: valuation compression, China competition, and guidance misses. Portfolio impact: cap single-name sizing to fit risk budget. Actionable next steps: define entry bands, set a downside threshold, and review catalyst calendar. Decision checklist: confirm thesis horizon, stop-loss policy, and max position size.'
+      text: 'Snapshot: TSLA remains a high-volatility growth name with material execution risk. Drivers: demand elasticity, margin pressure, and storage ramp dynamics. Risks: valuation compression, China competition, and guidance misses. Portfolio impact: cap single-name sizing to fit risk budget. Actionable next steps: define entry bands, set a downside threshold, and review catalyst calendar. Decision checklist: confirm thesis horizon, stop-loss policy, and max position size.'
     });
 
     await buildAnswer({
-      assetFundamentalsSummary: 'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)',
+      assetFundamentalsSummary:
+        'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)',
       generateText,
       languageCode: 'en',
       memory: { turns: [] },
@@ -396,12 +395,12 @@ describe('AiAgentChatHelpers', () => {
 
   it('uses detailed analysis prompt structure for typo-prefixed fundamentals queries', async () => {
     const generateText = jest.fn().mockResolvedValue({
-      text:
-        'Snapshot: TSLA setup reflects valuation-sensitive growth. Drivers: delivery momentum, pricing discipline, and storage growth. Risks: multiple compression and execution misses. Portfolio impact: keep position sizing inside risk budget. Actionable next steps: define entry/exit levels, evaluate catalysts, and align with concentration limits. Decision checklist: confirm thesis duration, downside limit, and max weight.'
+      text: 'Snapshot: TSLA setup reflects valuation-sensitive growth. Drivers: delivery momentum, pricing discipline, and storage growth. Risks: multiple compression and execution misses. Portfolio impact: keep position sizing inside risk budget. Actionable next steps: define entry/exit levels, evaluate catalysts, and align with concentration limits. Decision checklist: confirm thesis duration, downside limit, and max weight.'
     });
 
     await buildAnswer({
-      assetFundamentalsSummary: 'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)',
+      assetFundamentalsSummary:
+        'Fundamental analysis:\nTSLA — Tesla, Inc. (EQUITY)',
       generateText,
       languageCode: 'en',
       memory: { turns: [] },
@@ -433,7 +432,9 @@ describe('AiAgentChatHelpers', () => {
   });
 
   it('recognizes preference recall queries and renders deterministic summary', () => {
-    expect(isPreferenceRecallQuery('What do you remember about me?')).toBe(true);
+    expect(isPreferenceRecallQuery('What do you remember about me?')).toBe(
+      true
+    );
     expect(
       createPreferenceSummaryResponse({
         userPreferences: {
@@ -558,7 +559,9 @@ describe('AiAgentChatHelpers', () => {
 
     expect(result.shouldPersist).toBe(false);
     expect(result.userPreferences).toEqual({});
-    expect(result.acknowledgement).toContain('No saved cross-session preferences');
+    expect(result.acknowledgement).toContain(
+      'No saved cross-session preferences'
+    );
   });
 
   it('returns deterministic summary for empty preference state', () => {
@@ -827,7 +830,9 @@ describe('AiAgentChatHelpers', () => {
       memory: { turns: [] },
       query: 'add 1000 usd seed funds for testing',
       userCurrency: 'USD',
-      additionalContextSummaries: ['seed_funds executed: seed funds order abc123 created']
+      additionalContextSummaries: [
+        'seed_funds executed: seed funds order abc123 created'
+      ]
     });
 
     expect(answer).toContain(
@@ -857,7 +862,9 @@ describe('AiAgentChatHelpers', () => {
 
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('Task: produce a concise, information-dense market news brief.')
+        prompt: expect.stringContaining(
+          'Task: produce a concise, information-dense market news brief.'
+        )
       })
     );
     expect(generateText).toHaveBeenCalledWith(

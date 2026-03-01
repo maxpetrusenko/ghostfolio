@@ -2,11 +2,7 @@ import { DataSource } from '@prisma/client';
 
 import { AiService } from '../ai.service';
 
-function createSubject({
-  llmText
-}: {
-  llmText: string;
-}) {
+function createSubject({ llmText }: { llmText: string }) {
   const accountService = {
     createAccount: jest.fn(),
     getAccounts: jest.fn().mockResolvedValue([])
@@ -59,6 +55,18 @@ function createSubject({
       }
     })
   };
+  const prismaService = {
+    brokerStatementImport: {
+      findMany: jest.fn().mockResolvedValue([])
+    },
+    reconciliationRun: {
+      findMany: jest.fn().mockResolvedValue([])
+    },
+    symbolMapping: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([])
+    }
+  };
   const propertyService = {
     getByKey: jest.fn()
   };
@@ -101,6 +109,7 @@ function createSubject({
     exchangeRateDataService as never,
     orderService as never,
     portfolioService as never,
+    prismaService as never,
     propertyService as never,
     redisCacheService as never,
     aiObservabilityService as never

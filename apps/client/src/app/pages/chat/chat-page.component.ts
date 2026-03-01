@@ -9,6 +9,7 @@ import { hasPermission, permissions } from '@ghostfolio/common/permissions';
 import { DataService } from '@ghostfolio/ui/services';
 
 import { CommonModule } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   AfterViewInit,
   ChangeDetectorRef,
@@ -676,12 +677,15 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
             this.scrollToBottom();
           });
         },
-        error: () => {
+        error: (error: unknown) => {
+          const { code, message } = this.extractBackendError(error);
           this.runInAngular(() => {
-            this.errorMessage = $localize`AI request failed. Check your model quota and permissions.`;
+            this.errorMessage = code ? `${code}: ${message}` : message;
 
             this.aiChatConversationsService.appendAssistantMessage({
-              content: $localize`Request failed. Please retry.`,
+              content: code
+                ? `Request failed (${code}: ${message}). Please retry.`
+                : `Request failed (${message}). Please retry.`,
               conversationId: submission.conversationId
             });
             this.scrollToBottom();
@@ -704,6 +708,41 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
 
     this.changeDetectorRef.markForCheck();
     this.changeDetectorRef.detectChanges();
+  }
+
+  private extractBackendError(error: unknown): {
+    code?: string;
+    message: string;
+  } {
+    if (error instanceof HttpErrorResponse) {
+      const payload = error.error;
+      const code =
+        payload && typeof payload === 'object' && 'code' in payload
+          ? String(payload.code)
+          : undefined;
+      const payloadMessage =
+        payload && typeof payload === 'object' && 'message' in payload
+          ? Array.isArray(payload.message)
+            ? payload.message.join(', ')
+            : String(payload.message)
+          : undefined;
+
+      return {
+        ...(code ? { code } : {}),
+        message:
+          payloadMessage?.trim() ||
+          error.message ||
+          $localize`AI request failed. Check your model quota and permissions.`
+      };
+    }
+
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return { message: error.message };
+    }
+
+    return {
+      message: $localize`AI request failed. Check your model quota and permissions.`
+    };
   }
 
   public onSubmitFromKeyboard(event: KeyboardEvent) {

@@ -295,7 +295,12 @@ const COMPLIANCE_CHECK_QUERY_PATTERNS = [
   /\b(?:compliance|regulat(?:ion|ory)|policy)\b.*\b(?:check|review|scan)\b/,
   /\b(?:violations?|warnings?|restricted|rule\s+check)\b/
 ];
-const COMPLIANCE_CHECK_KEYWORDS = ['compliance', 'policy', 'regulation', 'regulatory'];
+const COMPLIANCE_CHECK_KEYWORDS = [
+  'compliance',
+  'policy',
+  'regulation',
+  'regulatory'
+];
 const COMPLIANCE_ACTION_KEYWORDS = [
   'check',
   'review',
@@ -405,6 +410,7 @@ const INTENT_TOKEN_ALIASES: Record<string, string> = {
   alocation: 'allocation',
   benhmark: 'benchmark',
   complience: 'compliance',
+  consentrated: 'concentration',
   currncy: 'currency',
   exchage: 'exchange',
   fundamntals: 'fundamentals',
@@ -500,10 +506,7 @@ function computeLevenshteinDistance(left: string, right: string) {
 function normalizeIntentToken(token: string) {
   const aliasedToken = INTENT_TOKEN_ALIASES[token] ?? token;
 
-  if (
-    aliasedToken.length < 3 ||
-    INTENT_CANONICAL_TOKENS.has(aliasedToken)
-  ) {
+  if (aliasedToken.length < 3 || INTENT_CANONICAL_TOKENS.has(aliasedToken)) {
     return aliasedToken;
   }
 
@@ -758,8 +761,7 @@ export function extractSymbolsFromQuery(query: string) {
 }
 
 export function determineToolPlan({
-  query,
-  symbols
+  query
 }: {
   query: string;
   symbols?: string[];
@@ -776,20 +778,20 @@ export function determineToolPlan({
   }
 
   const selectedTools = new Set<AiAgentToolName>();
-  const extractedSymbols = symbols?.length
-    ? symbols
-    : extractSymbolsFromQuery(query);
+  // Always extract symbols from query for intent detection
+  const symbolsExtractedFromQuery = extractSymbolsFromQuery(query);
   const hasInvestmentIntent = INVESTMENT_INTENT_KEYWORDS.some((keyword) => {
     return normalizedQuery.includes(keyword);
   });
   const hasRebalanceIntent = REBALANCE_KEYWORDS.some((keyword) => {
     return normalizedQuery.includes(keyword);
   });
-  const hasStressTestIntent = [...STRESS_TEST_KEYWORDS, ...STRESS_TEST_TYPOS].some(
-    (keyword) => {
-      return normalizedQuery.includes(keyword);
-    }
-  );
+  const hasStressTestIntent = [
+    ...STRESS_TEST_KEYWORDS,
+    ...STRESS_TEST_TYPOS
+  ].some((keyword) => {
+    return normalizedQuery.includes(keyword);
+  });
   const hasPortfolioContextIntent = PORTFOLIO_CONTEXT_KEYWORDS.some(
     (keyword) => {
       return normalizedQuery.includes(keyword);
@@ -874,7 +876,8 @@ export function determineToolPlan({
   const hasGeneralTaxIntent = TAX_GENERAL_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
-  const hasComplianceCheckIntent = matchesComplianceCheckIntent(normalizedQuery);
+  const hasComplianceCheckIntent =
+    matchesComplianceCheckIntent(normalizedQuery);
   const hasAccountOverviewIntent = ACCOUNT_OVERVIEW_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
@@ -913,19 +916,21 @@ export function determineToolPlan({
   const hasCreateOrderIntent = CREATE_ORDER_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
+  // Only treat symbols explicitly in the current query as "explicit"
+  // Context symbols from previous turns should NOT trigger ticker tools
   const hasExplicitNonFireSymbol =
-    extractedSymbols.some(
+    symbolsExtractedFromQuery.some(
       (symbol) => !(hasFireIntent && symbol === 'FIRE')
-    ) &&
-    extractedSymbols.length > 0;
+    ) && symbolsExtractedFromQuery.length > 0;
   const hasSimpleAllocationLookupIntent =
     /(?:^|\s)allocation\??\s*$/.test(normalizedQuery) &&
-    extractedSymbols.length <= 1 &&
+    symbolsExtractedFromQuery.length <= 1 &&
     !/\b(?:rebalanc|trim|buy|sell|invest|target|plan|reduce|increase)\b/.test(
       normalizedQuery
     );
   const hasTickerDecisionIntent =
-    hasExplicitNonFireSymbol && (hasDecisionAnalysisIntent || hasResearchIntent);
+    hasExplicitNonFireSymbol &&
+    (hasDecisionAnalysisIntent || hasResearchIntent);
   const hasDecisionValuationIntent =
     hasAssetFundamentalsIntent ||
     /\b(?:valuation|metrics?|market\s*cap|p\s*e|earnings|dividend)\b/.test(
