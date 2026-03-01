@@ -41,6 +41,7 @@
       <div class="col-lg">
         <gf-fire-ai-chat-panel
           [hasPermissionToReadAiPrompt]="hasPermissionToReadAiPrompt"
+          (chatCompleted)="onChatCompleted()"
         />
       </div>
     </div>

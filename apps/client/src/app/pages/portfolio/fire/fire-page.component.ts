@@ -55,6 +55,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
   public withdrawalRatePerYear: Big;
   public withdrawalRatePerYearProjected: Big;
 
+  private isDestroyed = false;
   private unsubscribeSubject = new Subject<void>();
 
   public constructor(
@@ -68,30 +69,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
   public ngOnInit() {
     this.isLoading = true;
     this.deviceType = this.deviceService.getDeviceInfo().deviceType;
-
-    this.dataService
-      .fetchPortfolioDetails()
-      .pipe(takeUntil(this.unsubscribeSubject))
-      .subscribe(({ summary }) => {
-        this.fireWealth = {
-          today: {
-            valueInBaseCurrency: summary.fireWealth
-              ? summary.fireWealth.today.valueInBaseCurrency
-              : 0
-          }
-        };
-        if (this.user.subscription?.type === 'Basic') {
-          this.fireWealth = {
-            today: {
-              valueInBaseCurrency: 10000
-            }
-          };
-        }
-
-        this.calculateWithdrawalRates();
-
-        this.changeDetectorRef.markForCheck();
-      });
+    this.refreshFireWealth();
 
     this.impersonationStorageService
       .onChangeHasImpersonation()
@@ -132,7 +110,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
 
           this.calculateWithdrawalRates();
 
-          this.changeDetectorRef.markForCheck();
+          this.requestViewUpdate();
         }
       });
   }
@@ -148,7 +126,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
           .subscribe((user) => {
             this.user = user;
 
-            this.changeDetectorRef.markForCheck();
+            this.requestViewUpdate();
           });
       });
   }
@@ -179,7 +157,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
           .subscribe((user) => {
             this.user = user;
 
-            this.changeDetectorRef.markForCheck();
+            this.requestViewUpdate();
           });
       });
   }
@@ -198,7 +176,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
             this.calculateWithdrawalRates();
             this.calculateWithdrawalRatesProjected();
 
-            this.changeDetectorRef.markForCheck();
+            this.requestViewUpdate();
           });
       });
   }
@@ -214,7 +192,7 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
           .subscribe((user) => {
             this.user = user;
 
-            this.changeDetectorRef.markForCheck();
+            this.requestViewUpdate();
           });
       });
   }
@@ -233,12 +211,17 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
           .subscribe((user) => {
             this.user = user;
 
-            this.changeDetectorRef.markForCheck();
+            this.requestViewUpdate();
           });
       });
   }
 
+  public onChatCompleted() {
+    this.refreshFireWealth();
+  }
+
   public ngOnDestroy() {
+    this.isDestroyed = true;
     this.unsubscribeSubject.next();
     this.unsubscribeSubject.complete();
   }
@@ -266,5 +249,40 @@ export class GfFirePageComponent implements OnDestroy, OnInit {
       this.withdrawalRatePerMonthProjected =
         this.withdrawalRatePerYearProjected.div(12);
     }
+  }
+
+  private refreshFireWealth() {
+    this.dataService
+      .fetchPortfolioDetails()
+      .pipe(takeUntil(this.unsubscribeSubject))
+      .subscribe(({ summary }) => {
+        this.fireWealth = {
+          today: {
+            valueInBaseCurrency: summary.fireWealth
+              ? summary.fireWealth.today.valueInBaseCurrency
+              : 0
+          }
+        };
+        if (this.user?.subscription?.type === 'Basic') {
+          this.fireWealth = {
+            today: {
+              valueInBaseCurrency: 10000
+            }
+          };
+        }
+
+        this.calculateWithdrawalRates();
+        this.calculateWithdrawalRatesProjected();
+        this.requestViewUpdate();
+      });
+  }
+
+  private requestViewUpdate() {
+    if (this.isDestroyed) {
+      return;
+    }
+
+    this.changeDetectorRef.markForCheck();
+    this.changeDetectorRef.detectChanges();
   }
 }

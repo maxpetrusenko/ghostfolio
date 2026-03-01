@@ -1816,6 +1816,230 @@ describe('AiService', () => {
     expect(orderService.createOrder).toHaveBeenCalled();
   });
 
+  it('creates order from notional amount phrasing using live quote', async () => {
+    accountService.getAccounts.mockResolvedValue([
+      {
+        balance: 5000,
+        currency: 'USD',
+        id: 'account-1',
+        name: 'Trading'
+      }
+    ]);
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {}
+    });
+    dataProviderService.getQuotes.mockResolvedValue({
+      TSLA: {
+        currency: 'USD',
+        marketPrice: 400,
+        marketState: 'REGULAR'
+      }
+    });
+    orderService.createOrder.mockResolvedValue({
+      id: 'order-notional-1',
+      type: 'BUY'
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'Buy 1000 USD of TSLA',
+      sessionId: 'session-create-order-notional',
+      userCurrency: 'USD',
+      userId: 'user-create-order-notional'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'create_order' })
+      ])
+    );
+    const executedTools = result.toolCalls.map(({ tool }) => tool);
+    expect(executedTools).not.toEqual(
+      expect.arrayContaining([
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan',
+        'market_data_lookup'
+      ])
+    );
+    expect(dataProviderService.getQuotes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({ symbol: 'TSLA' })
+        ])
+      })
+    );
+
+    const createOrderInput = orderService.createOrder.mock.calls[0]?.[0];
+    expect(createOrderInput).toMatchObject({
+      accountId: 'account-1',
+      currency: 'USD',
+      type: 'BUY',
+      unitPrice: 400,
+      updateAccountBalance: false
+    });
+    expect(createOrderInput.quantity).toBeCloseTo(2.5, 6);
+    expect(
+      createOrderInput.SymbolProfile.connectOrCreate.create.symbol
+    ).toBe('TSLA');
+  });
+
+  it('creates order from quantity-plus-stock wording using live quote', async () => {
+    accountService.getAccounts.mockResolvedValue([
+      {
+        balance: 5000,
+        currency: 'USD',
+        id: 'account-1',
+        name: 'Trading'
+      }
+    ]);
+    dataProviderService.getQuotes.mockResolvedValue({
+      TSLA: {
+        currency: 'USD',
+        marketPrice: 408.58,
+        marketState: 'REGULAR'
+      }
+    });
+    orderService.createOrder.mockResolvedValue({
+      id: 'order-quantity-stock-1',
+      type: 'BUY'
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'buy 10 tesla stocks',
+      sessionId: 'session-create-order-quantity-stock',
+      userCurrency: 'USD',
+      userId: 'user-create-order-quantity-stock'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'success', tool: 'create_order' })
+      ])
+    );
+    const executedTools = result.toolCalls.map(({ tool }) => tool);
+    expect(executedTools).not.toEqual(
+      expect.arrayContaining([
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan',
+        'market_data_lookup'
+      ])
+    );
+
+    const createOrderInput = orderService.createOrder.mock.calls[0]?.[0];
+    expect(createOrderInput).toMatchObject({
+      accountId: 'account-1',
+      currency: 'USD',
+      quantity: 10,
+      type: 'BUY',
+      unitPrice: 408.58,
+      updateAccountBalance: false
+    });
+    expect(
+      createOrderInput.SymbolProfile.connectOrCreate.create.symbol
+    ).toBe('TSLA');
+  });
+
+  it('answers holdings follow-up phrasing for symbol quantities', async () => {
+    portfolioService.getDetails.mockResolvedValue({
+      holdings: {
+        TSLA: {
+          allocationInPercentage: 0.322,
+          dataSource: DataSource.YAHOO,
+          quantity: 10,
+          symbol: 'TSLA',
+          valueInBaseCurrency: 1000
+        },
+        USD: {
+          allocationInPercentage: 0.678,
+          dataSource: DataSource.YAHOO,
+          quantity: 0,
+          symbol: 'USD',
+          valueInBaseCurrency: 2105
+        }
+      }
+    });
+    redisCacheService.get.mockResolvedValue(undefined);
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'how many tesla stocks i have',
+      sessionId: 'session-holdings-follow-up',
+      userCurrency: 'USD',
+      userId: 'user-holdings-follow-up'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_current_holdings'
+        })
+      ])
+    );
+    expect(result.answer.toLowerCase()).not.toContain('insufficient confidence');
+  });
+
+  it('handles multiline holdings follow-up when cached analysis lacks quantity field', async () => {
+    const cachedPortfolioAnalysisWithoutQuantity = JSON.stringify({
+      data: {
+        allocationSum: 1,
+        holdings: [
+          {
+            allocationInPercentage: 0.322,
+            dataSource: DataSource.YAHOO,
+            symbol: 'TSLA',
+            valueInBaseCurrency: 1000
+          },
+          {
+            allocationInPercentage: 0.678,
+            dataSource: DataSource.YAHOO,
+            symbol: 'USD',
+            valueInBaseCurrency: 2105
+          }
+        ],
+        holdingsCount: 2,
+        totalValueInBaseCurrency: 3105
+      },
+      updatedAt: new Date().toISOString()
+    });
+
+    redisCacheService.get.mockImplementation(async (key: string) => {
+      if (key === 'ai:portfolio-analysis:user-holdings-follow-up-cache') {
+        return cachedPortfolioAnalysisWithoutQuantity;
+      }
+
+      return undefined;
+    });
+    jest.spyOn(subject, 'generateText').mockRejectedValue(new Error('offline'));
+
+    const result = await subject.chat({
+      languageCode: 'en',
+      query: 'how many tesla stocks i\n        have',
+      sessionId: 'session-holdings-follow-up-cache',
+      userCurrency: 'USD',
+      userId: 'user-holdings-follow-up-cache'
+    });
+
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          tool: 'get_current_holdings'
+        })
+      ])
+    );
+    expect(result.answer.toLowerCase()).not.toContain('request failed');
+    expect(result.answer.toLowerCase()).not.toContain('insufficient confidence');
+  });
+
   it('adds seed funds for explicit seed funding requests', async () => {
     accountService.getAccounts.mockResolvedValue([
       {

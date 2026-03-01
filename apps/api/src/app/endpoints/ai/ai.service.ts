@@ -51,7 +51,9 @@ import {
   resolveFollowUpSignal,
   createPolicyRouteResponse,
   formatPolicyVerificationDetails,
-  AiAgentFollowUpResolverPreviousTurn
+  AiAgentFollowUpResolverPreviousTurn,
+  detectShowMoreIntent,
+  type DetailLevel
 } from './ai-agent.policy.utils';
 import { createHoldingsPrompt } from './ai-agent.prompt.helpers';
 import { runRebalancePlan, runStressTest } from './ai-agent.scenario.helpers';
@@ -1407,14 +1409,31 @@ export class AiService implements AgentKernel {
       ]);
       memoryReadInMs = Date.now() - memoryReadStartedAt;
 
-      const inferredPlannedTools = determineToolPlan({
-        query: queryForTools,
-        symbols
-      });
       const previousTurn =
         memory.turns.length > 0
           ? memory.turns[memory.turns.length - 1]
           : undefined;
+
+      const symbolsWithFollowUpContext = (() => {
+        if (!previousTurn?.context?.entities || (symbols?.length ?? 0) > 0) {
+          return symbols ?? [];
+        }
+
+        const previousEntities = previousTurn.context.entities;
+        const tickerPattern = /^[A-Z]{1,6}(?:\.[A-Z0-9]{1,4})?$/;
+        const currencyCodePattern = /^(?:USD|EUR|GBP|CAD|CHF|JPY|AUD|NZD)$/i;
+        const previousSymbols = previousEntities.filter((entity) => {
+          const upperEntity = entity.toUpperCase();
+          return tickerPattern.test(upperEntity) && !currencyCodePattern.test(upperEntity);
+        });
+
+        return previousSymbols.length > 0 ? previousSymbols.map((s) => s.toUpperCase()) : (symbols ?? []);
+      })();
+
+      const inferredPlannedTools = determineToolPlan({
+        query: queryForTools,
+        symbols: symbolsWithFollowUpContext
+      });
       const previousSuccessfulTools = previousTurn
         ? Array.from(
             new Set(
@@ -1443,6 +1462,10 @@ export class AiService implements AgentKernel {
           : undefined;
       const followUpSignal = resolveFollowUpSignal({
         inferredPlannedTools,
+        previousTurn: previousTurnForFollowUp,
+        query: queryForTools
+      });
+      const showMoreIntent = detectShowMoreIntent({
         previousTurn: previousTurnForFollowUp,
         query: queryForTools
       });
@@ -1552,8 +1575,8 @@ export class AiService implements AgentKernel {
       const citations: AiAgentChatResponse['citations'] = [];
       const verification: AiAgentChatResponse['verification'] = [];
       const actionExecutionSummaries: string[] = [];
-      const explicitRequestedSymbols = symbols?.length
-        ? symbols
+      const explicitRequestedSymbols = symbolsWithFollowUpContext?.length
+        ? symbolsWithFollowUpContext
         : extractSymbolsFromQuery(queryForTools);
       const hasExplicitSymbolRequest = explicitRequestedSymbols.length > 0;
       const hasPortfolioSymbolContext =
@@ -1592,6 +1615,10 @@ export class AiService implements AgentKernel {
       let taxEstimateSummary: string | undefined;
       let tradeImpactSummary: string | undefined;
       let transactionCategorizationSummary: string | undefined;
+      // Broker Statement Ingestion (AgentForge Bounty)
+      let brokerStatementImportSummary: string | undefined;
+      let brokerReconciliationSummary: string | undefined;
+      let brokerSymbolMappingSummary: string | undefined;
       const portfolioAnalysisCacheKey = `ai:portfolio-analysis:${userId}`;
       let backgroundPortfolioRefreshPromise: Promise<void> | undefined;
 
@@ -1727,7 +1754,7 @@ export class AiService implements AgentKernel {
           return resolveSymbols({
             portfolioAnalysis: analysisForResolution,
             query: normalizedQuery,
-            symbols
+            symbols: symbolsWithFollowUpContext
           });
         })();
 
@@ -1826,7 +1853,8 @@ export class AiService implements AgentKernel {
               portfolioAnalysis: shouldUsePortfolioContextForSymbols
                 ? await getPortfolioAnalysis()
                 : portfolioAnalysis,
-              symbols: requestedSymbols
+              symbols: requestedSymbols,
+              maxItemsPerSymbol: getDetailItemCount('get_financial_news', 5)
             })
           );
         }
@@ -1839,6 +1867,23 @@ export class AiService implements AgentKernel {
         maxToolCallsPerRequest: policyDecision.limits?.maxToolCallsPerRequest,
         maxToolCallsPerTool: policyDecision.limits?.maxToolCallsPerTool
       });
+
+      const getDetailItemCount = (
+        tool: AiAgentToolName,
+        defaultCount: number
+      ): number => {
+        if (!showMoreIntent.isShowMore || showMoreIntent.targetTool !== tool) {
+          return defaultCount;
+        }
+        const detailLevel = showMoreIntent.detailLevel;
+        const levelMultipliers: Record<DetailLevel, number> = {
+          basic: 1,
+          detailed: 3,
+          extended: 10
+        };
+        return Math.min(defaultCount * levelMultipliers[detailLevel], 100);
+      };
+
       const toolOutcomes = await Promise.all(
         policyDecision.toolsToExecute.map(async (toolName) => {
           return toolExecutionRegistry.executeTool(toolName, async () => {
@@ -1898,10 +1943,35 @@ export class AiService implements AgentKernel {
                 };
               } else if (toolName === 'get_current_holdings') {
                 const analysis = await getPortfolioAnalysisWithCache();
-                const holdingsSummary = analysis.holdings
+                const requestedSymbols = extractSymbolsFromQuery(normalizedQuery);
+                const selectedHoldings =
+                  requestedSymbols.length > 0
+                    ? analysis.holdings.filter(({ symbol }) => {
+                        return requestedSymbols.includes(symbol);
+                      })
+                    : analysis.holdings;
+                const currencySymbols = new Set([
+                  'AUD',
+                  'CAD',
+                  'CHF',
+                  'EUR',
+                  'GBP',
+                  'JPY',
+                  'USD'
+                ]);
+                const holdingsSummary = selectedHoldings
                   .slice(0, 3)
-                  .map(({ allocationInPercentage, symbol }) => {
-                    return `${symbol} ${(allocationInPercentage * 100).toFixed(1)}%`;
+                  .map(({ allocationInPercentage, quantity, symbol }) => {
+                    const allocationText = `${(allocationInPercentage * 100).toFixed(1)}%`;
+                    const normalizedQuantity = Number.isFinite(quantity)
+                      ? quantity
+                      : 0;
+
+                    if (currencySymbols.has(symbol)) {
+                      return `${symbol} ${allocationText}`;
+                    }
+
+                    return `${symbol} ${normalizedQuantity.toFixed(4)} shares (${allocationText})`;
                   })
                   .join(', ');
 
@@ -1917,8 +1987,13 @@ export class AiService implements AgentKernel {
                     }
                   ],
                   toolCall: {
-                    input: {},
-                    outputSummary: `${analysis.holdingsCount} current holdings returned`,
+                    input:
+                      requestedSymbols.length > 0
+                        ? { symbols: requestedSymbols }
+                        : {},
+                    outputSummary: requestedSymbols.length
+                      ? `${selectedHoldings.length} holdings matched requested symbols`
+                      : `${analysis.holdingsCount} current holdings returned`,
                     status: 'success' as const,
                     tool: toolName
                   }
@@ -2370,10 +2445,61 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'create_order') {
-                const orderInput = this.extractCreateOrderInput({
+                let orderInput = this.extractCreateOrderInput({
                   baseCurrency: userCurrency,
                   query: normalizedQuery
                 });
+
+                if (
+                  orderInput.hasSymbol &&
+                  !orderInput.hasUnitPrice &&
+                  (orderInput.hasNotionalAmount || orderInput.hasQuantity)
+                ) {
+                  let resolvedUnitPrice = orderInput.unitPrice;
+                  const symbolMarketData = await getMarketDataBySymbols([
+                    orderInput.symbol
+                  ]);
+                  const quote = symbolMarketData.quotes.find(({ symbol }) => {
+                    return symbol === orderInput.symbol;
+                  });
+
+                  if (
+                    !quote ||
+                    !Number.isFinite(quote.marketPrice) ||
+                    quote.marketPrice <= 0
+                  ) {
+                    throw new Error(
+                      `Could not resolve a valid market price for ${orderInput.symbol}. Please provide an explicit unit price.`
+                    );
+                  }
+
+                  resolvedUnitPrice = quote.marketPrice;
+                  orderInput = {
+                    ...orderInput,
+                    hasUnitPrice: true,
+                    unitPrice: resolvedUnitPrice
+                  };
+                }
+
+                if (
+                  orderInput.hasSymbol &&
+                  orderInput.hasNotionalAmount &&
+                  !orderInput.hasQuantity &&
+                  orderInput.hasUnitPrice &&
+                  orderInput.unitPrice > 0
+                ) {
+                  const derivedQuantity = Number.parseFloat(
+                    (orderInput.notionalAmount / orderInput.unitPrice).toFixed(6)
+                  );
+
+                  if (derivedQuantity > 0) {
+                    orderInput = {
+                      ...orderInput,
+                      hasQuantity: true,
+                      quantity: derivedQuantity
+                    };
+                  }
+                }
 
                 if (
                   !orderInput.hasSymbol ||
@@ -2520,7 +2646,8 @@ export class AiService implements AgentKernel {
                   }
                 };
               } else if (toolName === 'get_recent_transactions') {
-                const latestActivities = await getRecentActivities(5);
+                const transactionCount = getDetailItemCount(toolName, 5);
+                const latestActivities = await getRecentActivities(transactionCount);
 
                 recentTransactionsSummary =
                   latestActivities.length > 0
@@ -2547,7 +2674,7 @@ export class AiService implements AgentKernel {
                     }
                   ],
                   toolCall: {
-                    input: { take: 5 },
+                    input: { take: transactionCount },
                     outputSummary: `${latestActivities.length} recent transactions returned`,
                     status: 'success' as const,
                     tool: toolName
@@ -3565,21 +3692,93 @@ export class AiService implements AgentKernel {
     query: string;
   }) {
     const symbols = extractSymbolsFromQuery(query);
-    const quantityMatch =
-      /\b([0-9]+(?:\.[0-9]+)?)\s*(?:shares?|units?)\b/i.exec(query);
+    const upperCaseQuery = query.toUpperCase();
+    const supportedCurrencyCodes = new Set([
+      'AUD',
+      'CAD',
+      'CHF',
+      'EUR',
+      'GBP',
+      'JPY',
+      'USD'
+    ]);
+    const symbolAfterPrepositionMatch =
+      /\b(?:OF|IN|INTO)\s+\$?([A-Z]{1,6}(?:\.[A-Z0-9]{1,4})?)\b/.exec(
+        upperCaseQuery
+      );
+    const symbolAfterActionMatch =
+      /\b(?:BUY|SELL|PURCHASE|TRADE)\s+\$?([A-Z]{1,6}(?:\.[A-Z0-9]{1,4})?)\b/.exec(
+        upperCaseQuery
+      );
+    const explicitSymbol =
+      symbolAfterPrepositionMatch?.[1] ??
+      symbolAfterActionMatch?.[1] ??
+      symbols.find((symbol) => {
+        return !supportedCurrencyCodes.has(symbol);
+      }) ??
+      symbols[0];
+    const quantityWithUnitMatch =
+      /\b([0-9]+(?:\.[0-9]+)?)\s*(?:shares?|units?|stocks?)\b/i.exec(query);
+    const quantityAfterActionMatch =
+      /\b(?:BUY|SELL|PURCHASE|TRADE)\s+([0-9]+(?:\.[0-9]+)?)(?!\s*(?:%|USD|EUR|GBP|CAD|CHF|JPY|AUD|\$))\b/.exec(
+        upperCaseQuery
+      );
     const unitPriceMatch = /\b(?:at|price)\s+\$?([0-9]+(?:\.[0-9]+)?)\b/i.exec(
       query
     );
-    const currencyMatch = /\b([A-Z]{3})\b/.exec(query.toUpperCase());
+    const notionalAmountByOfMatch =
+      /\b(?:\$)?([0-9]+(?:,\d{3})*(?:\.[0-9]+)?)\s*([A-Z]{3})?\s+(?:OF|IN|INTO)\s+(?:\$)?[A-Z]{1,6}(?:\.[A-Z0-9]{1,4})?\b/.exec(
+        upperCaseQuery
+      );
+    const notionalAmountByForMatch =
+      /\bFOR\s+\$?([0-9]+(?:,\d{3})*(?:\.[0-9]+)?)\s*([A-Z]{3})?\b/.exec(
+        upperCaseQuery
+      );
+    const notionalAmountMatch =
+      notionalAmountByOfMatch ?? notionalAmountByForMatch;
+    const currencyAfterAmountMatch =
+      /\$?[0-9]+(?:,\d{3})*(?:\.[0-9]+)?\s*([A-Z]{3})\b/.exec(upperCaseQuery);
+    const currencyBeforeAmountMatch =
+      /\b([A-Z]{3})\s+\$?[0-9]+(?:,\d{3})*(?:\.[0-9]+)?\b/.exec(
+        upperCaseQuery
+      );
+    const explicitCurrencyToken = symbols.find((symbol) => {
+      return supportedCurrencyCodes.has(symbol);
+    });
+    const notionalCurrency = notionalAmountMatch?.[2];
+    const currencyAfterAmount = currencyAfterAmountMatch?.[1];
+    const currencyBeforeAmount = currencyBeforeAmountMatch?.[1];
+    const currency =
+      (notionalCurrency && supportedCurrencyCodes.has(notionalCurrency)
+        ? notionalCurrency
+        : undefined) ??
+      (currencyAfterAmount && supportedCurrencyCodes.has(currencyAfterAmount)
+        ? currencyAfterAmount
+        : undefined) ??
+      (currencyBeforeAmount && supportedCurrencyCodes.has(currencyBeforeAmount)
+        ? currencyBeforeAmount
+        : undefined) ??
+      explicitCurrencyToken ??
+      baseCurrency;
     const normalizedQuery = query.toLowerCase();
+    const notionalAmount = Number.parseFloat(
+      (notionalAmountMatch?.[1] ?? '0').replace(/,/g, '')
+    );
+    const quantity = Number.parseFloat(
+      quantityWithUnitMatch?.[1] ?? quantityAfterActionMatch?.[1] ?? '1'
+    );
+    const hasQuantity =
+      Boolean(quantityWithUnitMatch?.[1]) || Boolean(quantityAfterActionMatch?.[1]);
 
     return {
-      currency: currencyMatch?.[1] ?? baseCurrency,
-      hasQuantity: Boolean(quantityMatch?.[1]),
-      hasSymbol: symbols.length > 0,
+      currency,
+      hasNotionalAmount: Number.isFinite(notionalAmount) && notionalAmount > 0,
+      hasQuantity,
+      hasSymbol: Boolean(explicitSymbol),
       hasUnitPrice: Boolean(unitPriceMatch?.[1]),
-      quantity: Number.parseFloat(quantityMatch?.[1] ?? '1'),
-      symbol: symbols[0] ?? 'SPY',
+      notionalAmount: Number.isFinite(notionalAmount) ? notionalAmount : 0,
+      quantity: Number.isFinite(quantity) ? quantity : 1,
+      symbol: explicitSymbol ?? 'SPY',
       type: normalizedQuery.includes('sell') ? Type.SELL : Type.BUY,
       unitPrice: Number.parseFloat(unitPriceMatch?.[1] ?? '1')
     };
@@ -3983,4 +4182,5 @@ export class AiService implements AgentKernel {
       symbol
     };
   }
+
 }

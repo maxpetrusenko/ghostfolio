@@ -42,6 +42,8 @@ export interface PortfolioAnalysisResult {
   holdings: {
     allocationInPercentage: number;
     dataSource: DataSource;
+    name?: string;
+    quantity?: number;
     symbol: string;
     valueInBaseCurrency: number;
   }[];

@@ -83,6 +83,7 @@ export class GfAiChatPanelComponent implements OnDestroy {
   public readonly userRoleLabel = $localize`You`;
 
   private chatSessionId: string;
+  private isDestroyed = false;
   private nextMessageId = 0;
   private unsubscribeSubject = new Subject<void>();
 
@@ -94,6 +95,7 @@ export class GfAiChatPanelComponent implements OnDestroy {
   }
 
   public ngOnDestroy() {
+    this.isDestroyed = true;
     this.unsubscribeSubject.next();
     this.unsubscribeSubject.complete();
   }
@@ -234,7 +236,7 @@ export class GfAiChatPanelComponent implements OnDestroy {
       .pipe(
         finalize(() => {
           this.isSubmitting = false;
-          this.changeDetectorRef.markForCheck();
+          this.requestViewUpdate();
         }),
         takeUntil(this.unsubscribeSubject)
       )
@@ -252,8 +254,7 @@ export class GfAiChatPanelComponent implements OnDestroy {
             role: 'assistant'
           });
           this.chatCompleted.emit();
-
-          this.changeDetectorRef.markForCheck();
+          this.requestViewUpdate();
         },
         error: () => {
           this.errorMessage = $localize`AI request failed. Check your model quota and permissions.`;
@@ -264,7 +265,7 @@ export class GfAiChatPanelComponent implements OnDestroy {
             role: 'assistant'
           });
 
-          this.changeDetectorRef.markForCheck();
+          this.requestViewUpdate();
         }
       });
   }
@@ -414,6 +415,15 @@ export class GfAiChatPanelComponent implements OnDestroy {
     }
 
     this.persistChatState();
+    this.requestViewUpdate();
+  }
+
+  private requestViewUpdate() {
+    if (this.isDestroyed) {
+      return;
+    }
+
     this.changeDetectorRef.markForCheck();
+    this.changeDetectorRef.detectChanges();
   }
 }

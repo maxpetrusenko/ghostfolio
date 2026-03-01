@@ -1,0 +1,5 @@
+suppress_unstable_features_warning = true
+
+[features]
+shell_snapshot = false
+apply_patch_freeform = false

@@ -852,7 +852,7 @@ export async function buildAnswer({
       );
 
       // Add helpful note when user requested more holdings than exist
-      const requestedTopMatch = normalizedQuery.match(/\btop\s+(\d+)\b/);
+      const requestedTopMatch = /\btop\s+(\d+)\b/.exec(normalizedQuery);
       if (requestedTopMatch) {
         const requestedCount = parseInt(requestedTopMatch[1], 10);
         const actualCount = longHoldings.length;
@@ -1315,6 +1315,7 @@ export async function runPortfolioAnalysis({
       return {
         allocationInPercentage: holding.allocationInPercentage ?? 0,
         dataSource: holding.dataSource,
+        quantity: holding.quantity ?? 0,
         symbol: holding.symbol,
         valueInBaseCurrency: holding.valueInBaseCurrency ?? 0
       };

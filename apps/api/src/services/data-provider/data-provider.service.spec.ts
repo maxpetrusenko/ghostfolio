@@ -116,7 +116,7 @@ describe('DataProviderService', () => {
 
   it('does not duplicate provider calls for concurrent identical quote requests', async () => {
     let resolveQuotes: (value: { [symbol: string]: DataProviderResponse }) => void =
-      () => {};
+      () => undefined;
     const liveQuotePromise = new Promise<{
       [symbol: string]: DataProviderResponse;
     }>((resolve) => {

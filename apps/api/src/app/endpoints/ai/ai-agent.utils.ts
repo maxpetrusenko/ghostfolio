@@ -229,7 +229,8 @@ const CURRENT_HOLDINGS_QUERY_PATTERNS = [
   /\b(?:current\s+holdings|current\s+positions|what\s+do\s+i\s+own)\b/,
   /\b(?:show|list)\b.*\b(?:holdings|positions)\b/,
   /\btop\s+(?:\d{1,2}\s+)?(?:stocks?|holdings?|positions?)\b/,
-  /\btop\s+holdings?\b/
+  /\btop\s+holdings?\b/,
+  /\bhow\s+many\b.*\b(?:shares?|stocks?|units?)\b.*\b(?:i\s+have|do\s+i\s+have|i\s+own|do\s+i\s+own)\b/
 ];
 const PORTFOLIO_RISK_METRICS_QUERY_PATTERNS = [
   /\b(?:risk\s+metrics|risk\s+summary)\b/,
@@ -259,6 +260,7 @@ const ASSET_FUNDAMENTALS_INTENT_FRAGMENTS = [
 ];
 const FINANCIAL_NEWS_QUERY_PATTERNS = [
   /\b(?:financial\s+news|market\s+news|news\s+headlines?)\b/,
+  /\b(?:news\s+(?:for|about))\b/,
   /\b(?:why\s+did|what\s+happened\s+to)\b/,
   /\b(?:what'?s\s+new|whats\s+new|what'?s\s+happening|whats\s+happening|update\s+me|tell\s+me\s+about|latest\s+on|any\s+news\s+(?:for|about))\b/
 ];
@@ -282,7 +284,9 @@ const TAX_ESTIMATE_QUERY_PATTERNS = [
 const TAX_GENERAL_QUERY_PATTERNS = [
   /\b(?:tax|taxes|taxation|irs)\b.*\b(?:need|know|checklist|info|information|guide|help|this year|year[-\s]?end|what do i|tell me about)\b/i,
   /\b(?:need|know|checklist|info|information|guide|help|this year|year[-\s]?end|what do i|tell me about)\b.*\b(?:tax|taxes)\b/i,
-  /\b(?:what do i need|tell me|help me|guide to|explain)\b.*\b(?:tax|taxes|taxation)\b/i
+  /\b(?:what do i need|tell me|help me|guide to|explain)\b.*\b(?:tax|taxes|taxation)\b/i,
+  /\b(?:show|list|view|get)\b.*\b(?:my\s+)?(?:tax|taxes|taxation)\b/i,
+  /\b(?:anything\s+else|what\s+else|else)\b.*\b(?:tax|taxes|taxation|irs)\b/i
 ];
 const COMPANY_ALIAS_CONTEXT_PATTERNS = [
   /\b(?:about|asset|analy[sz]e|analysis|company|deep\s*dive|earnings?|fundamental|fundamentals|learn|market|news|overview|price|quote|research|stock|ticker|thesis|valuation|portfolio|holding|investment|invest|buy|sell|trade|dividend|rebalance|compare|new|update|latest|what'?s|happening)\b/
@@ -290,6 +294,16 @@ const COMPANY_ALIAS_CONTEXT_PATTERNS = [
 const COMPLIANCE_CHECK_QUERY_PATTERNS = [
   /\b(?:compliance|regulat(?:ion|ory)|policy)\b.*\b(?:check|review|scan)\b/,
   /\b(?:violations?|warnings?|restricted|rule\s+check)\b/
+];
+const COMPLIANCE_CHECK_KEYWORDS = ['compliance', 'policy', 'regulation', 'regulatory'];
+const COMPLIANCE_ACTION_KEYWORDS = [
+  'check',
+  'review',
+  'scan',
+  'audit',
+  'verify',
+  'violations',
+  'warnings'
 ];
 const ACCOUNT_OVERVIEW_QUERY_PATTERNS = [
   /\b(?:account\s+overview|account\s+summary|show\s+accounts?)\b/,
@@ -332,7 +346,9 @@ const SEED_FUNDS_QUERY_PATTERNS = [
 const CREATE_ACCOUNT_QUERY_PATTERNS = [/\b(?:create|open|add)\b.*\baccount\b/];
 const CREATE_ORDER_QUERY_PATTERNS = [
   /\b(?:create|place|submit|make|execute|put)\b.*\border\b/i,
-  /\b(?:buy|purchase|trade|sell)\b.*\b\d+\s*(?:usd|eur|gbp|cad|chf|jpy|aud|shares?|units?|\$)/i
+  /\b(?:buy|purchase|trade|sell)\b.*\b\d+\s*(?:usd|eur|gbp|cad|chf|jpy|aud|shares?|units?|\$)/i,
+  /\b(?:buy|purchase|trade|sell)\b.*\b\d+(?:\.\d+)?\b.*\bstocks?\b/i,
+  /^\s*(?:buy|sell|purchase)\s+[A-Za-z]{2,6}\s*$/i
 ];
 const IDENTITY_PRIVACY_QUERY_PATTERNS = [
   /\b(?:who\s+am\s+i|what\s+is\s+my\s+name|tell\s+me\s+who\s+i\s+am)\b/
@@ -384,12 +400,172 @@ interface AnswerQualitySignals {
   wordCount: number;
 }
 
-function normalizeIntentQuery(query: string) {
-  return query
+const INTENT_TOKEN_ALIASES: Record<string, string> = {
+  acount: 'account',
+  alocation: 'allocation',
+  benhmark: 'benchmark',
+  complience: 'compliance',
+  currncy: 'currency',
+  exchage: 'exchange',
+  fundamntals: 'fundamentals',
+  newz: 'news',
+  porfolio: 'portfolio',
+  quot: 'quote',
+  rebalnce: 'rebalance',
+  sybol: 'symbol',
+  taxis: 'taxes',
+  taxs: 'taxes',
+  transacions: 'transactions',
+  tranctions: 'transactions'
+};
+const INTENT_CANONICAL_TOKENS = new Set([
+  'account',
+  'accounts',
+  'activity',
+  'allocation',
+  'asset',
+  'assets',
+  'assist',
+  'balance',
+  'balances',
+  'benchmark',
+  'benchmarks',
+  'compliance',
+  'concentration',
+  'currency',
+  'exchange',
+  'fire',
+  'fundamentals',
+  'history',
+  'holding',
+  'holdings',
+  'market',
+  'news',
+  'order',
+  'orders',
+  'performance',
+  'policy',
+  'portfolio',
+  'price',
+  'quote',
+  'quotes',
+  'rebalance',
+  'regulation',
+  'regulatory',
+  'risk',
+  'symbol',
+  'symbols',
+  'tax',
+  'taxes',
+  'ticker',
+  'tickers',
+  'trade',
+  'trades',
+  'transaction',
+  'transactions'
+]);
+
+function computeLevenshteinDistance(left: string, right: string) {
+  if (left === right) {
+    return 0;
+  }
+
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const matrix = Array.from({ length: rows }, () => {
+    return new Array<number>(cols).fill(0);
+  });
+
+  for (let row = 0; row < rows; row++) {
+    matrix[row][0] = row;
+  }
+  for (let col = 0; col < cols; col++) {
+    matrix[0][col] = col;
+  }
+
+  for (let row = 1; row < rows; row++) {
+    for (let col = 1; col < cols; col++) {
+      const substitutionCost = left[row - 1] === right[col - 1] ? 0 : 1;
+      matrix[row][col] = Math.min(
+        matrix[row - 1][col] + 1,
+        matrix[row][col - 1] + 1,
+        matrix[row - 1][col - 1] + substitutionCost
+      );
+    }
+  }
+
+  return matrix[rows - 1][cols - 1];
+}
+
+function normalizeIntentToken(token: string) {
+  const aliasedToken = INTENT_TOKEN_ALIASES[token] ?? token;
+
+  if (
+    aliasedToken.length < 3 ||
+    INTENT_CANONICAL_TOKENS.has(aliasedToken)
+  ) {
+    return aliasedToken;
+  }
+
+  let bestCandidate = aliasedToken;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const candidate of INTENT_CANONICAL_TOKENS) {
+    if (
+      !candidate.startsWith(aliasedToken[0]) ||
+      Math.abs(candidate.length - aliasedToken.length) > 2
+    ) {
+      continue;
+    }
+
+    const distance = computeLevenshteinDistance(aliasedToken, candidate);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestCandidate = candidate;
+    }
+  }
+
+  const distanceThreshold = aliasedToken.length <= 5 ? 1 : 2;
+
+  return bestDistance <= distanceThreshold ? bestCandidate : aliasedToken;
+}
+
+export function normalizeIntentQuery(query: string) {
+  const normalized = query
     .toLowerCase()
     .replace(/[^a-z0-9\s]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  if (!normalized) {
+    return normalized;
+  }
+
+  return normalized
+    .split(' ')
+    .map((token) => {
+      return normalizeIntentToken(token);
+    })
+    .join(' ');
+}
+
+function matchesComplianceCheckIntent(normalizedQuery: string) {
+  const matchesPattern = COMPLIANCE_CHECK_QUERY_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+  if (matchesPattern) {
+    return true;
+  }
+
+  const tokens = new Set(normalizedQuery.split(/\s+/).filter(Boolean));
+  const hasComplianceKeyword = COMPLIANCE_CHECK_KEYWORDS.some((keyword) => {
+    return tokens.has(keyword);
+  });
+  const hasActionKeyword = COMPLIANCE_ACTION_KEYWORDS.some((keyword) => {
+    return tokens.has(keyword);
+  });
+
+  return hasComplianceKeyword && hasActionKeyword;
 }
 
 function getAnswerQualitySignals({
@@ -698,11 +874,7 @@ export function determineToolPlan({
   const hasGeneralTaxIntent = TAX_GENERAL_QUERY_PATTERNS.some((pattern) => {
     return pattern.test(normalizedQuery);
   });
-  const hasComplianceCheckIntent = COMPLIANCE_CHECK_QUERY_PATTERNS.some(
-    (pattern) => {
-      return pattern.test(normalizedQuery);
-    }
-  );
+  const hasComplianceCheckIntent = matchesComplianceCheckIntent(normalizedQuery);
   const hasAccountOverviewIntent = ACCOUNT_OVERVIEW_QUERY_PATTERNS.some(
     (pattern) => {
       return pattern.test(normalizedQuery);
@@ -766,6 +938,27 @@ export function determineToolPlan({
     ? true
     : /\bnews\b/.test(normalizedQuery) && hasExplicitNonFireSymbol;
 
+  // Check for multi-intent conjunctions that should bypass fast-path
+  const hasConjunction = /\b(?:and|then|also|plus)\b/i.test(query);
+
+  // Fast-path: direct action tools skip all portfolio analysis
+  // Only applies to simple single-intent queries (no conjunctions)
+  if (hasCreateOrderIntent && !hasConjunction) {
+    return ['create_order'];
+  }
+
+  if (hasSeedFundsIntent && !hasConjunction) {
+    return ['seed_funds'];
+  }
+
+  if (hasDemoDataIntent && !hasConjunction) {
+    return ['demo_data'];
+  }
+
+  if (hasCreateAccountIntent && !hasConjunction) {
+    return ['create_account'];
+  }
+
   if (hasDirectFinancialNewsIntent) {
     selectedTools.add('get_financial_news');
   }
@@ -813,6 +1006,7 @@ export function determineToolPlan({
     (hasRebalanceIntent ||
       (hasInvestmentIntent &&
         (!hasTickerDecisionIntent || hasPortfolioContextIntent))) &&
+    !hasCreateOrderIntent &&
     !hasSimpleAllocationLookupIntent &&
     !hasDemoDataIntent &&
     !hasSeedFundsIntent
@@ -855,6 +1049,7 @@ export function determineToolPlan({
     normalizedQuery.includes('price') ||
     normalizedQuery.includes('ticker') ||
     (!hasSymbolLookupIntent &&
+      !hasCreateOrderIntent &&
       hasExplicitNonFireSymbol &&
       !hasSimpleAllocationLookupIntent &&
       !hasTickerDecisionIntent &&
@@ -917,6 +1112,9 @@ export function determineToolPlan({
   }
 
   if (hasComplianceCheckIntent) {
+    if (!hasRecentTransactionsIntent) {
+      selectedTools.add('get_recent_transactions');
+    }
     selectedTools.add('compliance_check');
   }
 

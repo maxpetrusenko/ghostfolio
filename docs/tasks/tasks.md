@@ -1,6 +1,6 @@
 # Tasks
 
-Last updated: 2026-02-26
+Last updated: 2026-02-27
 
 ## Active Tickets
 
@@ -62,6 +62,58 @@ Last updated: 2026-02-26
 # Ghostfolio AI Tasks
 
 ## Active Tasks
+
+### Intent Capture Reliability: Typos + Wording Variants
+
+**Status**: Planned | **Priority**: High
+
+Tasks:
+
+- [ ] Add a lightweight intent-candidate scorer in `determineToolPlan` so regex matches and token-level semantic hints are fused instead of relying on phrase patterns alone
+- [ ] Expand typo normalization aliases and near-match recovery for high-frequency finance intent terms (portfolio, rebalance, fundamentals, compliance, transactions, tax, quote/news)
+- [ ] Add an LLM-based intent fallback only for ambiguous no-tool/clarify routes, with strict JSON output and confidence threshold gating
+- [ ] Keep tool outputs strictly structured; move friendly phrasing to renderer-only path so core facts remain deterministic
+- [ ] Add planner/policy/service regression tests for misspelling and paraphrase prompts; include failure-case assertions for safe clarify behavior
+- [ ] Add eval dataset rows for typo-heavy and paraphrase-heavy prompts, then run `npm run test:ai` and `npm run test:mvp-eval`
+
+Success Criteria:
+
+- Misspelled and paraphrased finance prompts route to expected tools with no safety-policy regressions
+- Ambiguous prompts degrade to clear clarify questions, not generic fallback copy
+- Final response keeps factual fields deterministic and user wording generated in a controlled rendering stage
+
+**Key Files**:
+
+- `apps/api/src/app/endpoints/ai/ai-agent.utils.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
+- `apps/api/src/app/endpoints/ai/evals/dataset/extended.dataset.ts`
+- `docs/tasks/tasks.md`
+
+### Create Order Notional Parsing Fix (`Buy 1000 USD of TSLA`)
+
+**Status**: Complete | **Priority**: High
+
+Tasks:
+
+- [x] Update `create_order` input extraction to support notional amount phrasing
+- [x] Avoid selecting currency tokens as the order symbol when a tradable symbol is present
+- [x] Derive `quantity` from notional amount and quote price when `shares` and `at` are omitted
+- [x] Add regression test and run targeted AI service spec
+
+Success Criteria:
+
+- `Buy 1000 USD of TSLA` executes `create_order` with symbol `TSLA`
+- Quantity and unit price are deterministically derived from quote data
+- Existing explicit order phrasing (`shares` + `at`) continues to work
+
+**Key Files**:
+
+- `apps/api/src/app/endpoints/ai/ai.service.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
 
 ### Conversational Acknowledgments and Freshness News Routing
 
@@ -145,6 +197,41 @@ Success Criteria:
 - `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`
 - `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
 
+### Intent Recovery Hardening - Cross-Tool Batch Plan
+
+**Status**: In Progress | **Priority**: High
+
+Tasks:
+
+- [x] Create shared intent-keyword registry per tool family (portfolio, market, news, fundamentals, tax, compliance, transactions, FIRE, orders)
+- [x] Expand allowlisted fuzzy normalization coverage for high-frequency misspellings across all tool families
+- [x] Replace fragile phrase-order checks with token-score matching where appropriate (order-insensitive)
+- [x] Add unified "closest intent" suggestion payload for all low-confidence/no-tool paths
+- [x] Add `tools <topic>` templates for every supported topic with runnable examples
+- [ ] Add regression dataset for typo and malformed prompts per tool family (minimum 5 prompts per family)
+- [x] Add policy-layer tests ensuring typo prompts route to correct read-only tools or safe clarify flows
+- [x] Add planner-layer tests ensuring normalized prompts produce expected tool plans consistently
+- [x] Run targeted AI test suite for planner/policy/service after batch changes
+- [x] Run eval smoke pass for ambiguous/typo prompts and capture pass/fail summary
+
+Success Criteria:
+
+- Common user typos no longer fall into generic confidence fallback for supported finance intents
+- Every major tool family has deterministic recovery or actionable clarification guidance
+- Suggestion cards appear only when intent remains ambiguous after normalization/scoring
+- No regression in safety gates (read-only enforcement, confirmation requirements, unauthorized access blocks)
+- Planner/policy tests pass for new coverage
+
+**Key Files**:
+
+- `apps/api/src/app/endpoints/ai/ai-agent.utils.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.utils.spec.ts`
+- `apps/api/src/app/endpoints/ai/ai-agent.policy.utils.spec.ts`
+- `apps/api/src/app/endpoints/ai/ai.service.spec.ts`
+- `apps/api/src/app/endpoints/ai/evals/dataset/extended.dataset.ts`
+
 ### Portfolio Chat Page UI Pass: Bottom-Anchored Composer Layout
 
 **Status**: Implemented (Pending Browser Verification) | **Priority**: High
@@ -195,6 +282,31 @@ Success Criteria:
 - `apps/client/src/app/pages/chat/chat-page.component.html`
 - `apps/client/src/app/pages/chat/chat-page.component.scss`
 - `tasks/tasks.md`
+
+### AI Chat UI Refresh Reliability (No-Click Repaint)
+
+**Status**: Implemented (Pending Browser Verification) | **Priority**: High
+
+Tasks:
+
+- [x] Trace stale refresh behavior where AI responses appear only after manual clicks
+- [x] Add guarded view-refresh helper (`markForCheck` + `detectChanges`) in chat and FIRE page containers
+- [x] Ensure FIRE page refreshes wealth summary when AI panel emits `chatCompleted`
+- [x] Run targeted AI panel tests and client build verification
+
+Success Criteria:
+
+- AI response and derived UI state render immediately without requiring user interaction
+- FIRE retirement summary updates after AI actions that affect portfolio state
+- No regressions in existing AI chat panel behavior
+
+**Key Files**:
+
+- `apps/client/src/app/pages/chat/chat-page.component.ts`
+- `apps/client/src/app/pages/portfolio/fire/fire-page.component.ts`
+- `apps/client/src/app/pages/portfolio/fire/fire-page.html`
+- `apps/client/src/app/pages/portfolio/fire/ai-chat-panel/gf-fire-ai-chat-panel.component.ts`
+- `apps/client/src/app/pages/portfolio/analysis/ai-chat-panel/ai-chat-panel.component.ts`
 
 ### Intent Routing and Safe Order Clarification Fix
 
@@ -306,14 +418,14 @@ Tasks:
 
 ### FIRE Page AI Implementation
 
-**Status**: Planning Complete | **Priority**: High | **Files**: `tasks/fire-ai-implementation.md`
+**Status**: Partially Implemented | **Priority**: High | **Files**: `tasks/fire-ai-implementation.md`
 
 Tasks:
 
-- [ ] Create `GfFireAiChatPanelComponent` (extend existing pattern)
+- [x] Create `GfFireAiChatPanelComponent` (extend existing pattern)
 - [ ] Add FIRE-specific AI tools (scenario analysis, withdrawal strategies)
-- [ ] Integrate chat panel into FIRE page
-- [ ] Add FIRE starter prompts
+- [x] Integrate chat panel into FIRE page
+- [x] Add FIRE starter prompts
 - [ ] Test end-to-end
 
 **Key Files**:

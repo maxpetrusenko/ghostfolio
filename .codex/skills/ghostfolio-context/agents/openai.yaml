@@ -1,0 +1,7 @@
+interface:
+  display_name: "Ghostfolio Context"
+  short_description: "Routes planning/testing reads to minimal files"
+  default_prompt: "Use $ghostfolio-context to keep this Ghostfolio task strictly lazy-loaded and point me to only the files needed next."
+
+policy:
+  allow_implicit_invocation: false

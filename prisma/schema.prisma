@@ -297,6 +297,7 @@ model User {
   apiKeys       ApiKey[]
   authChallenge String?
   authDevices   AuthDevice[]
+  brokerStatementImports BrokerStatementImport[]
   chatConversations ChatConversation[]
   createdAt     DateTime        @default(now())
   id            String          @id @default(uuid())
@@ -304,6 +305,7 @@ model User {
   role          Role            @default(USER)
   settings      Settings?
   subscriptions Subscription[]
+  symbolMappings SymbolMapping[]
   tags          Tag[]
   thirdPartyId  String?
   updatedAt     DateTime        @updatedAt
@@ -392,4 +394,140 @@ enum Type {
 enum ViewMode {
   DEFAULT
   ZEN
+}
+
+// =============================================================================
+// BROKER STATEMENT INGESTION MODELS (AgentForge Bounty)
+// =============================================================================
+
+model BrokerStatementImport {
+  id                String               @id @default(uuid())
+  fileName          String
+  fileHash          String               @unique
+  brokerName        String
+  status            ImportStatus         @default(UPLOADED)
+  uploadedAt        DateTime             @default(now())
+  processedAt       DateTime?
+  rowCount          Int                  @default(0)
+  errorCount        Int                  @default(0)
+  meta              Json?                @default("{}")
+  userId            String
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows              BrokerStatementRow[]
+  reconciliationRuns ReconciliationRun[]
+
+  @@index([userId])
+  @@index([fileHash])
+  @@index([status])
+}
+
+model BrokerStatementRow {
+  id               String                @id @default(uuid())
+  importId         String
+  import           BrokerStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rawData          Json
+  parsedData       Json?
+  validationStatus RowValidationStatus   @default(ERROR)
+  errorCodes       String[]              @default([])
+  createdAt        DateTime              @default(now())
+
+  @@index([importId])
+  @@index([validationStatus])
+}
+
+model SymbolMapping {
+  id              String        @id @default(uuid())
+  rawSymbol       String
+  brokerName      String
+  canonicalSymbol String
+  dataSource      DataSource    @default(MANUAL)
+  confidence      Float         @default(1.0)
+  source          MappingSource @default(AUTO)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([rawSymbol, brokerName, userId])
+  @@index([userId])
+  @@index([canonicalSymbol])
+}
+
+model ReconciliationRun {
+  id          String               @id @default(uuid())
+  importId    String
+  import      BrokerStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  accountId   String?
+  status      ReconciliationStatus @default(RUNNING)
+  runAt       DateTime             @default(now())
+  completedAt DateTime?
+  summary     Json?                @default("{}")
+  userId      String
+  diffs       ReconciliationDiff[]
+
+  @@index([importId])
+  @@index([userId])
+  @@index([status])
+}
+
+model ReconciliationDiff {
+  id                String             @id @default(uuid())
+  runId             String
+  run               ReconciliationRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  diffType          DiffType
+  severity          DiffSeverity
+  statementRowId    String?
+  ghostfolioOrderId String?
+  details           Json               @default("{}")
+  resolved          Boolean            @default(false)
+  resolvedAt        DateTime?
+
+  @@index([runId])
+  @@index([resolved])
+  @@index([diffType])
+}
+
+// =============================================================================
+// BROKER STATEMENT INGESTION ENUMS
+// =============================================================================
+
+enum ImportStatus {
+  UPLOADED
+  PARSING
+  PARSED_OK
+  PARSED_WITH_ERRORS
+  FAILED
+}
+
+enum RowValidationStatus {
+  OK
+  WARNING
+  ERROR
+}
+
+enum MappingSource {
+  AUTO
+  USER_OVERRIDE
+  BROKER_PROVIDED
+}
+
+enum ReconciliationStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum DiffType {
+  MISSING_TXN
+  QUANTITY_MISMATCH
+  MISSING_DIVIDEND
+  UNKNOWN_SYMBOL
+  CASH_MISMATCH
+  PRICE_MISMATCH
+}
+
+enum DiffSeverity {
+  INFO
+  WARNING
+  CRITICAL
 }

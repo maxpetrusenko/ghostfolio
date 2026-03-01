@@ -2,6 +2,7 @@ import { AiAgentToolName } from './ai-agent.interfaces';
 import {
   applyToolExecutionPolicy,
   createPolicyRouteResponse,
+  detectShowMoreIntent,
   formatPolicyVerificationDetails,
   isFollowUpQuery,
   resolveFollowUpSignal
@@ -173,17 +174,17 @@ describe('AiAgentPolicyUtils', () => {
     expect(identityResponse).not.toBe(capabilityResponse);
   });
 
-  it('routes finance read intent with empty planner output to clarify', () => {
+  it('routes finance read intent with empty planner output to tools via fallback scorer', () => {
     const decision = applyToolExecutionPolicy({
       plannedTools: [],
       query: 'Show portfolio risk and allocation'
     });
 
-    expect(decision.route).toBe('clarify');
-    expect(decision.blockReason).toBe('unknown');
-    expect(createPolicyRouteResponse({ policyDecision: decision })).toContain(
-      'Insufficient confidence to proceed safely'
+    expect(decision.route).toBe('tools');
+    expect(['portfolio_analysis', 'risk_assessment']).toContain(
+      decision.toolsToExecute[0]
     );
+    expect(decision.blockedByPolicy).toBe(false);
   });
 
   it('routes short follow-up prompts to clarify instead of generic no-tool direct fallback', () => {
@@ -285,6 +286,44 @@ describe('AiAgentPolicyUtils', () => {
     expect(
       createPolicyRouteResponse({ policyDecision: decision, query: 'Tell me a joke' })
     ).toContain('Insufficient confidence to provide a reliable answer');
+  });
+
+  it.each([
+    ['show my taxs', ['tax_estimate']],
+    ['show my taxis', ['tax_estimate']],
+    ['check complience', ['compliance_check']],
+    ['get newz for nvda', ['get_financial_news']],
+    ['show fundamntals for nvda', ['get_asset_fundamentals']],
+    ['exchage usd to eur', ['exchange_rate']],
+    ['sybol lookup for apple', ['symbol_lookup']],
+    ['show benhmark indices', ['market_benchmarks']],
+    ['show my porfolio allocation', ['portfolio_analysis']]
+  ] as [string, AiAgentToolName[]][])(
+    'routes typo query "%s" via fallback scorer',
+    (query, expectedTools) => {
+      const decision = applyToolExecutionPolicy({
+        plannedTools: [],
+        query
+      });
+
+      expect(decision.route).toBe('tools');
+      expect(decision.toolsToExecute).toEqual(expectedTools);
+    }
+  );
+
+  it('returns discovery templates for tools topic command', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: [],
+      query: 'tools market'
+    });
+
+    expect(decision.route).toBe('clarify');
+    const response = createPolicyRouteResponse({
+      policyDecision: decision,
+      query: 'tools market'
+    });
+    expect(response).toContain('Tool topic: market');
+    expect(response).toContain('Get latest quote and fundamentals for NVDA');
   });
 
   it('returns strict domain refusal for health-related queries', () => {
@@ -479,6 +518,17 @@ describe('AiAgentPolicyUtils', () => {
         query: 'How can I make an order?'
       })
     ).toContain('To create an order, please specify the amount');
+  });
+
+  it('allows quantity-plus-stock wording as detailed create-order request', () => {
+    const decision = applyToolExecutionPolicy({
+      plannedTools: ['create_order'],
+      query: 'buy 10 tesla stocks'
+    });
+
+    expect(decision.route).toBe('tools');
+    expect(decision.blockReason).toBe('none');
+    expect(decision.toolsToExecute).toEqual(['create_order']);
   });
 
   it('requires amount details for seed-funds requests', () => {
@@ -699,6 +749,59 @@ describe('AiAgentPolicyUtils', () => {
       expect(response).toContain('Taxes');
       expect(response).toContain('order');
       expect(response).toContain('test data');
+    });
+  });
+
+  describe('detectShowMoreIntent', () => {
+    const previousTurn = {
+      query: 'tesla news',
+      successfulTools: ['get_financial_news'] as AiAgentToolName[],
+      timestamp: new Date().toISOString()
+    };
+
+    it('detects "more" as show more intent', () => {
+      const result = detectShowMoreIntent({ previousTurn, query: 'more' });
+      expect(result.isShowMore).toBe(true);
+      expect(result.targetTool).toBe('get_financial_news');
+    });
+
+    it('detects "more news" as show more intent', () => {
+      const result = detectShowMoreIntent({ previousTurn, query: 'more news' });
+      expect(result.isShowMore).toBe(true);
+      expect(result.targetTool).toBe('get_financial_news');
+    });
+
+    it('detects "more headlines" as show more intent', () => {
+      const result = detectShowMoreIntent({ previousTurn, query: 'more headlines' });
+      expect(result.isShowMore).toBe(true);
+      expect(result.targetTool).toBe('get_financial_news');
+    });
+
+    it('detects "additional news" as show more intent', () => {
+      const result = detectShowMoreIntent({ previousTurn, query: 'additional news' });
+      expect(result.isShowMore).toBe(true);
+      expect(result.targetTool).toBe('get_financial_news');
+    });
+
+    it('detects "extra news" as show more intent', () => {
+      const result = detectShowMoreIntent({ previousTurn, query: 'extra news' });
+      expect(result.isShowMore).toBe(true);
+      expect(result.targetTool).toBe('get_financial_news');
+    });
+
+    it('returns false for show more without previous turn', () => {
+      const result = detectShowMoreIntent({ query: 'more news' });
+      expect(result.isShowMore).toBe(false);
+    });
+
+    it('returns false for non-show-more queries', () => {
+      const result = detectShowMoreIntent({ previousTurn, query: 'apple news' });
+      expect(result.isShowMore).toBe(false);
+    });
+
+    it('returns extended detail level for tools with capabilities', () => {
+      const result = detectShowMoreIntent({ previousTurn, query: 'more news' });
+      expect(result.detailLevel).toBe('extended');
     });
   });
 });

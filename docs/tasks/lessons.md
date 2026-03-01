@@ -1,6 +1,6 @@
 # Lessons
 
-Updated: 2026-02-24
+Updated: 2026-02-27
 
 ## Context / Mistake / Rule
 
@@ -83,3 +83,7 @@ Updated: 2026-02-24
 20. Context: Ticker-specific investment questions ("should I invest in NVIDIA?")
    Mistake: Investment keyword routing defaulted to portfolio concentration tools even when the query intent was external market research.
    Rule: For ticker-targeted advice/research intents, prioritize market context tools (quote, fundamentals, news, history) and only add portfolio tools when the query explicitly references portfolio/account context.
+
+21. Context: AI chat UI appeared stale until user clicked anywhere
+   Mistake: Async updates in chat/page containers depended on `markForCheck()` only, which can miss immediate repaint in some flows.
+   Rule: For critical async chat state transitions, use a guarded explicit view refresh (`markForCheck()` + `detectChanges()`) and keep parent refresh handlers wired from child completion events.

@@ -28,6 +28,7 @@ import { AiFeedbackService } from './ai-feedback.service';
 import { AiObservabilityService } from './ai-observability.service';
 import { AiAgentWebSearchService } from './ai-agent.web-search';
 import { AiService } from './ai.service';
+import { SymbolResolverService } from './ai-agent.symbol-resolver';
 
 @Module({
   controllers: [AiController],
@@ -59,7 +60,8 @@ import { AiService } from './ai.service';
     MarketDataService,
     PortfolioCalculatorFactory,
     PortfolioService,
-    RulesService
+    RulesService,
+    SymbolResolverService
   ]
 })
 export class AiModule {}

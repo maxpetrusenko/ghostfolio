@@ -244,7 +244,7 @@ describe('AiAgentMvpEvalSuite', () => {
     });
 
     const rawHistory = await readFile(historyPath, 'utf8');
-    const parsedHistory = JSON.parse(rawHistory) as Array<{ passRate: number }>;
+    const parsedHistory = JSON.parse(rawHistory) as { passRate: number }[];
 
     expect(parsedHistory).toHaveLength(2);
     expect(parsedHistory[0].passRate).toBeCloseTo(0.95, 4);

@@ -19,7 +19,8 @@ export interface AiAgentStockNewsResult {
 export interface AiAgentWebSearchService {
   searchStockNews: (
     symbol: string,
-    companyName?: string
+    companyName?: string,
+    maxItems?: number
   ) => Promise<AiAgentStockNewsResult>;
 }
 
@@ -45,12 +46,14 @@ export async function searchWebNewsForSymbols({
   aiAgentWebSearchService,
   dataProviderService,
   portfolioAnalysis,
-  symbols
+  symbols,
+  maxItemsPerSymbol = 5
 }: {
   aiAgentWebSearchService: AiAgentWebSearchService;
   dataProviderService: DataProviderService;
   portfolioAnalysis?: any;
   symbols: string[];
+  maxItemsPerSymbol?: number;
 }): Promise<WebNewsSearchResult> {
   const searchResultsBySymbol = new Map<string, SymbolNewsData>();
   const symbolsSearched: string[] = [];
@@ -85,7 +88,10 @@ export async function searchWebNewsForSymbols({
       return {
         symbol,
         name,
-        searchResult: await aiAgentWebSearchService.searchStockNews(symbol, name)
+        searchResult: await aiAgentWebSearchService.searchStockNews(
+          symbol,
+          name
+        )
       };
     })
   );
@@ -106,7 +112,8 @@ export async function searchWebNewsForSymbols({
 
   const formattedSummary = formatWebNewsSummary({
     searchResultsBySymbol,
-    symbolsSearched
+    symbolsSearched,
+    maxItemsPerSymbol
   });
 
   return {
@@ -119,10 +126,12 @@ export async function searchWebNewsForSymbols({
 
 function formatWebNewsSummary({
   searchResultsBySymbol,
-  symbolsSearched
+  symbolsSearched,
+  maxItemsPerSymbol = 5
 }: {
   searchResultsBySymbol: Map<string, SymbolNewsData>;
   symbolsSearched: string[];
+  maxItemsPerSymbol?: number;
 }): string {
   if (symbolsSearched.length === 0) {
     return 'No recent news found for the specified symbols.';
@@ -142,7 +151,7 @@ function formatWebNewsSummary({
 
     parts.push(`Found ${news.totalResults} recent news articles:\n`);
 
-    for (const result of news.results.slice(0, 5)) {
+    for (const result of news.results.slice(0, maxItemsPerSymbol)) {
       const title = result.title.trim();
       const snippet = result.snippet.trim();
       const source = result.source;

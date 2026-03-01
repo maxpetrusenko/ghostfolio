@@ -7,7 +7,8 @@ import {
   determineToolPlan,
   evaluateAnswerQuality,
   extractSymbolsFromQuery,
-  isGeneratedAnswerReliable
+  isGeneratedAnswerReliable,
+  normalizeIntentQuery
 } from './ai-agent.utils';
 
 describe('AiAgentUtils', () => {
@@ -177,28 +178,28 @@ describe('AiAgentUtils', () => {
     ).toBe('2+2 = 4');
   });
 
-  it('keeps finance-intent prompts on clarify route even with capability phrasing', () => {
+  it('routes finance-intent prompts to tools via fallback scorer', () => {
     const decision = applyToolExecutionPolicy({
       plannedTools: [],
       query: 'What can you do about my portfolio risk?'
     });
 
-    expect(decision.route).toBe('clarify');
-    expect(decision.blockReason).toBe('unknown');
+    expect(decision.route).toBe('tools');
+    expect(['portfolio_analysis', 'risk_assessment']).toContain(
+      decision.toolsToExecute[0]
+    );
+    expect(decision.blockedByPolicy).toBe(false);
   });
 
-  it('routes to clarify when planner provides no tools for finance-style query', () => {
+  it('routes finance-style query to tools when planner provides no tools', () => {
     const decision = applyToolExecutionPolicy({
       plannedTools: [],
       query: 'Portfolio please'
     });
 
-    expect(decision.route).toBe('clarify');
-    expect(decision.toolsToExecute).toEqual([]);
-    expect(decision.blockReason).toBe('unknown');
-    expect(createPolicyRouteResponse({ policyDecision: decision })).toContain(
-      'Insufficient confidence to proceed safely'
-    );
+    expect(decision.route).toBe('tools');
+    expect(decision.toolsToExecute).toEqual(['portfolio_analysis']);
+    expect(decision.blockedByPolicy).toBe(false);
   });
 
   it('blocks rebalance tool without explicit action intent while keeping read tools', () => {
@@ -412,6 +413,38 @@ describe('AiAgentUtils', () => {
     ).toEqual(['tax_estimate']);
   });
 
+  it.each([
+    ['show my taxs', ['tax_estimate']],
+    ['show my taxis', ['tax_estimate']],
+    ['check complience', ['get_recent_transactions', 'compliance_check']],
+    ['get newz for nvda', ['get_financial_news']],
+    ['show fundamntals for nvda', ['get_asset_fundamentals']],
+    ['what is the quot for nvda', ['market_data_lookup']],
+    ['exchage usd to eur', ['exchange_rate']],
+    ['sybol lookup for apple', ['symbol_lookup']],
+    ['show benhmark indices', ['market_benchmarks']],
+    ['show my porfolio allocation', ['portfolio_analysis']]
+  ] as [string, string[]][])(
+    'recovers typo query "%s" to expected tool plan',
+    (query, expectedTools) => {
+      expect(
+        determineToolPlan({
+          query
+        })
+      ).toEqual(expectedTools);
+    }
+  );
+
+  it('normalizes allowlisted cross-tool typo tokens', () => {
+    expect(
+      normalizeIntentQuery(
+        'show my porfolio and newz, check complience, exchage usd to eur'
+      )
+    ).toBe(
+      'show my portfolio and news check compliance exchange usd to eur'
+    );
+  });
+
   it('selects compliance check tool for compliance review prompts', () => {
     expect(
       determineToolPlan({
@@ -548,6 +581,86 @@ describe('AiAgentUtils', () => {
     });
 
     expect(plan).toEqual(expect.arrayContaining(['create_order']));
+  });
+
+  it('keeps explicit notional order prompts focused on create_order', () => {
+    const plan = determineToolPlan({
+      query: 'Buy 1000 USD of TSLA'
+    });
+
+    expect(plan).toContain('create_order');
+    expect(plan).not.toEqual(
+      expect.arrayContaining([
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan',
+        'market_data_lookup'
+      ])
+    );
+  });
+
+  it('routes quantity-plus-stock wording to create_order without risk bundle', () => {
+    const plan = determineToolPlan({
+      query: 'buy 10 tesla stocks'
+    });
+
+    expect(plan).toContain('create_order');
+    expect(plan).not.toEqual(
+      expect.arrayContaining([
+        'portfolio_analysis',
+        'risk_assessment',
+        'rebalance_plan',
+        'market_data_lookup'
+      ])
+    );
+  });
+
+  it('fast-paths simple "buy [symbol]" to create_order only', () => {
+    const plan = determineToolPlan({
+      query: 'buy nvidia'
+    });
+
+    expect(plan).toEqual(['create_order']);
+  });
+
+  it('fast-paths simple "sell [symbol]" to create_order only', () => {
+    const plan = determineToolPlan({
+      query: 'sell AAPL'
+    });
+
+    expect(plan).toEqual(['create_order']);
+  });
+
+  it('fast-paths demo data request to demo_data tool only', () => {
+    const plan = determineToolPlan({
+      query: 'demo data'
+    });
+
+    expect(plan).toEqual(['demo_data']);
+  });
+
+  it('fast-paths seed funds request to seed_funds tool only', () => {
+    const plan = determineToolPlan({
+      query: 'seed my account'
+    });
+
+    expect(plan).toEqual(['seed_funds']);
+  });
+
+  it('routes "how many <symbol> stocks i have" to current holdings', () => {
+    const plan = determineToolPlan({
+      query: 'how many tesla stocks i have'
+    });
+
+    expect(plan).toContain('get_current_holdings');
+  });
+
+  it('routes multiline holdings follow-up phrasing to current holdings', () => {
+    const plan = determineToolPlan({
+      query: 'how many tesla stocks i\n        have'
+    });
+
+    expect(plan).toContain('get_current_holdings');
   });
 
   it('selects trade impact simulation for explicit what-if trade prompts', () => {

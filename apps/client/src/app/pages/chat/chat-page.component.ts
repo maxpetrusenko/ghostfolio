@@ -139,6 +139,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   private activeSubmission: PendingSubmission | undefined;
   private pendingSubmissionQueue: PendingSubmission[] = [];
   private unsubscribeSubject = new Subject<void>();
+  private isDestroyed = false;
   private renderedAssistantMessageMap = new WeakMap<
     AiChatMessage,
     RenderedAssistantMessage
@@ -203,6 +204,7 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   }
 
   public ngOnDestroy() {
+    this.isDestroyed = true;
     this.unsubscribeSubject.next();
     this.unsubscribeSubject.complete();
   }
@@ -691,8 +693,17 @@ export class GfChatPageComponent implements AfterViewInit, OnDestroy, OnInit {
   private runInAngular(updater: () => void) {
     this.ngZone.run(() => {
       updater();
-      this.changeDetectorRef.markForCheck();
+      this.requestViewUpdate();
     });
+  }
+
+  private requestViewUpdate() {
+    if (this.isDestroyed) {
+      return;
+    }
+
+    this.changeDetectorRef.markForCheck();
+    this.changeDetectorRef.detectChanges();
   }
 
   public onSubmitFromKeyboard(event: KeyboardEvent) {

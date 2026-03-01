@@ -417,6 +417,74 @@ const EXTENDED_MULTI_STEP_CASES = EXTENDED_MULTI_STEP_DEFINITIONS.map(
   });
 });
 
+const EXTENDED_TYPO_PARAPHRASE_CASES = [
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      confidenceScoreMin: 0.6,
+      forbiddenTools: [],
+      requiredTools: ['portfolio_analysis', 'risk_assessment']
+    },
+    id: 'ext-typo-001',
+    input: {
+      query: 'porftolio too consentrated'
+    },
+    intent: 'extended-typo-paraphrase'
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      confidenceScoreMin: 0.6,
+      forbiddenTools: [],
+      requiredTools: ['portfolio_analysis', 'risk_assessment']
+    },
+    id: 'ext-typo-002',
+    input: {
+      query: 'too much in one stock'
+    },
+    intent: 'extended-typo-paraphrase'
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      confidenceScoreMin: 0.6,
+      forbiddenTools: [],
+      requiredTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan']
+    },
+    id: 'ext-typo-003',
+    input: {
+      query: 'rebalanse my holdings'
+    },
+    intent: 'extended-typo-paraphrase'
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      confidenceScoreMin: 0.6,
+      forbiddenTools: [],
+      requiredTools: ['risk_assessment']
+    },
+    id: 'ext-typo-004',
+    input: {
+      query: 'wats my risk'
+    },
+    intent: 'extended-typo-paraphrase'
+  }),
+  createEvalCase({
+    category: 'happy_path',
+    expected: {
+      confidenceScoreMin: 0.6,
+      forbiddenTools: [],
+      requiredTools: ['portfolio_analysis', 'risk_assessment', 'rebalance_plan']
+    },
+    id: 'ext-typo-005',
+    input: {
+      query: 'trim overwaight positions'
+    },
+    intent: 'extended-typo-paraphrase'
+  })
+];
+
 export const EXTENDED_EVAL_CASES: AiAgentMvpEvalCase[] = [
   ...EXTENDED_HAPPY_PORTFOLIO_CASES,
   ...EXTENDED_HAPPY_RISK_CASES,
@@ -427,5 +495,6 @@ export const EXTENDED_EVAL_CASES: AiAgentMvpEvalCase[] = [
   ...EXTENDED_EDGE_MARKET_CASES,
   ...EXTENDED_EDGE_MEMORY_CASES,
   ...EXTENDED_ADVERSARIAL_CASES,
-  ...EXTENDED_MULTI_STEP_CASES
+  ...EXTENDED_MULTI_STEP_CASES,
+  ...EXTENDED_TYPO_PARAPHRASE_CASES
 ];

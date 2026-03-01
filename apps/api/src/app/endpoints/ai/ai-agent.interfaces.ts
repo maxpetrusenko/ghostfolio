@@ -26,7 +26,16 @@ export type AiAgentToolName =
   | 'simulate_trade_impact'
   | 'transaction_categorize'
   | 'tax_estimate'
-  | 'compliance_check';
+  | 'compliance_check'
+  // Broker Statement Ingestion (AgentForge Bounty)
+  | 'import_broker_statement'
+  | 'list_statement_imports'
+  | 'get_statement_import_details'
+  | 'set_symbol_mapping'
+  | 'list_symbol_mappings'
+  | 'run_reconciliation'
+  | 'get_reconciliation_result'
+  | 'apply_reconciliation_fix';
 
 export type AiAgentConfidenceBand = 'high' | 'medium' | 'low';
 
@@ -89,11 +98,11 @@ export interface AiAgentObservabilitySnapshot {
   latencyInMs: number;
   llmInvocation?: AiAgentLlmInvocation;
   tokenEstimate: AiAgentTokenEstimate;
-  toolStepMetrics?: Array<{
+  toolStepMetrics?: {
     durationInMs?: number;
     status: 'success' | 'failed';
     tool: AiAgentToolName;
-  }>;
+  }[];
   traceId?: string;
 }
 

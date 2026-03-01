@@ -1,16 +1,21 @@
 import { AiAgentToolName } from './ai-agent.interfaces';
-import { extractSymbolsFromQuery } from './ai-agent.utils';
+import { extractSymbolsFromQuery, normalizeIntentQuery } from './ai-agent.utils';
 
 const FINANCE_READ_INTENT_KEYWORDS = [
   'account',
   'asset',
   'allocation',
   'balance',
+  'benchmark',
   'cash',
   'concentration',
+  'currency',
   'diversif',
   'equity',
+  'exchange',
+  'fx',
   'fundamental',
+  'history',
   'holding',
   'market',
   'money',
@@ -22,26 +27,13 @@ const FINANCE_READ_INTENT_KEYWORDS = [
   'return',
   'risk',
   'stress',
+  'symbol',
   'ticker',
   'tax',
   'compliance',
   'transaction',
   'valu',
   'worth'
-];
-const REBALANCE_CONFIRMATION_KEYWORDS = [
-  'buy',
-  'create',
-  'invest',
-  'make',
-  'open',
-  'plan',
-  'allocat',
-  'order',
-  'place',
-  'rebalanc',
-  'sell',
-  'trim'
 ];
 const GREETING_ONLY_PATTERN =
   /^\s*(?:(?:hi|hello|hey)(?:\s+there)?|thanks|thank you|good morning|good afternoon|good evening)\s*[!.?]*\s*$/i;
@@ -78,6 +70,10 @@ const DIRECT_USAGE_QUERY_PATTERN =
   /\b(?:how do you work|how (?:can|do) i use (?:you|this)|how should i ask)\b/i;
 const DIRECT_CAPABILITY_QUERY_PATTERN =
   /\b(?:what can (?:you|i) do|help|assist(?: me)?|what can you help with)\b/i;
+const TOOLS_DISCOVERY_QUERY_PATTERN =
+  /^\s*(?:(?:help|show)\s+)?(?:tools?|commands?)\s*$/i;
+const TOOLS_DISCOVERY_TOPIC_QUERY_PATTERN =
+  /^\s*(?:tools?|commands?)\s+([a-z_]+)\s*$/i;
 const OFF_DOMAIN_HEALTH_QUERY_PATTERN =
   /\b(?:health|medical|doctor|hospital|illness|disease|symptom|diagnos|therapy|medication|mental\s+health)\b/i;
 const CONVERSATIONAL_ACKNOWLEDGMENT_PATTERN =
@@ -85,7 +81,7 @@ const CONVERSATIONAL_ACKNOWLEDGMENT_PATTERN =
 const VAGUE_ORDER_QUERY_PATTERN =
   /\b(?:make an order|place an order|create an order|submit an order|buy|purchase|invest(?:\s+in)?)\b/i;
 const DETAILED_ORDER_QUERY_PATTERN =
-  /\b(?:buy|purchase|invest|order|create|place|submit)\b.*\b(?:\$?\s*\d+[,\d]*\s*(?:usd|eur|gbp|cad|chf|jpy|aud)|\d+\s+shares?|100\s+shares|\d+\s+units?)\b/i;
+  /\b(?:buy|purchase|invest|order|create|place|submit)\b.*\b(?:\$?\s*\d+[,\d]*(?:\.\d+)?\s*(?:usd|eur|gbp|cad|chf|jpy|aud)|\d+[,\d]*(?:\.\d+)?\s+shares?|\d+[,\d]*(?:\.\d+)?\s+units?|\d+[,\d]*(?:\.\d+)?\b.*\bstocks?)\b/i;
 const SEED_FUNDS_QUERY_PATTERN =
   /\b(?:seed(?:\s+my)?\s+(?:account|money|funds|data)|load\s+(?:test\s+)?(?:money|funds|cash|capital)|add(?:ing)?\s+test\s+(?:money|funds|cash|capital)|(?:add|load)\s+test\s+data|top[\s-]?up|fund(?:ing)?\s+(?:my\s+)?account|add\s+more\s+money|put\s+more\s+money|inject\s+more\s+money)\b/i;
 const SEED_FUNDS_AMOUNT_PATTERN = /\$?\d+(?:,\d{3})*(?:\.\d{1,2})?/;
@@ -95,9 +91,12 @@ const REBALANCE_FUNDING_DETAIL_PATTERN =
   /\b(?:new\s+cash|cash|contribution|sell|trim|without\s+selling|with\s+selling)\b/i;
 const REBALANCE_TAX_DETAIL_PATTERN =
   /\b(?:taxable|retirement|ira|401k|rrsp|tfsa|tax\s+sensit(?:ive|ivity)|tax\s+impact)\b/i;
-const FOLLOW_UP_TOKEN_LIMIT = 6;
+const FOLLOW_UP_TOKEN_LIMIT = 12;
 const FOLLOW_UP_STANDALONE_QUERY_PATTERNS = [
-  /^\s*(?:why|how|how so|how come|and|then|so|anything else|what else|else)(?:\s+(?:now|today|latest|current|updated|update))?\s*[!.?]*\s*$/i
+  /^\s*(?:why|how|how so|how come|and|then|so|anything else|what else|else)(?:\s+(?:now|today|latest|current|updated|update))?\s*[!.?]*\s*$/i,
+  /^\s*(?:is that (?:it|all|everything)|only|(?:that'?s|that is) (?:all|everything)|just that)(?:\s+(?:you have|there|more))?\s*[!.?]*\s*$/i,
+  /^\s*(?:show|show me|give|get|list|see)\s+(?:more|the rest|additional|all)(?:\s+(?:details?|info(?:rmation)?|data|about it))?\s*[!.?]*\s*$/i,
+  /^\s*(?:what else|(?:and )?more|next|continue|keep going|anything else)(?:\s+(?:do you have|have you got|is there))?\s*[!.?]*\s*$/i
 ];
 const FOLLOW_UP_CONTEXTUAL_QUERY_PATTERNS = [
   /^\s*(?:what about(?:\s+(?:that|this|it))?|why(?:\s+(?:that|this|it))?|how(?:\s+(?:that|this|it|about\s+that))?|can you explain(?:\s+(?:that|this|it))?|explain(?:\s+(?:that|this|it))?)(?:\s+(?:now|today|latest|current|updated|update))?\s*[!.?]*\s*$/i,
@@ -196,6 +195,108 @@ const ALL_TOOL_NAMES: AiAgentToolName[] = [
   'tax_estimate',
   'compliance_check'
 ];
+const TOOL_DISCOVERY_TOPICS: Record<
+  string,
+  {
+    prompts: string[];
+    tools: AiAgentToolName[];
+  }
+> = {
+  account: {
+    prompts: [
+      'Show account overview and balances',
+      'Show my portfolio summary and balances',
+      'Show my current holdings'
+    ],
+    tools: ['account_overview', 'get_portfolio_summary', 'get_current_holdings']
+  },
+  compliance: {
+    prompts: [
+      'Run compliance check on my recent transactions (last 30 days)',
+      'Scan my trades for compliance warnings (last 10 trades)',
+      'Review policy violations in my portfolio activity since 2026-01-01'
+    ],
+    tools: ['get_recent_transactions', 'compliance_check']
+  },
+  fire: {
+    prompts: [
+      'Run a FIRE scenario with 15% higher savings',
+      'When can I retire if I save 2500 USD monthly?',
+      'Stress-test my FIRE plan with 4% inflation'
+    ],
+    tools: ['fire_analysis']
+  },
+  market: {
+    prompts: [
+      'Get latest quote and fundamentals for NVDA',
+      'Show price history for AAPL over 1 year',
+      'Show financial news for TSLA'
+    ],
+    tools: ['get_live_quote', 'get_asset_fundamentals', 'get_financial_news', 'price_history']
+  },
+  portfolio: {
+    prompts: [
+      'Analyze my portfolio allocation and concentration',
+      'Assess portfolio risk and diversification',
+      'Show benchmark comparison for my portfolio'
+    ],
+    tools: ['portfolio_analysis', 'risk_assessment', 'market_benchmarks']
+  },
+  tax: {
+    prompts: [
+      'Estimate tax impact for 5000 USD realized gains',
+      'Estimate my taxes for this year',
+      'Show tax estimate for income 120000 and deductions 20000'
+    ],
+    tools: ['tax_estimate']
+  },
+  transactions: {
+    prompts: [
+      'Show my recent transactions',
+      'Categorize my recent transactions by type',
+      'Summarize activity history for my latest trades'
+    ],
+    tools: ['get_recent_transactions', 'transaction_categorize', 'activity_history']
+  }
+};
+const TOOL_DISCOVERY_TOPIC_ALIASES: Record<string, string> = {
+  account: 'account',
+  accounts: 'account',
+  compliance: 'compliance',
+  fire: 'fire',
+  market: 'market',
+  markets: 'market',
+  news: 'market',
+  order: 'transactions',
+  orders: 'transactions',
+  portfolio: 'portfolio',
+  risk: 'portfolio',
+  tax: 'tax',
+  taxes: 'tax',
+  transaction: 'transactions',
+  transactions: 'transactions'
+};
+const TOOL_DISCOVERY_FALLBACK_TOPICS = Object.keys(TOOL_DISCOVERY_TOPICS).join(
+  ', '
+);
+const TOOL_TOPIC_BY_INTENT: Partial<Record<AiAgentToolName, string>> = {
+  account_overview: 'account',
+  activity_history: 'transactions',
+  compliance_check: 'compliance',
+  fire_analysis: 'fire',
+  get_asset_fundamentals: 'market',
+  get_current_holdings: 'account',
+  get_financial_news: 'market',
+  get_live_quote: 'market',
+  get_portfolio_summary: 'account',
+  get_recent_transactions: 'transactions',
+  market_benchmarks: 'portfolio',
+  portfolio_analysis: 'portfolio',
+  price_history: 'market',
+  risk_assessment: 'portfolio',
+  tax_estimate: 'tax',
+  transaction_categorize: 'transactions'
+};
 const INTENT_TOOL_ALLOWLISTS: Record<
   'readOnly' | 'action',
   Set<AiAgentToolName>
@@ -293,6 +394,71 @@ function getTokenOverlapRatio({
   }
 
   return overlapCount / Math.max(currentTokens.size, previousTokens.size);
+}
+
+export type DetailLevel = 'basic' | 'detailed' | 'extended';
+
+export interface ShowMoreIntent {
+  isShowMore: boolean;
+  detailLevel: DetailLevel;
+  targetTool?: AiAgentToolName;
+}
+
+const SHOW_MORE_PATTERNS = [
+  /^\s*show(?:\s+me)?(?:\s+(?:more|the rest|additional|all))(?:\s+(?:details?|info(?:rmation)?|data|about it))?\s*[!.?]*\s*$/i,
+  /^\s*(?:is that (?:it|all|everything)|only|(?:that'?s|that is) (?:all|everything)|just that)(?:\s+(?:you have|there|more))?\s*[!.?]*\s*$/i,
+  /^\s*(?:what else|(?:and )?more|next|continue|keep going)(?:\s+(?:do you have|have you got|is there))?\s*[!.?]*\s*$/i,
+  /^\s*(?:tell|give|get|list)\s+(?:me\s+)?more(?:\s+(?:about|details?|info))?\s*[!.?]*\s*$/i,
+  /^\s*(?:more|additional|extra)(?:\s+(?:news|headlines|headlines?|stories|updates|articles))?\s*[!.?]*\s*$/i
+];
+
+const TOOL_DETAIL_CAPABILITIES: Partial<
+  Record<AiAgentToolName, { maxItems: Record<DetailLevel, number> }>
+> = {
+  get_recent_transactions: {
+    maxItems: { basic: 5, detailed: 15, extended: 50 }
+  },
+  get_financial_news: {
+    maxItems: { basic: 3, detailed: 10, extended: 20 }
+  },
+  price_history: {
+    maxItems: { basic: 30, detailed: 90, extended: 365 }
+  }
+};
+
+export function detectShowMoreIntent({
+  previousTurn,
+  query
+}: {
+  previousTurn?: AiAgentFollowUpResolverPreviousTurn;
+  query: string;
+}): ShowMoreIntent {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const matchesShowMorePattern = SHOW_MORE_PATTERNS.some((pattern) => {
+    return pattern.test(normalizedQuery);
+  });
+
+  if (!matchesShowMorePattern || !previousTurn?.successfulTools.length) {
+    return { isShowMore: false, detailLevel: 'basic' };
+  }
+
+  const previousTool = previousTurn.successfulTools[0];
+  const capabilities = TOOL_DETAIL_CAPABILITIES[previousTool];
+
+  if (capabilities) {
+    return {
+      isShowMore: true,
+      detailLevel: 'extended',
+      targetTool: previousTool
+    };
+  }
+
+  return {
+    isShowMore: true,
+    detailLevel: 'detailed',
+    targetTool: previousTool
+  };
 }
 
 export function resolveFollowUpSignal({
@@ -742,8 +908,207 @@ function evaluateSimpleArithmetic(query: string) {
   return `${expression} = ${formatNumericResult(result)}`;
 }
 
+interface ScoredIntentMatch {
+  tool: AiAgentToolName;
+  score: number;
+}
+
+function scoreReadOnlyIntents(query: string): ScoredIntentMatch[] {
+  const normalized = normalizeIntentQuery(query);
+
+  if (!normalized) {
+    return [];
+  }
+
+  const intentPatterns: {
+    requireAllRequired?: boolean;
+    tool: AiAgentToolName;
+    required: RegExp[];
+    bonus: RegExp[];
+    negative: RegExp[];
+  }[] = [
+    {
+      tool: 'account_overview',
+      required: [/\b(?:account|accounts?|balances?|cash)\b/i],
+      bonus: [/\b(?:show|list|overview|summary|my)\b/i],
+      negative: []
+    },
+    {
+      tool: 'get_recent_transactions',
+      required: [/\b(?:transactions?|txns?|trades?|orders?|activity|fills?|executions?)\b/i],
+      bonus: [/\b(?:show|list|view|get|my|recent|latest|last|past)\b/i],
+      negative: [/\b(?:create|place|submit)\b/i]
+    },
+    {
+      tool: 'transaction_categorize',
+      required: [/\b(?:categor(?:y|ies|ize)|classify|group)\b/i],
+      bonus: [/\b(?:transactions?|trades?|orders?)\b/i],
+      negative: []
+    },
+    {
+      tool: 'portfolio_analysis',
+      required: [/\b(?:portfolio|allocation|performance|return|invested|worth)\b/i],
+      bonus: [/\b(?:show|analyze|review|summary|overview|my)\b/i],
+      negative: []
+    },
+    {
+      tool: 'risk_assessment',
+      required: [/\b(?:risk|concentration|diversif|exposure)\b/i],
+      bonus: [/\b(?:show|analyze|check|portfolio)\b/i],
+      negative: []
+    },
+    {
+      tool: 'tax_estimate',
+      required: [/\b(?:tax|taxes|liability|owed|estimate)\b/i],
+      bonus: [/\b(?:calculate|show|my|year|owe)\b/i],
+      negative: []
+    },
+    {
+      requireAllRequired: true,
+      tool: 'compliance_check',
+      required: [
+        /\b(?:compliance|policy|regulation|regulatory)\b/i,
+        /\b(?:check|review|scan|audit|verify|violations?|warnings?)\b/i
+      ],
+      bonus: [/\b(?:transactions?|trades?|orders?|activity|recent|latest)\b/i],
+      negative: [/\b(?:disable|skip|bypass)\b/i]
+    },
+    {
+      tool: 'get_live_quote',
+      required: [/\b(?:quote|price|ticker|live)\b/i],
+      bonus: [/\b(?:show|get|latest|current|symbol)\b/i],
+      negative: []
+    },
+    {
+      tool: 'get_financial_news',
+      required: [/\b(?:news|headlines?|latest|update|updates)\b/i],
+      bonus: [/\b(?:show|get|market|stock|for)\b/i],
+      negative: []
+    },
+    {
+      tool: 'get_asset_fundamentals',
+      required: [/\b(?:fundamentals?|valuation|metrics?|dividend|market\s+cap|p\/?e)\b/i],
+      bonus: [/\b(?:show|get|company|analysis)\b/i],
+      negative: []
+    },
+    {
+      tool: 'price_history',
+      required: [/\b(?:history|historical|trend|chart)\b/i],
+      bonus: [/\b(?:price|performance|1y|90d|30d)\b/i],
+      negative: []
+    },
+    {
+      tool: 'symbol_lookup',
+      required: [/\b(?:symbol|ticker)\b/i],
+      bonus: [/\b(?:lookup|find|what is)\b/i],
+      negative: []
+    },
+    {
+      tool: 'exchange_rate',
+      required: [/\b(?:exchange|fx|currency|convert|conversion)\b/i],
+      bonus: [/\b(?:rate|usd|eur|gbp|chf|jpy|cad|aud)\b/i],
+      negative: []
+    },
+    {
+      tool: 'market_benchmarks',
+      required: [/\b(?:benchmark|benchmarks|index|indices)\b/i],
+      bonus: [/\b(?:market|compare)\b/i],
+      negative: []
+    },
+    {
+      tool: 'fire_analysis',
+      required: [/\b(?:fire|retire|retirement|financial\s+independence)\b/i],
+      bonus: [/\b(?:plan|track|path|when)\b/i],
+      negative: []
+    }
+  ];
+
+  return intentPatterns
+    .map((pattern) => {
+      const requiredMatches = pattern.required.filter((regex) => {
+        return regex.test(normalized);
+      }).length;
+      const hasRequired = pattern.requireAllRequired
+        ? requiredMatches === pattern.required.length
+        : requiredMatches > 0;
+
+      if (!hasRequired) {
+        return { score: 0, tool: pattern.tool };
+      }
+
+      let score = 0.5;
+      const bonusMatches = pattern.bonus.filter((regex) => {
+        return regex.test(normalized);
+      }).length;
+      score += Math.min(bonusMatches * 0.15, 0.3);
+
+      const negativeMatches = pattern.negative.filter((regex) => {
+        return regex.test(normalized);
+      }).length;
+      score -= negativeMatches * 0.5;
+
+      return { score: Math.max(0, score), tool: pattern.tool };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+function inferReadOnlyToolFromQuery(query: string): AiAgentToolName | null {
+  const bestMatch = scoreReadOnlyIntents(query).find(({ score }) => {
+    return score >= 0.4;
+  });
+
+  return bestMatch?.tool ?? null;
+}
+
+function inferClosestReadOnlyIntentFromQuery(
+  query: string
+): ScoredIntentMatch | null {
+  const bestMatch = scoreReadOnlyIntents(query).find(({ score }) => {
+    return score >= 0.25;
+  });
+
+  return bestMatch ?? null;
+}
+
 function createNoToolDirectResponse(query?: string) {
-  const normalizedQuery = query?.trim().toLowerCase() ?? '';
+  const normalizedQuery = normalizeIntentQuery(query ?? '');
+  const toolsTopicMatch =
+    TOOLS_DISCOVERY_TOPIC_QUERY_PATTERN.exec(normalizedQuery);
+
+  if (TOOLS_DISCOVERY_QUERY_PATTERN.test(normalizedQuery)) {
+    return [
+      'Available tool groups:',
+      `- account: ${TOOL_DISCOVERY_TOPICS.account.tools.join(', ')}`,
+      `- portfolio: ${TOOL_DISCOVERY_TOPICS.portfolio.tools.join(', ')}`,
+      `- market: ${TOOL_DISCOVERY_TOPICS.market.tools.join(', ')}`,
+      `- tax: ${TOOL_DISCOVERY_TOPICS.tax.tools.join(', ')}`,
+      `- compliance: ${TOOL_DISCOVERY_TOPICS.compliance.tools.join(', ')}`,
+      `- transactions: ${TOOL_DISCOVERY_TOPICS.transactions.tools.join(', ')}`,
+      `- fire: ${TOOL_DISCOVERY_TOPICS.fire.tools.join(', ')}`,
+      '',
+      'Type "tools <topic>" for exact prompt templates. Example: "tools portfolio"'
+    ].join('\n');
+  }
+
+  if (toolsTopicMatch) {
+    const topic = TOOL_DISCOVERY_TOPIC_ALIASES[toolsTopicMatch[1]];
+    if (!topic) {
+      return [
+        `Unknown tool topic "${toolsTopicMatch[1]}".`,
+        `Try one of: ${TOOL_DISCOVERY_FALLBACK_TOPICS}.`
+      ].join(' ');
+    }
+
+    const guidance = TOOL_DISCOVERY_TOPICS[topic];
+    return [
+      `Tool topic: ${topic}`,
+      `Mapped tools: ${guidance.tools.join(', ')}`,
+      'Exact prompts:',
+      ...guidance.prompts.map((prompt) => {
+        return `- "${prompt}"`;
+      })
+    ].join('\n');
+  }
 
   if (CONVERSATIONAL_ACKNOWLEDGMENT_PATTERN.test(normalizedQuery)) {
     const hasFinanceToken = includesKeyword({
@@ -849,6 +1214,28 @@ function createNoToolDirectResponse(query?: string) {
     ].join('\n');
   }
 
+  const closestIntent = inferClosestReadOnlyIntentFromQuery(query ?? '');
+  if (closestIntent) {
+    const guidanceTopic = TOOL_TOPIC_BY_INTENT[closestIntent.tool];
+    const guidance = guidanceTopic
+      ? TOOL_DISCOVERY_TOPICS[guidanceTopic]
+      : undefined;
+
+    return [
+      'I could not map this safely from that wording alone.',
+      `Closest intent: ${closestIntent.tool} (${Math.round(closestIntent.score * 100)}%)`,
+      ...(guidance
+        ? [
+            'Try one of these exact prompts:',
+            ...guidance.prompts.map((prompt) => {
+              return `- "${prompt}"`;
+            }),
+            `Type "tools ${guidanceTopic}" for more templates.`
+          ]
+        : ['Try one concrete finance request with clear scope.'])
+    ].join('\n');
+  }
+
   return [
     'Insufficient confidence to provide a reliable answer from this query alone.',
     '',
@@ -879,13 +1266,17 @@ export function applyToolExecutionPolicy({
     maxToolCallsPerTool?: Partial<Record<AiAgentToolName, number>>;
   };
 }): AiAgentToolPolicyDecision {
-  const normalizedQuery = query.toLowerCase();
+  const normalizedQuery = normalizeIntentQuery(query);
   const deduplicatedPlannedTools = Array.from(new Set(plannedTools));
   const hasSeedFundsIntent = SEED_FUNDS_QUERY_PATTERN.test(query);
-  const hasActionIntent = includesKeyword({
-    keywords: REBALANCE_CONFIRMATION_KEYWORDS,
+  const hasExplicitActionVerb = /\b(?:buy|sell|invest|allocate|rebalance|rebalancing|create|place|submit|open|make|trim|plan)\b/.test(
     normalizedQuery
-  }) || hasSeedFundsIntent;
+  );
+  const hasAllocateWithConstraint =
+    /\ballocat(?:e|ion)\b/.test(normalizedQuery) &&
+    /\b(?:\d|usd|eur|gbp|cad|chf|jpy|aud|target|max)\b/.test(normalizedQuery);
+  const hasActionIntent =
+    hasExplicitActionVerb || hasAllocateWithConstraint || hasSeedFundsIntent;
   const hasReadIntent = includesKeyword({
     keywords: FINANCE_READ_INTENT_KEYWORDS,
     normalizedQuery
@@ -928,6 +1319,22 @@ export function applyToolExecutionPolicy({
   if (deduplicatedPlannedTools.length === 0) {
     const hasFollowUpIntent =
       (followUpSignal?.isLikelyFollowUp || isFollowUpQuery(query));
+
+    if (hasReadIntent && !hasActionIntent) {
+      const inferredTool = inferReadOnlyToolFromQuery(query);
+      if (inferredTool && READ_ONLY_TOOLS.has(inferredTool)) {
+        return {
+          blockedByPolicy: false,
+          blockReason: 'none',
+          forcedDirect: false,
+          plannedTools: [],
+          limits: effectiveLimits,
+          route: 'tools',
+          toolsToExecute: [inferredTool]
+        };
+      }
+    }
+
     return {
       blockedByPolicy: false,
       blockReason:
@@ -1132,7 +1539,9 @@ Example: "Rebalance to max 35% position, use new cash first, taxable account."`;
       return `I can explain the previous result, but I need the target context. Ask a direct follow-up like "Why is my concentration high?" or "Explain that risk summary in detail."`;
     }
 
-    return `Insufficient confidence to proceed safely with the current request. Share one concrete objective and scope (portfolio, symbol, tax, or FIRE), and include constraints if relevant.`;
+    return query
+      ? createNoToolDirectResponse(query)
+      : `Insufficient confidence to proceed safely with the current request. Share one concrete objective and scope (portfolio, symbol, tax, or FIRE), and include constraints if relevant.`;
   }
 
   if (
