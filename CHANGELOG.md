@@ -12,6 +12,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved the language localization for Chinese (`zh`)
 - Upgraded `nestjs` from version `11.1.8` to `11.1.14`
 
+### Changed
+
+- Upgraded `Nx` from version `22.4.5` to `22.5.3`
+
+## 2.245.0 - 2026-03-01
+
+### Changed
+
+- Excluded the scraper configuration from the import and export functionality
+- Excluded the symbol mapping from the import and export functionality
+- Improved the language localization for Dutch (`nl`)
+- Improved the language localization for Italian (`it`)
+- Improved the language localization for Spanish (`es`)
+
+### Fixed
+
+- Resolved the data source transformation in the errors of the performance endpoint
+- Resolved the data source transformation in the export functionality
+
+## 2.244.0 - 2026-02-28
+
+### Changed
+
+- Improved the usability of the asset profile details dialog in the admin control panel for currencies
+- Removed the deprecated static portfolio analysis rule: _Fees_ (Fee Ratio)
+- Refactored queries in the data provider service to use Prisma’s safe query methods
+
+### Fixed
+
+- Fixed an exception by adding a fallback for missing market price values on the _X-ray_ page
+
+## 2.243.0 - 2026-02-23
+
+### Changed
+
+- Improved the language localization for Chinese (`zh`)
+- Upgraded `nestjs` from version `11.1.8` to `11.1.14`
+
 ### Fixed
 
 - Fixed an issue when creating activities of type `FEE`, `INTEREST` or `LIABILITY`
