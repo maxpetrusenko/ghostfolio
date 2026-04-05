@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ghostfolio"
+  short_description: "Repo-specific patterns and workflows for ghostfolio"
+  default_prompt: "Use the ghostfolio repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
